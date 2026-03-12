@@ -3,16 +3,6 @@
 // forward declaration of helper functions
 
 
-// computes y = x @ W^T + bias
-
-static void linear_NxE(
-    const data_t in[N_MAX][E_DIM],
-    const weight_t W[E_DIM][E_DIM],
-    const weight_t bias[E_DIM],
-    data_t out[N_MAX][E_DIM],
-    int n_rows // actual number of rows, (N_MAX for objects, T for candidates)
-);
-
 // normalizes each row to have mean 0 and variance 1
 
 static void layernorm(
