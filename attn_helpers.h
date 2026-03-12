@@ -101,6 +101,45 @@ static exp_t exp_fixed(score_t x) {
     return exp_lut[idx];
 }
 
+// converts into probabilities with partition fn over a row of length LEN
+
+template <int LEN> // actual key length, (N_KV for obj/cross, T for cand)
+void softmax_row(
+    score_t row[LEN],
+    prob_t out[LEN]
+) {
+    if (!exp_lut_initialized) init_exp_lut();
+
+    // find max
+    score_t max_val = row[0];
+    SM_MAX:
+    for (int j = 0; j < LEN; j++) {
+        #pragma HLS PIPELINE II=1
+        if (row[j] > max_val) max_val = row[j];
+    }
+
+    // exp and sum
+
+    exp_t exp_vals[LEN];
+    exp_t exp_sum = 0;
+    SM_EXP:
+    for (int j = 0; j < LEN; j++) {
+        #pragma HLS PIPELINE II=1
+        exp_vals[j] = exp_fixed(row[j] - max_val);
+        exp_sum += exp_vals[j];
+    }
+
+    // normalize
+
+    exp_t inv_sum = (exp_t)(1.0f / (float)exp_sum);
+    SM_NORM:
+    for (int j = 0; j < LEN; j++) {
+        #pragma HLS PIPELINE II=1
+        out[j] = (prob_t)(exp_vals[j] * inv_sum);
+    }
+}
+
+
 
 
 #endif
