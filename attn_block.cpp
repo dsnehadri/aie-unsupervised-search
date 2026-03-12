@@ -64,7 +64,32 @@ void attn_block_obj(
     const ln_param_t attn_ln_g[E_DIM], const ln_param_t attn_ln_b[E_DIM],
 
     // ffn weights: n_ffn_layers 
+    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM],
+    const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM],
 
+    // post ffn layernorm after skip connection
 
+    const ln_param_t post_ffn_g[E_DIM],
+    const ln_param_t post_ffn_b[E_DIM]
 
-)
+) {
+    // TODO: add interface pragmas i do system integration
+    #pragma HLS INTERFACE ap_memory port = x
+    #pragma HLS_INTERFACE ap_memory post = Wq
+
+    // 0. save residuals for skip connections
+
+    data_t residual[N_MAX][E_DIM];
+    SAVE_RESIDUAL: 
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++) {
+            residual[i][j] = x[i][j];
+        }
+    }
+
+    // 1. QKV p
+}
+
