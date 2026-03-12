@@ -2,18 +2,6 @@
 
 // forward declaration of helper functions
 
-
-// normalizes each row to have mean 0 and variance 1
-
-static void layernorm(
-    data_t x[N_MAX][E_DIM],
-    const ln_param_t gamma[E_DIM],
-    const ln_param_t beta[E_DIM],
-    int n_rows
-
-);
-
-
 // converts into probabilities with partition fn
 
 static void softmax_row(
