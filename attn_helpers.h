@@ -75,5 +75,32 @@ void layernorm(
     }
 }
 
+// for exponential table lookup
+static exp_t exp_lut[EXP_LUT_SIZE + 1];
+static bool exp_lut_initialized = false;
+
+static void init_exp_lut() {
+    for (int i = 0; i <= EXP_LUT_SIZE; i++) {
+        float x_val = EXP_MIN * (1.0f - (float)i / EXP_LUT_SIZE);
+        exp_lut[i] = (exp_t)expf(x_val);
+    }
+    exp_lut_initialized = true;
+}
+
+static exp_t exp_fixed(score_t x) {
+    #pragma HLS INLINE
+    if (x>=(score_t)0) return (exp_t)1.0;
+    if (x<=(score_t)EXP_MIN) return (exp_t)0.0;
+
+    float x_f = (float)x;
+    float frac = (x_f - EXP_MIN) / (-EXP_MIN);
+    int idx = (int)(frac * EXP_LUT_SIZE);
+    if (idx < 0) idx = 0;
+    if (idx >= EXP_LUT_SIZE) idx = EXP_LUT_SIZE -1;
+
+    return exp_lut[idx];
+}
+
+
 
 #endif

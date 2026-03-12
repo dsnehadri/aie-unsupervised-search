@@ -1,18 +1,5 @@
 #include "attn_block_types.h"
 
-// forward declaration of helper functions
-
-// converts into probabilities with partition fn
-
-static void softmax_row(
-    score_t row[N_KV],
-    prob_t out[N_KV],
-    int len // actual key length, (N_KV for obj/cross, T for cand)
-);
-
-// for exponential table lookup
-static exp_t exp_fixed(score_t x);
-
 // object self-attention
 
 // ffn_w, ffn_b are FFN linear layers
