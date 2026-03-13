@@ -284,3 +284,25 @@ void softmax_and_context(
         }
     }
 }
+
+// concatenate heads and output projection
+
+template<int N_Q>
+void concat_and_project(
+    const data_t context[N_HEADS][N_Q][D_HEAD],
+    const weight_t Wo[E_DIM][E_DIM],
+    const weight_t bo[E_DIM],
+    data_t out[N_Q][E_DIM]
+) {
+    data_t concat_out[N_Q][E_DIM]
+    CONCAT:
+    for (i = 0; i < N_Q; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int h = 0; h < N_HEADS; h++) {
+            for (int d = 0; d < D_HEAD; d++) {
+                concat_out[i][h * D_HEAD + d] = context[h][i][d];
+            }
+        }
+    }
+    linear<N, Q>(concat_out, Wo, bo, out);
+}
