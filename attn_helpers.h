@@ -12,21 +12,21 @@ static const int T_KV = T_DIM + 1; // to account for bias_kv token
 
 template <int N_ROWS>
 void linear(
-    const data_t in[N_MAX][E_DIM],
+    const data_t in[N_ROWS][E_DIM],
     const weight_t W[E_DIM][E_DIM],
     const weight_t bias[E_DIM],
-    data_t out[N_MAX][E_DIM]
+    data_t out[N_ROWS][E_DIM]
 ) {
     LIN_I:
     for (int i = 0; i < N_ROWS; i++) {
         LIN_J:
         for (int j=0; j < E_DIM; j++) {
             #pragma HLS PIPELINE II=1
-            acc_t sum = (acc_t) bias[j]
+            acc_t sum = (acc_t) bias[j];
             LIN_K:
-            for (int k=0; j < E_DIM; k++) {
+            for (int k=0; k < E_DIM; k++) {
                 #pragma HLS UNROLL
-                sum = sum += (acc_t)in[j][k] * (acc_t)W[j][k]
+                sum += (acc_t)in[i][k] * (acc_t)W[j][k];
             }
             out[i][j] = (data_t)sum;
         }
@@ -37,7 +37,7 @@ void linear(
 
 template <int N_ROWS>
 void layernorm(
-    data_t x[N_MAX][E_DIM],
+    data_t x[N_ROWS][E_DIM],
     const ln_param_t gamma[E_DIM],
     const ln_param_t beta[E_DIM]
 
@@ -52,25 +52,25 @@ void layernorm(
             sum += (acc_t)x[i][j];
         }
 
-        data_t_mean = (data_t)(sum / E_DIM);
+        data_t mean = (data_t)(sum / E_DIM);
 
         // variance
         acc_t var_sum = 0;
         LN_VAR:
-        for (int i = 0; i < E_DIM; i++) {
+        for (int j = 0; j < E_DIM; j++) {
             #pragma HLS UNROLL
             acc_t diff = (acc_t)x[i][j] - (acc_t)mean;
-            var_sum += diff * diff
+            var_sum += diff * diff;
         }
         data_t inv_std = (data_t)hls::rsqrt((float)((data_t)(var_sum)/E_DIM) + LN_EPS);
 
         // normalize and apply affine
 
         LN_NORM:
-        for (j=0, j < E_DIM; j++) {
+        for (int j=0; j < E_DIM; j++) {
             #pragma HLS PIPELINE II=1
-            data_t x_norm = (data_t)(((acc_t)x[i][j] - (acc_t)mean)*(acc_t)inv_std)
-            x[i][j] = (data_t)((acc_t)gamma[j] * (acc_t)x_norm + (acc_t)beta[j])
+            data_t x_norm = (data_t)(((acc_t)x[i][j] - (acc_t)mean)*(acc_t)inv_std);
+            x[i][j] = (data_t)((acc_t)gamma[j] * (acc_t)x_norm + (acc_t)beta[j]);
         }
     }
 }
@@ -153,8 +153,8 @@ void ffn_block(
 ) {
     // save residuals
 
-    data_t residual[N_MAX][E_DIM]; 
-    for (int i = 0; i < N_MAX; i++) {
+    data_t residual[N_ROWS][E_DIM]; 
+    for (int i = 0; i < N_ROWS; i++) {
         #pragma HLS PIPELINE II=1
         for (int j = 0; j < E_DIM; j++) {
             residual[i][j] = x[i][j];
@@ -164,15 +164,15 @@ void ffn_block(
     // layers
     for (int l = 0; l < N_FFN_LAYERS; l++) {
         data_t tmp[N_ROWS][E_DIM];
-        linear<N_ROWS>(x, ffn_w[1], ffn_b[1], tmp);
-        layernorm<N_ROWS>(tmp, ffn_ln_g[1], ffn_ln_b[1])
+        linear<N_ROWS>(x, ffn_w[l], ffn_b[l], tmp);
+        layernorm<N_ROWS>(tmp, ffn_ln_g[l], ffn_ln_b[l]);
 
         // relu
 
         for (int i = 0; i < N_ROWS; i++) {
             #pragma HLS PIPELINE II=1
             for (int j = 0; j < E_DIM; j++) {
-                x[i][j] = (tmp[[i][j]] > (data_t)0? tmp[i][j] : (data_t) 0);
+                x[i][j] = (tmp[i][j] > (data_t)0? tmp[i][j] : (data_t) 0);
             }
         }
     }
@@ -186,7 +186,7 @@ void ffn_block(
         }
     }
 
-    layernorm<N_ROWS>(x, post_ffn_ln_g, post_ffn_ln_b)
+    layernorm<N_ROWS>(x, post_ffn_ln_g, post_ffn_ln_b);
 }
 
 #endif
