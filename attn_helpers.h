@@ -190,3 +190,43 @@ void ffn_block(
 }
 
 #endif
+
+// reshape QKV into per head arrays and append bias_kv
+template <int N_Q, int N_KEY>
+void reshape_and_append_bias_kv(
+    const data_t Q_full[N_Q][E_DIM],
+    const data_t K_full[N_KEY][E_DIM],
+    const data_t V_full[N_KEY][E_DIM],
+    const weight_t bias_k[E_DIM],
+    const weight_t bias_v[E_DIM],
+    data_t Q_h[N_HEADS][N_Q][D_HEAD],
+    data_t K_h[N_HEADS][N_KEY+1][D_HEAD],
+    data_t V_h[N_HEADS][N_KEY+1][D_HEAD]
+) {
+    RESHAPE:
+    for (int h = 0; h <N_HEADS; h++) {
+        #pragma HLS UNROLL
+        for (int i = 0; i < N_Q; i++) {
+            for (int d = 0; d < D_HEAD; d++) {
+                #pragma HLS PIPELINE II=1
+                Q_h[h][i][d] = Q_full[i][h*D_HEAD+d];
+            }
+        }
+        // separate from above because for cross attention N_KEY != N_Q
+        for (int i = 0; i < N_Q, i++) {
+            for (int d = 0; d < D_HEAD; d++) {
+                #pragma HLS PIPELINE II = 1
+                int e = h * D_HEAD + d;
+                K_h[h][i][d] = K_full[i][e];
+                V_h[h][i][d] = V_full[i][e];
+            }
+        }
+        
+        for (int d = 0; d < D_HEAD; d++) {
+            #pragma HLS_PIPELINE II=1
+            int e = h * D_HEAD + d;
+            K_h[h][N_KEY][d] = (data_t)bias_k[e];
+            V_h[h][N_KEY][d] = (data_t)bias_v[e];
+        }
+    }
+}
