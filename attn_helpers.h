@@ -255,3 +255,32 @@ void compute_scores(
     }
 }
 
+
+// softmax scores and then context = attn_weights @ V
+template <int N_Q, int N_KEY_TOT>
+void softmax_and_context(
+    score_t scores[N_Q][N_KEY_TOT],
+    const data_t V[N_KEY_TOT][D_HEAD],
+    data_t context[N_Q][D_HEAD]
+) {
+    prob_t attn_w[N_Q][N_KEY_TOT];
+    SM_ROWS:
+    for (int i = 0; i < N_Q; i++) {
+        softmax_row<N_KEY_TOT>(scores[i], attn_w[i]);
+    }
+
+    AV_I:
+    for (int i = 0; i < N_Q; i++) {
+        AV_D:
+        for (int d = 0; d < D_HEAD; d++) {
+            #pragma HLS PIPELINE II=1
+            acc_t sum = 0;
+            AV_J:
+            for (j=0; j < N_KEY_TOT; j++) {
+                #pragma HLS UNROLL
+                sum += (acc_t)attn_w[i][j] * (acc_t)V[j][d];
+            }
+            context[i][d] = (data_t)sum;
+        }
+    }
+}
