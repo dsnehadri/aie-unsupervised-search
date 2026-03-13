@@ -139,7 +139,54 @@ void softmax_row(
     }
 }
 
+// FFN layer (linear, layernorm, relu) then skip + layernorm
 
+template <int N_ROWS>
+void ffn_block(
+    data_t x[N_ROWS][E_DIM],
+    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM],
+    const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t post_ffn_ln_g[E_DIM],
+    const ln_param_t post_ffn_ln_b[E_DIM]
+) {
+    // save residuals
 
+    data_t residual[N_MAX][E_DIM]; 
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++) {
+            residual[i][j] = x[i][j];
+        }
+    }
+
+    // layers
+    for (int l = 0; l < N_FFN_LAYERS; l++) {
+        data_t tmp[N_ROWS][E_DIM];
+        linear<N_ROWS>(x, ffn_w[1], ffn_b[1], tmp);
+        layernorm<N_ROWS>(tmp, ffn_ln_g[1], ffn_ln_b[1])
+
+        // relu
+
+        for (int i = 0; i < N_ROWS; i++) {
+            #pragma HLS PIPELINE II=1
+            for (int j = 0; j < E_DIM; j++) {
+                x[i][j] = (tmp[[i][j]] > (data_t)0? tmp[i][j] : (data_t) 0);
+            }
+        }
+    }
+
+    // skip connections and layernorm
+
+    for (int i = 0; i < N_ROWS; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++) {
+            x[i][j] = x[i][j] + residual[i][j];
+        }
+    }
+
+    layernorm<N_ROWS>(x, post_ffn_ln_g, post_ffn_ln_b)
+}
 
 #endif

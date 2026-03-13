@@ -44,17 +44,14 @@ void attn_block_obj(
     #pragma HLS INTERFACE ap_memory port = x
     #pragma HLS_INTERFACE ap_memory post = Wq
 
-    // 0. save residuals for skip connections
+    // 1. QKV projections: x @ W^T + b -> (N_MAX, E_DIM)
+    // reshape to (N_HEADS, N_MAX, D_HEAD) for per-head attention
 
-    data_t residual[N_MAX][E_DIM];
-    SAVE_RESIDUAL: 
-    for (int i = 0; i < N_MAX; i++) {
-        #pragma HLS PIPELINE II=1
-        for (int j = 0; j < E_DIM; j++) {
-            residual[i][j] = x[i][j];
-        }
-    }
+    data_t Q_full[N_MAX][E_DIM];
+    data_t K_full[N_MAX][E_DIM];
+    data_t V_full[N_MAX][E_DIM];
 
-    // 1. QKV p
+    // for self-attention 
+
 }
 
