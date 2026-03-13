@@ -230,3 +230,28 @@ void reshape_and_append_bias_kv(
         }
     }
 }
+
+// scaled dot product attention for one head
+
+template <int N_Q, int N_KEY_TOT>
+void compute_scores(
+    const data_t Q[N_Q][D_HEAD],
+    const data_t K[N_KEY_TOT][D_HEAD],
+    score_t scores[N_Q][N_KEY_TOT]
+) {
+    QK_I:
+    for (int i = 0; i < N_Q; i++) {
+        QJ_I:
+        for (int j = 0; j < N_KEY_TOT; j++) {
+            #pragma HLS PIPELINE II=1
+            acc_t sum = 0;
+            QK_D:
+            for (int d = 0; d < D_HEAD; d++) {
+                #pragma HLS UNROLL
+                sum += (acc_t)Q[i][d] * (acc_t)K[j][d];
+            }
+            scores[i][j] = (score_t)(sum * (acc_t)SCALE);
+        }
+    }
+}
+
