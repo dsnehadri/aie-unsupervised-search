@@ -189,8 +189,6 @@ void ffn_block(
     layernorm<N_ROWS>(x, post_ffn_ln_g, post_ffn_ln_b);
 }
 
-#endif
-
 // reshape QKV into per head arrays and append bias_kv
 template <int N_Q, int N_KEY>
 void reshape_and_append_bias_kv(
@@ -213,7 +211,7 @@ void reshape_and_append_bias_kv(
             }
         }
         // separate from above because for cross attention N_KEY != N_Q
-        for (int i = 0; i < N_Q, i++) {
+        for (int i = 0; i < N_KEY; i++) {
             for (int d = 0; d < D_HEAD; d++) {
                 #pragma HLS PIPELINE II = 1
                 int e = h * D_HEAD + d;
@@ -223,7 +221,7 @@ void reshape_and_append_bias_kv(
         }
         
         for (int d = 0; d < D_HEAD; d++) {
-            #pragma HLS_PIPELINE II=1
+            #pragma HLS PIPELINE II=1
             int e = h * D_HEAD + d;
             K_h[h][N_KEY][d] = (data_t)bias_k[e];
             V_h[h][N_KEY][d] = (data_t)bias_v[e];
@@ -276,7 +274,7 @@ void softmax_and_context(
             #pragma HLS PIPELINE II=1
             acc_t sum = 0;
             AV_J:
-            for (j=0; j < N_KEY_TOT; j++) {
+            for (int j=0; j < N_KEY_TOT; j++) {
                 #pragma HLS UNROLL
                 sum += (acc_t)attn_w[i][j] * (acc_t)V[j][d];
             }
@@ -294,9 +292,9 @@ void concat_and_project(
     const weight_t bo[E_DIM],
     data_t out[N_Q][E_DIM]
 ) {
-    data_t concat_out[N_Q][E_DIM]
+    data_t concat_out[N_Q][E_DIM];
     CONCAT:
-    for (i = 0; i < N_Q; i++) {
+    for (int i = 0; i < N_Q; i++) {
         #pragma HLS PIPELINE II=1
         for (int h = 0; h < N_HEADS; h++) {
             for (int d = 0; d < D_HEAD; d++) {
@@ -304,5 +302,22 @@ void concat_and_project(
             }
         }
     }
-    linear<N, Q>(concat_out, Wo, bo, out);
+    linear<N_Q>(concat_out, Wo, bo, out);
 }
+
+template<int N_ROWS>
+void skip_and_norm(
+    data_t x[N_ROWS][E_DIM],
+    const data_t residual[N_ROWS][E_DIM],
+    const ln_param_t ln_g[E_DIM],
+    const ln_param_t ln_b[E_DIM]
+) {
+    for (int i = 0; i < N_ROWS; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++)
+            x[i][j] = x[i][j] + residual[i][j];
+    }
+    layernorm<N_ROWS>(x, ln_g, ln_b);
+}
+
+#endif
