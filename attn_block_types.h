@@ -21,31 +21,39 @@ static const int FFN_DIM = E_DIM;
 
 // general data path for embeddings, residuals, FFN activations
 
-typedef ap_fixed<16, 5> data_t;
+// typedef ap_fixed<16, 5> data_t;
 
-// weights and biases
+// // weights and biases
 
-typedef ap_fixed<16, 4> weight_t;
+// typedef ap_fixed<16, 4> weight_t;
 
-// attention scores
+// // attention scores
 
-typedef ap_fixed<16, 6> score_t;
+// typedef ap_fixed<16, 6> score_t;
 
-// post softmax probabilities
+// // post softmax probabilities
 
-typedef ap_fixed<16, 2> prob_t;
+// typedef ap_fixed<16, 2> prob_t;
 
-// layernorm parameters
+// // layernorm parameters
 
-typedef ap_fixed<16, 4> ln_param_t;
+// typedef ap_fixed<16, 4> ln_param_t;
 
-// accumulator type for dot products
+// // accumulator type for dot products
 
-typedef ap_fixed<32, 10> acc_t;
+// typedef ap_fixed<32, 10> acc_t;
 
-// softmax intermediate
+// // softmax intermediate
 
-typedef ap_fixed<32, 10> exp_t;
+// typedef ap_fixed<32, 10> exp_t;
+
+typedef ap_fixed<32, 12> data_t;
+typedef ap_fixed<32, 12> weight_t;
+typedef ap_fixed<32, 12> score_t;
+typedef ap_fixed<32, 12> prob_t;
+typedef ap_fixed<32, 12> ln_param_t;
+typedef ap_fixed<64, 20> acc_t;
+typedef ap_fixed<64, 20> exp_t;
 
 // scaling constant = 1/sqrt(D_HEAD)
 
@@ -57,7 +65,7 @@ static const score_t NEG_INF = -64.0;
 
 // layer norm epsilon
 
-static const data_t LN_EPS = 1e-5;
+static const float LN_EPS = 1e-5f;
 
 
 // for softmax lookup table for exp() in fixed point
