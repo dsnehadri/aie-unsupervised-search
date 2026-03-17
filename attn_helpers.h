@@ -62,7 +62,7 @@ void layernorm(
             acc_t diff = (acc_t)x[i][j] - (acc_t)mean;
             var_sum += diff * diff;
         }
-        data_t inv_std = (data_t)hls::rsqrt((float)((data_t)(var_sum)/E_DIM) + LN_EPS);
+        data_t inv_std = (data_t)hls::rsqrt((float)((data_t)(var_sum/E_DIM)) + (float)LN_EPS);
 
         // normalize and apply affine
 
@@ -180,6 +180,9 @@ void ffn_block(
                 x[i][j] = (tmp[i][j] > (data_t)0? tmp[i][j] : (data_t) 0);
             }
         }
+
+        printf("FFN layer %d out[0][0..3]: %f %f %f %f\n", l,
+    (float)x[0][0], (float)x[0][1], (float)x[0][2], (float)x[0][3]);
     }
 
     // skip connections and layernorm
