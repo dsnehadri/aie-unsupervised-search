@@ -1,0 +1,14 @@
+*.log
+*.app
+*.aps
+*.autopilot_exit
+*.xml
+dsp_style
+.lst_opt.tcl
+*.exe
+*.mk
+*.rules
+*.sh
+*.dir
+*.d
+*.o
