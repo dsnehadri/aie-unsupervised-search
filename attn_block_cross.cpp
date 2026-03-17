@@ -25,8 +25,8 @@ void attn_block_cross(
     // ffn weights: n_ffn_layers 
     const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM],
     const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
-    const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
     const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
 
     // post ffn layernorm after skip connection
 
