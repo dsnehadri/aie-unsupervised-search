@@ -3,9 +3,6 @@
 
 #include "attn_block_types.h"
 
-static const int T_DIM = 3; // number of categories
-static const int T_KV = T_DIM + 1; // to account for bias_kv token
-
 // computes y = x @ W^T + bias
 
 // template allows for compile-time sizing
