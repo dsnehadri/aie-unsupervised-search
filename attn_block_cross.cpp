@@ -1,15 +1,13 @@
 #include "attn_helpers.h"
+#include <cstdio>
 
 // cross-attention, Q = x (12 x 16) K = V = c (3 x 16)
 // scores are 12 x 4 per head
 
 void attn_block_cross(
     data_t x[N_MAX][E_DIM], // input embeddings, which are modified in place
-    data_t c[T_DIM][E_DIM],
+    const data_t c[T_DIM][E_DIM],
 
-    // masks
-
-    const bool padding_mask[N_MAX],
 
     // MHA weights
 
@@ -43,8 +41,10 @@ void attn_block_cross(
     // 1. QKV projections: x @ W^T + b -> (N_MAX, E_DIM)
     // reshape to (N_HEADS, N_MAX, D_HEAD) for per-head attention
 
-    data_t Q_full[N_MAX][E_DIM]; data_t K_full[T_DIM][E_DIM]; data_t V_full[T_DIM][E_DIM];
-    linear<T_DIM>(x, Wq, bq, Q_full);
+    data_t Q_full[N_MAX][E_DIM]; 
+    linear<N_MAX>(x, Wq, bq, Q_full);
+
+    data_t K_full[T_DIM][E_DIM]; data_t V_full[T_DIM][E_DIM];
     linear<T_DIM>(c, Wk, bk, K_full);
     linear<T_DIM>(c, Wv, bv, V_full);
 
@@ -54,24 +54,8 @@ void attn_block_cross(
     data_t K_h[N_HEADS][T_KV][D_HEAD];
     data_t V_h[N_HEADS][T_KV][D_HEAD];
 
-    // reshape q separately
-
-    for (int h = 0; h < N_HEADS; h++) {
-        #pragma HLS UNROLL
-        for (int i =0; i < N_MAX; i++) {
-            for (int d = 0; d < D_HEAD; d++) {
-                #pragma HLS PIPELINE II=1
-                Q_h[h][i][d] = Q_full[i][h * D_HEAD + d];
-            }
-        }
-    }
-
-    // reshape k/v + bias_kv using a dummy q
-    data_t dummy_q[T_DIM][E_DIM];
-    data_t dummy_q_h[N_HEADS][T_DIM][D_HEAD];
-    reshape_and_append_bias_kv<T_DIM, T_DIM>(
-        dummy_q, K_full, V_full, bias_k, bias_v,
-        dummy_q_h, K_h, V_h
+    reshape_and_append_bias_kv<N_MAX, T_DIM>(
+        Q_full, K_full, V_full, bias_k, bias_v, Q_h, K_h, V_h
     );
 
     // per head attention with masking
@@ -90,6 +74,11 @@ void attn_block_cross(
     data_t attn_out[N_MAX][E_DIM];
     concat_and_project<N_MAX>(context, Wo, bo, attn_out);
 
+    // after concat_and_project, before layernorm
+    printf("Cross attn_out[0][0..3]: %f %f %f %f\n",
+    (float)attn_out[0][0], (float)attn_out[0][1],
+    (float)attn_out[0][2], (float)attn_out[0][3]);
+
     // NO attention skip and layer norm
 
     for (int i = 0; i < N_MAX; i++) {
@@ -104,15 +93,4 @@ void attn_block_cross(
     // do ffn
 
     ffn_block<N_MAX>(x, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b);
-
-    // remask padded positions
-
-    for (int i = 0; i < N_MAX; i++) {
-        if (padding_mask[i]) {
-            #pragma HLS PIPELINE II=1
-            for (int j = 0; j < E_DIM; j++) {
-                x[i][j] = 0;
-            }
-        }
-    }
 }
