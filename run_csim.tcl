@@ -2,6 +2,8 @@
 open_project attn_block_proj
 set_top attn_block_obj
 add_files attn_block_obj.cpp
+add_files attn_block_cand.cpp
+add_files attn_block_cross.cpp
 add_files attn_helpers.h
 add_files attn_block_types.h
 add_files -tb attn_block_tb.cpp

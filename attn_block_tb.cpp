@@ -72,6 +72,35 @@ extern void attn_block_cand(
 
 );
 
+
+extern void attn_block_cross(
+    data_t x[N_MAX][E_DIM],
+    const data_t c[T_DIM][E_DIM], // input embeddings, which are modified in place
+
+    // MHA weights
+
+    const weight_t Wq[E_DIM][E_DIM], const weight_t bq[E_DIM],
+    const weight_t Wk[E_DIM][E_DIM], const weight_t bk[E_DIM],
+    const weight_t Wv[E_DIM][E_DIM], const weight_t bv[E_DIM],
+    const weight_t bias_k[E_DIM], const weight_t bias_v[E_DIM],
+    const weight_t Wo[E_DIM][E_DIM], const weight_t bo[E_DIM], // output projections
+
+    // post attention layer norm
+    const ln_param_t attn_ln_g[E_DIM], const ln_param_t attn_ln_b[E_DIM],
+
+    // ffn weights: n_ffn_layers 
+    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM],
+    const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
+
+    // post ffn layernorm after skip connection
+
+    const ln_param_t post_ffn_g[E_DIM],
+    const ln_param_t post_ffn_b[E_DIM]
+
+);
+
 // helpers to load npy files
 
 template <typename T, int ROWS, int COLS>
@@ -288,6 +317,105 @@ int main() {
             w.post_ffn_g, w.post_ffn_b);    
 
         if (!compare<N_MAX>("obj_blocks", x, golden, padding_mask)) failures++;
+    }
+
+    {
+        std::string block = "cand_blocks_0";
+        printf("test 2: CAND");
+        attn_weights w;
+        load_attn_weights(block, w);
+
+        data_t c[T_DIM][E_DIM];
+        data_t golden[T_DIM][E_DIM];
+
+        load_2d<data_t, T_DIM, E_DIM>(dir + tests_suffix + "stage3_layer0_candidates_embedded.npy", c, event_idx);
+        load_2d<data_t, T_DIM, E_DIM>(dir + tests_suffix + "stage3_layer0_post_cand_selfattn.npy", golden, event_idx);
+
+
+        // Check a few input values
+        printf("Input c[0][0..3]: %f %f %f %f\n",
+            (float)c[0][0], (float)c[0][1], (float)c[0][2], (float)c[0][3]);
+
+        // Check golden output
+        printf("Golden[0][0..3]: %f %f %f %f\n",
+            (float)golden[0][0], (float)golden[0][1], (float)golden[0][2], (float)golden[0][3]);
+
+        printf("running cand_blocks[0] on event%d...\n", event_idx);
+        
+        attn_block_cand(c, 
+            w.Wq, w.bq, w.Wk, w.bk, w.Wv, w.bv,
+            w.bias_k, w.bias_v, w.Wo, w.bo,
+            w.attn_ln_g, w.attn_ln_b,
+            w.ffn_w, w.ffn_b, w.ffn_ln_g, w.ffn_ln_b,
+            w.post_ffn_g, w.post_ffn_b);    
+
+        if (!compare<T_DIM>("cand_blocks", c, golden)) failures++;
+    }
+
+    {
+        std::string block = "cross_blocks_0";
+        printf("test 2: CROSS");
+        attn_weights w;
+        load_attn_weights(block, w);
+
+        data_t x[N_MAX][E_DIM];
+        data_t c[T_DIM][E_DIM];
+        data_t golden[N_MAX][E_DIM];
+
+        load_2d<data_t, N_MAX, E_DIM>(dir + tests_suffix + "stage3_layer0_post_obj_selfattn.npy", x, event_idx);
+        load_2d<data_t, T_DIM, E_DIM>(dir + tests_suffix + "stage3_layer0_post_cand_selfattn.npy", c, event_idx);
+        load_2d<data_t, N_MAX, E_DIM>(dir + tests_suffix + "stage3_layer0_post_cross_attn.npy", golden, event_idx);
+
+        bool padding_mask[N_MAX];
+        {
+            cnpy::NpyArray npy = cnpy::npy_load(dir + tests_suffix + "stage0_padding_mask.npy");
+            unsigned char* raw = npy.data<unsigned char>();
+            int offset = event_idx * N_MAX;
+            for (int i = 0; i < N_MAX; i++) {
+                padding_mask[i] = (raw[offset + i] != 0);
+            }
+        }
+
+        // Check a few input values
+        printf("Input x[0][0..3]: %f %f %f %f\n",
+            (float)x[0][0], (float)x[0][1], (float)x[0][2], (float)x[0][3]);
+
+        // Check a few input values
+        printf("Input c[0][0..3]: %f %f %f %f\n",
+            (float)c[0][0], (float)c[0][1], (float)c[0][2], (float)c[0][3]);
+
+        // Check golden output
+        printf("Golden[0][0..3]: %f %f %f %f\n",
+            (float)golden[0][0], (float)golden[0][1], (float)golden[0][2], (float)golden[0][3]);
+
+        printf("running cross_blocks[0] on event%d...\n", event_idx);
+        
+        attn_block_cross(x, c, 
+            w.Wq, w.bq, w.Wk, w.bk, w.Wv, w.bv,
+            w.bias_k, w.bias_v, w.Wo, w.bo,
+            w.attn_ln_g, w.attn_ln_b,
+            w.ffn_w, w.ffn_b, w.ffn_ln_g, w.ffn_ln_b,
+            w.post_ffn_g, w.post_ffn_b);    
+
+        // remask padded positions
+        for (int i = 0; i < N_MAX; i++) {
+            if (padding_mask[i]) {
+                for (int j = 0; j < E_DIM; j++) {
+                    x[i][j] = 0;
+                }
+            }
+        }
+
+        if (!compare<N_MAX>("cross_blocks", x, golden)) failures++;
+
+        for (int i = 0; i < N_MAX; i++) {
+            float row_max = 0;
+            for (int j = 0; j < E_DIM; j++) {
+                float err = fabsf((float)x[i][j] - (float)golden[i][j]);
+                if (err > row_max) row_max = err;
+            }
+            printf("row %d max_err=%.6f  padded=%d\n", i, row_max, padding_mask[i]);
+        }
     }
 
 }
