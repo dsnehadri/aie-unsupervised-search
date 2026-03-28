@@ -6,8 +6,10 @@
 
 #include <cmath>
 #include <string>
-#include "../attn_block_source/attn_block_types.h"
 #include "../cnpy/cnpy.h"
+
+#include "../attn_block_source/attn_block_types.h"
+#include "../dnn_block_source/dnn_block.h"
 
 // helpers to load npy files
 
@@ -42,8 +44,9 @@ void load_padding_mask(const std::string& path, bool mask[N_MAX], int event_idx 
 }
 
 
-template <int ROWS>
-bool compare(const char* name, data_t out[ROWS][E_DIM], data_t golden[ROWS][E_DIM], const bool* skip_mask = nullptr, float tol = 0.1f) {
+
+template <int ROWS, int COLS = E_DIM>
+bool compare(const char* name, data_t out[ROWS][COLS], data_t golden[ROWS][COLS], const bool* skip_mask = nullptr, float tol = 0.1f) {
     // compare output vs reference
 
     float max_err = 0;
@@ -52,7 +55,7 @@ bool compare(const char* name, data_t out[ROWS][E_DIM], data_t golden[ROWS][E_DI
 
     for (int i = 0; i < ROWS; i++) {
         if (skip_mask && skip_mask[i]) continue;
-        for (int j = 0; j < E_DIM; j++) {
+        for (int j = 0; j < COLS; j++) {
             float hls_val = (float)out[i][j];
             float ref_val = (float)golden[i][j];
             float err = fabsf(hls_val - ref_val);
@@ -83,8 +86,6 @@ bool compare(const char* name, data_t out[ROWS][E_DIM], data_t golden[ROWS][E_DI
         return false;
     }
 }
-
-
 
 struct attn_weights {
     weight_t Wq[E_DIM][E_DIM], Wk[E_DIM][E_DIM], Wv[E_DIM][E_DIM], Wo[E_DIM][E_DIM];
@@ -146,6 +147,37 @@ void load_attn_weights(const std::string& block, attn_weights& w) {
     ln_param_t post_ffn_ln_g[E_DIM], post_ffn_ln_b[E_DIM];
     load_1d<ln_param_t, E_DIM>(dir + weights_suffix + block + "_post_ffwd_norm_weight.npy", w.post_ffn_g);
     load_1d<ln_param_t, E_DIM>(dir + weights_suffix + block + "_post_ffwd_norm_bias.npy", w.post_ffn_b);
+}
+
+
+template <int IN_DIM, int HIDDEN, int OUT_DIM, int N_MID>
+void load_dnn_block_weights(
+    const std::string &wt_dir, 
+    const std::string &prefix,
+    DNNBlockWeights<IN_DIM, HIDDEN, OUT_DIM, N_MID> &weights
+) {
+
+    load_2d<weight_t, HIDDEN, IN_DIM> (wt_dir + prefix + "0_weight.npy", weights.first_w);
+    load_1d<weight_t, HIDDEN> (wt_dir + prefix + "0_bias.npy", weights.first_b);
+    load_1d<ln_param_t, HIDDEN> (wt_dir + prefix + "1_weight.npy", weights.first_ln_g);
+    load_1d<ln_param_t, HIDDEN> (wt_dir + prefix + "1_bias.npy", weights.first_ln_b);
+
+    for (int l = 0; l < N_MID; l++) {
+        int lin_idx = (l+1)*3;
+        int ln_idx = (l+1)*3+1;
+
+        load_2d<weight_t, HIDDEN, HIDDEN> (wt_dir + prefix + std::to_string(lin_idx) + "_weight.npy", weights.mid_w[l]);
+        load_1d<weight_t, HIDDEN> (wt_dir + prefix + std::to_string(lin_idx) + "_bias.npy", weights.mid_b[l]);
+        load_1d<ln_param_t, HIDDEN> (wt_dir + prefix + std::to_string(ln_idx) + "_weight.npy", weights.mid_ln_g[l]);
+        load_1d<ln_param_t, HIDDEN> (wt_dir + prefix + std::to_string(ln_idx) + "_bias.npy", weights.mid_ln_b[l]);
+    }
+
+    // load post ffn layernorm
+
+    int last_idx = (N_MID+1)*3;
+
+    load_2d<weight_t, OUT_DIM, HIDDEN> (wt_dir + prefix + std::to_string(last_idx) + "_weight.npy", weights.last_w);
+    load_1d<weight_t, OUT_DIM> (wt_dir + prefix + std::to_string(last_idx) + "_bias.npy", weights.last_b);
 }
 
 #endif
