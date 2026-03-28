@@ -6,8 +6,8 @@
 
 #include <cmath>
 #include <string>
-#include "attn_block_types.h"
-#include "cnpy.h"
+#include "../attn_block_source/attn_block_types.h"
+#include "../cnpy/cnpy.h"
 
 // helpers to load npy files
 
