@@ -7,21 +7,31 @@
 
 // template allows for compile-time sizing
 
-template <int N_ROWS>
+template <int N_ROWS, int FEAT_DIM = E_DIM>
+void relu_2d(data_t x[N_ROWS][FEAT_DIM]) {
+    for (int i = 0; i < N_ROWS; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < FEAT_DIM; j++) {
+            if (x[i][j] < (data_t)0) x[i][j] = (data_t)0;
+        } 
+    }
+}
+
+template <int N_ROWS, int OUT_DIM = E_DIM, int IN_DIM = E_DIM>
 void linear(
-    const data_t in[N_ROWS][E_DIM],
-    const weight_t W[E_DIM][E_DIM],
-    const weight_t bias[E_DIM],
-    data_t out[N_ROWS][E_DIM]
+    const data_t in[N_ROWS][IN_DIM],
+    const weight_t W[OUT_DIM][IN_DIM],
+    const weight_t bias[OUT_DIM],
+    data_t out[N_ROWS][OUT_DIM]
 ) {
     LIN_I:
     for (int i = 0; i < N_ROWS; i++) {
         LIN_J:
-        for (int j=0; j < E_DIM; j++) {
+        for (int j=0; j < OUT_DIM; j++) {
             #pragma HLS PIPELINE II=1
             acc_t sum = (acc_t) bias[j];
             LIN_K:
-            for (int k=0; k < E_DIM; k++) {
+            for (int k=0; k < IN_DIM; k++) {
                 #pragma HLS UNROLL
                 sum += (acc_t)in[i][k] * (acc_t)W[j][k];
             }
@@ -32,11 +42,11 @@ void linear(
 
 // normalizes each row to have mean 0 and variance 1
 
-template <int N_ROWS>
+template <int N_ROWS, int FEAT_DIM = E_DIM>
 void layernorm(
-    data_t x[N_ROWS][E_DIM],
-    const ln_param_t gamma[E_DIM],
-    const ln_param_t beta[E_DIM]
+    data_t x[N_ROWS][FEAT_DIM],
+    const ln_param_t gamma[FEAT_DIM],
+    const ln_param_t beta[FEAT_DIM]
 
 ) {
     LN_ROW:
@@ -44,7 +54,7 @@ void layernorm(
         // mean
         acc_t sum = 0;
         LN_MEAN:
-        for (int j = 0; j < E_DIM; j++) {
+        for (int j = 0; j < FEAT_DIM; j++) {
             #pragma HLS UNROLL
             sum += (acc_t)x[i][j];
         }
@@ -54,17 +64,17 @@ void layernorm(
         // variance
         acc_t var_sum = 0;
         LN_VAR:
-        for (int j = 0; j < E_DIM; j++) {
+        for (int j = 0; j < FEAT_DIM; j++) {
             #pragma HLS UNROLL
             acc_t diff = (acc_t)x[i][j] - (acc_t)mean;
             var_sum += diff * diff;
         }
-        data_t inv_std = (data_t)hls::rsqrt((float)((data_t)(var_sum/E_DIM)) + (float)LN_EPS);
+        data_t inv_std = (data_t)hls::rsqrt((float)((data_t)(var_sum/FEAT_DIM)) + (float)LN_EPS);
 
         // normalize and apply affine
 
         LN_NORM:
-        for (int j=0; j < E_DIM; j++) {
+        for (int j=0; j < FEAT_DIM; j++) {
             #pragma HLS PIPELINE II=1
             data_t x_norm = (data_t)(((acc_t)x[i][j] - (acc_t)mean)*(acc_t)inv_std);
             x[i][j] = (data_t)((acc_t)gamma[j] * (acc_t)x_norm + (acc_t)beta[j]);
