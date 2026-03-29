@@ -1,8 +1,8 @@
 #include <iostream>
 #include <cmath>
 #include <string>
-#include "embed_ffn.h"
-#include "../test_benches/tb_helpers.h"
+#include "../embed_ffn_source/embed_ffn.h"
+#include "tb_helpers.h"
 
 int main() {
     std::string dir = "/home/snehadri/repos/unsupervised-search/phase3_export/";
