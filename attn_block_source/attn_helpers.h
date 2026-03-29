@@ -24,6 +24,7 @@ void linear(
     const weight_t bias[OUT_DIM],
     data_t out[N_ROWS][OUT_DIM]
 ) {
+
     LIN_I:
     for (int i = 0; i < N_ROWS; i++) {
         LIN_J:
@@ -59,7 +60,7 @@ void layernorm(
             sum += (acc_t)x[i][j];
         }
 
-        data_t mean = (data_t)(sum / E_DIM);
+        data_t mean = (data_t)(sum / FEAT_DIM);
 
         // variance
         acc_t var_sum = 0;
@@ -70,6 +71,7 @@ void layernorm(
             var_sum += diff * diff;
         }
         data_t inv_std = (data_t)hls::rsqrt((float)((data_t)(var_sum/FEAT_DIM)) + (float)LN_EPS);
+
 
         // normalize and apply affine
 
@@ -188,8 +190,6 @@ void ffn_block(
             }
         }
 
-        printf("FFN layer %d out[0][0..3]: %f %f %f %f\n", l,
-    (float)x[0][0], (float)x[0][1], (float)x[0][2], (float)x[0][3]);
     }
 
     // skip connections and layernorm

@@ -49,38 +49,15 @@ inline void dnn_block(
     // layer 0 linear + layernorm + relu
 
     linear<N_ROWS, HIDDEN, IN_DIM>(input, first_w, first_b, buf_a);
-    layernorm<N_MAX>(buf_a, first_ln_g, first_ln_b);
-    relu_2d<N_MAX>(buf_a);
 
-    // After first layer LN+ReLU:
-    printf("dnn_block first layer[0..3]: %f %f %f %f\n",
-    (float)buf_a[0][0], (float)buf_a[0][1], (float)buf_a[0][2], (float)buf_a[0][3]);
+    layernorm<N_ROWS>(buf_a, first_ln_g, first_ln_b);
+    relu_2d<N_ROWS>(buf_a);
 
-
-    // middle layers
     for (int l = 0; l < N_MID; l++) {
+
         linear<N_ROWS, HIDDEN, HIDDEN>(buf_a, mid_w[l], mid_b[l], buf_b);
-
-        // In dnn_block, inside the middle loop, after linear but before layernorm:
-        printf("dnn_block mid linear %d [0..3]: %f %f %f %f\n", l,
-        (float)buf_b[0][0], (float)buf_b[0][1], (float)buf_b[0][2], (float)buf_b[0][3]);
         layernorm<N_ROWS, HIDDEN>(buf_b, mid_ln_g[l], mid_ln_b[l]);
-
-        // In dnn_block middle loop, after layernorm but before relu:
-        printf("mid LN gamma[0..3]: %f %f %f %f\n",
-            (float)mid_ln_g[l][0], (float)mid_ln_g[l][1], (float)mid_ln_g[l][2], (float)mid_ln_g[l][3]);
-        printf("mid LN beta[0..3]: %f %f %f %f\n",
-            (float)mid_ln_b[l][0], (float)mid_ln_b[l][1], (float)mid_ln_b[l][2], (float)mid_ln_b[l][3]);
-        printf("dnn_block mid post-LN %d [0..3]: %f %f %f %f\n", l,
-            (float)buf_b[0][0], (float)buf_b[0][1], (float)buf_b[0][2], (float)buf_b[0][3]);
-
-
-        relu_2d<N_MAX>(buf_b);
-
-
-        // Inside the middle loop, after LN+ReLU:
-        printf("dnn_block mid layer %d [0..3]: %f %f %f %f\n", l,
-            (float)buf_b[0][0], (float)buf_b[0][1], (float)buf_b[0][2], (float)buf_b[0][3]);
+        relu_2d<N_ROWS>(buf_b);
 
         // swap buffers
 
