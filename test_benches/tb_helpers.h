@@ -45,8 +45,8 @@ void load_padding_mask(const std::string& path, bool mask[N_MAX], int event_idx 
 
 
 
-template <int ROWS, int COLS = E_DIM>
-bool compare(const char* name, data_t out[ROWS][COLS], data_t golden[ROWS][COLS], const bool* skip_mask = nullptr, float tol = 0.1f) {
+template <int ROWS, int COLS = E_DIM, typename T = data_t>
+bool compare(const char* name, T out[ROWS][COLS], T golden[ROWS][COLS], const bool* skip_mask = nullptr, float tol = 0.1f) {
     // compare output vs reference
 
     float max_err = 0;
