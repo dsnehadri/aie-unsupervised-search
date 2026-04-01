@@ -77,12 +77,11 @@ bool compare(const char* name, T out[ROWS][COLS], T golden[ROWS][COLS], const bo
 
     // pass fail
 
-    float TOLERANCE = 0.1;
-    if (max_err < TOLERANCE) {
-        printf("pass: max error %.6f < tolerance %.4f\n", max_err, TOLERANCE);
+    if (max_err < tol) {
+        printf("pass: max error %.6f < tolerance %.4f\n", max_err, tol);
         return true;
     } else {
-        printf("fail: max error %.6f >= tolerance %.4f\n", max_err, TOLERANCE);
+        printf("fail: max error %.6f >= tolerance %.4f\n", max_err, tol);
         return false;
     }
 }
