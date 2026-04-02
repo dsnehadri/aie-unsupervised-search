@@ -13,6 +13,8 @@ static const int D_HEAD = E_DIM / N_HEADS; // per-head dimension
 static const int N_KV = N_MAX + 1; // KV length with +1 for bias_kv
 static const int T_DIM = 3; // number of categories
 static const int T_KV = T_DIM + 1; // to account for bias_kv token
+static const int AE_IN_DIM = E_DIM - T_DIM + 1; // 16 - 3 + 1 = 14
+static const int AE_DIM = 2;
 
 // ffn inside attention block, 3 layers for Linear+LN+ReLu
 
