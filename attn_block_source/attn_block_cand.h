@@ -1,9 +1,12 @@
+#ifndef ATTN_BLOCK_CAND_H
+#define ATTN_BLOCK_CAND_H
+
 #include "attn_helpers.h"
 
 // candidate self-attention, Q = K = V = c (3 x 16)
 // scores are 3 x 4 per head
 
-void attn_block_cand(
+inline void attn_block_cand(
     data_t c[T_DIM][E_DIM],
 
     // MHA weights
@@ -90,3 +93,5 @@ void attn_block_cand(
 
     ffn_block<T_DIM>(c, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b);
 }
+
+#endif 

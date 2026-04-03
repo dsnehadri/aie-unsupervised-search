@@ -1,10 +1,13 @@
+#ifndef ATTN_BLOCK_OBJ_H
+#define ATTN_BLOCK_OBJ_H
+
 #include "attn_helpers.h"
 #include <cstdio>
 
 // object self-attention, Q = K = V = x (12 x 16)
 // scores are 12 x 13 per head
 
-void attn_block_obj(
+inline void attn_block_obj(
     data_t x[N_MAX][E_DIM], // input embeddings, which are modified in place
 
     // masks
@@ -138,3 +141,5 @@ void attn_block_obj(
 
 
 }
+
+#endif

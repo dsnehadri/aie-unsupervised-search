@@ -9,94 +9,9 @@
 
 // forward declaration of the dut
 
-extern void attn_block_obj(
-    data_t x[N_MAX][E_DIM], // input embeddings, which are modified in place
-
-    // masks
-
-    const bool padding_mask[N_MAX],
-    const score_t wij_bias[N_MAX * N_HEADS][N_KV],
-    const bool use_wij,
-
-    // MHA weights
-
-    const weight_t Wq[E_DIM][E_DIM], const weight_t bq[E_DIM],
-    const weight_t Wk[E_DIM][E_DIM], const weight_t bk[E_DIM],
-    const weight_t Wv[E_DIM][E_DIM], const weight_t bv[E_DIM],
-    const weight_t bias_k[E_DIM], const weight_t bias_v[E_DIM],
-    const weight_t Wo[E_DIM][E_DIM], const weight_t bo[E_DIM], // output projections
-
-    // post attention layer norm
-    const ln_param_t attn_ln_g[E_DIM], const ln_param_t attn_ln_b[E_DIM],
-
-    // ffn weights: n_ffn_layers 
-    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM],
-    const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
-    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM],
-    const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
-
-    // post ffn layernorm after skip connection
-
-    const ln_param_t post_ffn_g[E_DIM],
-    const ln_param_t post_ffn_b[E_DIM]
-
-);
-
-extern void attn_block_cand(
-    data_t c[T_DIM][E_DIM], // input embeddings, which are modified in place
-
-    // MHA weights
-
-    const weight_t Wq[E_DIM][E_DIM], const weight_t bq[E_DIM],
-    const weight_t Wk[E_DIM][E_DIM], const weight_t bk[E_DIM],
-    const weight_t Wv[E_DIM][E_DIM], const weight_t bv[E_DIM],
-    const weight_t bias_k[E_DIM], const weight_t bias_v[E_DIM],
-    const weight_t Wo[E_DIM][E_DIM], const weight_t bo[E_DIM], // output projections
-
-    // post attention layer norm
-    const ln_param_t attn_ln_g[E_DIM], const ln_param_t attn_ln_b[E_DIM],
-
-    // ffn weights: n_ffn_layers 
-    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM],
-    const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
-    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM],
-    const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
-
-    // post ffn layernorm after skip connection
-
-    const ln_param_t post_ffn_g[E_DIM],
-    const ln_param_t post_ffn_b[E_DIM]
-
-);
-
-
-extern void attn_block_cross(
-    data_t x[N_MAX][E_DIM],
-    const data_t c[T_DIM][E_DIM], // input embeddings, which are modified in place
-
-    // MHA weights
-
-    const weight_t Wq[E_DIM][E_DIM], const weight_t bq[E_DIM],
-    const weight_t Wk[E_DIM][E_DIM], const weight_t bk[E_DIM],
-    const weight_t Wv[E_DIM][E_DIM], const weight_t bv[E_DIM],
-    const weight_t bias_k[E_DIM], const weight_t bias_v[E_DIM],
-    const weight_t Wo[E_DIM][E_DIM], const weight_t bo[E_DIM], // output projections
-
-    // post attention layer norm
-    const ln_param_t attn_ln_g[E_DIM], const ln_param_t attn_ln_b[E_DIM],
-
-    // ffn weights: n_ffn_layers 
-    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM],
-    const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
-    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM],
-    const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
-
-    // post ffn layernorm after skip connection
-
-    const ln_param_t post_ffn_g[E_DIM],
-    const ln_param_t post_ffn_b[E_DIM]
-
-);
+#include "../attn_block_source/attn_block_obj.h"
+#include "../attn_block_source/attn_block_cand.h"
+#include "../attn_block_source/attn_block_cross.h"
 
 int main() {
     std::string dir = "/home/snehadri/repos/unsupervised-search/phase3_export/";

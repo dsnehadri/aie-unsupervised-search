@@ -1,10 +1,13 @@
+#ifndef ATTN_BLOCK_CROSS_H
+#define ATTN_BLOCK_CROSS_H
+
 #include "attn_helpers.h"
 #include <cstdio>
 
 // cross-attention, Q = x (12 x 16) K = V = c (3 x 16)
 // scores are 12 x 4 per head
 
-void attn_block_cross(
+inline void attn_block_cross(
     data_t x[N_MAX][E_DIM], // input embeddings, which are modified in place
     const data_t c[T_DIM][E_DIM],
 
@@ -89,3 +92,5 @@ void attn_block_cross(
 
     ffn_block<N_MAX>(x, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b);
 }
+
+#endif
