@@ -8,7 +8,6 @@
 
 static const int P4_DIM = 4; // E, px, py, pz
 static const int RAW_DIM = 5; // log_pt, eta, cos_phi, sin_phi, log_e
-static const int AE_IN_DIM = E_DIM - T_DIM + 1; // 16 - 3 + 1 = 14
 
 // configurable constants
 

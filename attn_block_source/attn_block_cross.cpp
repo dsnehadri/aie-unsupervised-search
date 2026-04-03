@@ -74,11 +74,6 @@ void attn_block_cross(
     data_t attn_out[N_MAX][E_DIM];
     concat_and_project<N_MAX>(context, Wo, bo, attn_out);
 
-    // after concat_and_project, before layernorm
-    printf("Cross attn_out[0][0..3]: %f %f %f %f\n",
-    (float)attn_out[0][0], (float)attn_out[0][1],
-    (float)attn_out[0][2], (float)attn_out[0][3]);
-
     // NO attention skip and layer norm
 
     for (int i = 0; i < N_MAX; i++) {

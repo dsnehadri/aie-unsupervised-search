@@ -49,6 +49,8 @@ template <int ROWS, int COLS = E_DIM, typename T = data_t>
 bool compare(const char* name, T out[ROWS][COLS], T golden[ROWS][COLS], const bool* skip_mask = nullptr, float tol = 0.1f) {
     // compare output vs reference
 
+    printf("testing %s\n", name);
+
     float max_err = 0;
     float sum_sq_err = 0;
     int count = 0;
@@ -64,9 +66,6 @@ bool compare(const char* name, T out[ROWS][COLS], T golden[ROWS][COLS], const bo
             count++;
         }
     }
-    // After attn_block_obj returns:
-    printf("HLS out[0][0..3]: %f %f %f %f\n",
-    (float)out[0][0], (float)out[0][1], (float)out[0][2], (float)out[0][3]);
 
     float rmse = sqrtf(sum_sq_err / count);
     printf("comparison between hls value and reference");
@@ -114,9 +113,6 @@ void load_attn_weights(const std::string& block, attn_weights& w) {
     load_1d<weight_t, E_DIM> (dir + weights_suffix + mha_suffix + block + "_bias_k.npy", w.bias_k);
     load_1d<weight_t, E_DIM> (dir + weights_suffix + mha_suffix + block + "_bias_v.npy", w.bias_v);
 
-    printf("Loading Wq from: %s\n", (dir + weights_suffix + mha_suffix + block + "_Wq.npy").c_str());
-    printf("bq[0..3]: %f %f %f %f\n", (float)w.bq[0], (float)w.bq[1], (float)w.bq[2], (float)w.bq[3]);
-
     // load post-attention layernorm
 
     ln_param_t attn_ln_g[E_DIM], attn_ln_b[E_DIM];
@@ -126,9 +122,6 @@ void load_attn_weights(const std::string& block, attn_weights& w) {
     for (int i = 0; i < N_FFN_LAYERS; i++) {
         int lin_idx = i*3;
         int ln_idx = i*3+1;
-
-        printf("Loading FFN layer %d: lin_idx=%d, ln_idx=%d\n", i, lin_idx, ln_idx);
-        printf("  %s\n", (dir + weights_suffix + block + "_ffwd_" + std::to_string(lin_idx) + "_weight.npy").c_str());
 
         load_2d<weight_t, E_DIM, E_DIM> (
             dir + weights_suffix + block + "_ffwd_" + std::to_string(lin_idx) + "_weight.npy", w.ffn_w[i]);

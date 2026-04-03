@@ -107,15 +107,6 @@ int main() {
         float jp4[N_MAX][P4_DIM];
         x_to_p4_hw(raw_x, mask, jp4);
 
-        // Debug: print first few jets' golden and HLS p4
-        for (int i = 0; i < N_MAX; i++) {
-            printf("  jet %d mask=%d  HLS=(%.2f %.2f %.2f %.2f) golden=(%.2f %.2f %.2f %.2f)\n",
-                i, mask[i],
-                jp4[i][0], jp4[i][1], jp4[i][2], jp4[i][3],
-                golden_jp4[i][0], golden_jp4[i][1], golden_jp4[i][2], golden_jp4[i][3]);
-        }
-
-
         if (!compare<N_MAX, P4_DIM, float>("x_to_p4", jp4, golden_jp4, mask, 1.0f))
             ev_pass = false;
 

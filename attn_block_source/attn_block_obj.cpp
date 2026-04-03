@@ -62,28 +62,9 @@ void attn_block_obj(
     for (int k = 0; k < E_DIM; k++) {
         manual_sum += (acc_t)x[0][k] * (acc_t)Wq[0][k];
     }
-    printf("Manual Q[0][0]: %f\n", (float)manual_sum);
-    printf("Linear Q[0][0]: %f\n", (float)Q_full[0][0]);
-    printf("x[0][0..7]: %f %f %f %f %f %f %f %f\n",
-        (float)x[0][0], (float)x[0][1], (float)x[0][2], (float)x[0][3],
-        (float)x[0][4], (float)x[0][5], (float)x[0][6], (float)x[0][7]);
-    printf("Wq[0][0..7]: %f %f %f %f %f %f %f %f\n",
-        (float)Wq[0][0], (float)Wq[0][1], (float)Wq[0][2], (float)Wq[0][3],
-        (float)Wq[0][4], (float)Wq[0][5], (float)Wq[0][6], (float)Wq[0][7]);
 
     linear<N_MAX>(x, Wk, bk, K_full);
     linear<N_MAX>(x, Wv, bv, V_full);
-
-
-    // DEBUG: print Q projection output
-    printf("Q_full[0][0..3]: %f %f %f %f\n", (float)Q_full[0][0], (float)Q_full[0][1], (float)Q_full[0][2], (float)Q_full[0][3]);
-
-    printf("Full x[0]: ");
-    for (int k = 0; k < E_DIM; k++) printf("%.4f ", (float)x[0][k]);
-    printf("\n");
-    printf("Full Wq[0]: ");
-    for (int k = 0; k < E_DIM; k++) printf("%.4f ", (float)Wq[0][k]);
-    printf("\n");
     
     // reshape inro heads + bias_kv
 
@@ -102,13 +83,6 @@ void attn_block_obj(
         // compute raw scores
         score_t scores[N_MAX][N_KV];
         compute_scores<N_MAX,N_KV>(Q_h[h], K_h[h], scores);
-
-         // DEBUG: print head 0 scores before masking
-        if (h == 0) {
-            printf("Head0 scores[0][0..3] pre-mask: %f %f %f %f\n",
-                (float)scores[0][0], (float)scores[0][1],
-                (float)scores[0][2], (float)scores[0][3]);
-        }
 
         // add wij bias
         if (use_wij) {
@@ -136,16 +110,7 @@ void attn_block_obj(
 
     data_t attn_out[N_MAX][E_DIM];
     concat_and_project<N_MAX>(context, Wo, bo, attn_out);
-
-    printf("attn_out[0][0..3]: %f %f %f %f\n",
-        (float)attn_out[0][0], (float)attn_out[0][1],
-        (float)attn_out[0][2], (float)attn_out[0][3]);
-
-    // Also print residual to check skip connection inputs
-    printf("residual[0][0..3]: %f %f %f %f\n",
-        (float)residual[0][0], (float)residual[0][1],
-        (float)residual[0][2], (float)residual[0][3]);
-
+    
     // attention skip and layer norm
 
     for (int i = 0; i < N_MAX; i++) {
@@ -158,15 +123,7 @@ void attn_block_obj(
 
     // do ffn
 
-    // DEBUG: print after attention, before FFN
-    printf("Post-attn x[0][0..3]: %f %f %f %f\n",
-    (float)x[0][0], (float)x[0][1], (float)x[0][2], (float)x[0][3]);
-
     ffn_block<N_MAX>(x, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b);
-
-
-    printf("Post-FFN x[0][0..3]: %f %f %f %f\n",
-        (float)x[0][0], (float)x[0][1], (float)x[0][2], (float)x[0][3]);
 
     // remask padded positions
 

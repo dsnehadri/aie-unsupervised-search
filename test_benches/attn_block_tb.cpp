@@ -108,7 +108,7 @@ int main() {
 
     {
         std::string block = "obj_blocks_0";
-        printf("test 1: OBJ");
+        printf("test 1: OBJ\n");
         attn_weights w;
         load_attn_weights(block, w);
 
@@ -142,28 +142,6 @@ int main() {
             }
         }
 
-
-        // Check a few input values
-        printf("Input x[0][0..3]: %f %f %f %f\n",
-            (float)x[0][0], (float)x[0][1], (float)x[0][2], (float)x[0][3]);
-
-        // Check padding mask
-        printf("Padding mask: ");
-        for (int i = 0; i < N_MAX; i++) printf("%d ", padding_mask[i]);
-        printf("\n");
-
-        // Check a few weight values
-        printf("Wq[0][0..3]: %f %f %f %f\n",
-            (float)w.Wq[0][0], (float)w.Wq[0][1], (float)w.Wq[0][2], (float)w.Wq[0][3]);
-
-        // Check golden output
-        printf("Golden[0][0..3]: %f %f %f %f\n",
-            (float)golden[0][0], (float)golden[0][1], (float)golden[0][2], (float)golden[0][3]);
-
-        // Check Wij
-        printf("Wij[0][0..3]: %f %f %f %f\n",
-            (float)wij_bias[0][0], (float)wij_bias[0][1], (float)wij_bias[0][2], (float)wij_bias[0][3]);
-
         printf("running obj_blocks[0] on event%d...\n", event_idx);
         
         attn_block_obj(
@@ -181,7 +159,7 @@ int main() {
 
     {
         std::string block = "cand_blocks_0";
-        printf("test 2: CAND");
+        printf("test 2: CAND\n");
         attn_weights w;
         load_attn_weights(block, w);
 
@@ -192,16 +170,6 @@ int main() {
         load_2d<data_t, T_DIM, E_DIM>(dir + tests_suffix + "stage3_layer0_post_cand_selfattn.npy", golden, event_idx);
 
 
-        // Check a few input values
-        printf("Input c[0][0..3]: %f %f %f %f\n",
-            (float)c[0][0], (float)c[0][1], (float)c[0][2], (float)c[0][3]);
-
-        // Check golden output
-        printf("Golden[0][0..3]: %f %f %f %f\n",
-            (float)golden[0][0], (float)golden[0][1], (float)golden[0][2], (float)golden[0][3]);
-
-        printf("running cand_blocks[0] on event%d...\n", event_idx);
-        
         attn_block_cand(c, 
             w.Wq, w.bq, w.Wk, w.bk, w.Wv, w.bv,
             w.bias_k, w.bias_v, w.Wo, w.bo,
@@ -214,7 +182,7 @@ int main() {
 
     {
         std::string block = "cross_blocks_0";
-        printf("test 2: CROSS");
+        printf("test 3: CROSS\n");
         attn_weights w;
         load_attn_weights(block, w);
 
@@ -228,18 +196,6 @@ int main() {
 
         bool padding_mask[N_MAX];
         load_padding_mask(dir + tests_suffix + "stage0_padding_mask.npy", padding_mask, event_idx);
-
-        // Check a few input values
-        printf("Input x[0][0..3]: %f %f %f %f\n",
-            (float)x[0][0], (float)x[0][1], (float)x[0][2], (float)x[0][3]);
-
-        // Check a few input values
-        printf("Input c[0][0..3]: %f %f %f %f\n",
-            (float)c[0][0], (float)c[0][1], (float)c[0][2], (float)c[0][3]);
-
-        // Check golden output
-        printf("Golden[0][0..3]: %f %f %f %f\n",
-            (float)golden[0][0], (float)golden[0][1], (float)golden[0][2], (float)golden[0][3]);
 
         printf("running cross_blocks[0] on event%d...\n", event_idx);
         
@@ -267,7 +223,6 @@ int main() {
                 float err = fabsf((float)x[i][j] - (float)golden[i][j]);
                 if (err > row_max) row_max = err;
             }
-            printf("row %d max_err=%.6f  padded=%d\n", i, row_max, padding_mask[i]);
         }
     }
 
