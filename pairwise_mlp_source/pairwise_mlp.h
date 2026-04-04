@@ -55,8 +55,6 @@ inline void pairwise_mlp(
         PAIR_J:
         for (int j = 0; j < N_MAX; j++) {
 
-            printf("pair (%d,%d) in: %f %f %f\n", i, j,
-                (float)wij_raw[i][j][0], (float)wij_raw[i][j][1], (float)wij_raw[i][j][2]);
             fflush(stdout);
             data_t pair_in[1][MLP_IN];
             data_t pair_out[1][MLP_OUT];
@@ -65,7 +63,6 @@ inline void pairwise_mlp(
             pair_in[0][1] = wij_raw[i][j][1];
             pair_in[0][2] = wij_raw[i][j][2];
 
-            printf("calling dnn_block\n"); fflush(stdout);
             dnn_block<1, MLP_IN, MLP_HIDDEN, MLP_OUT, MLP_N_MID>(
                 pair_in,
                 weights.first_w, weights.first_b, weights.first_ln_g, weights.first_ln_b,
@@ -73,7 +70,6 @@ inline void pairwise_mlp(
                 weights.last_w, weights.last_b,
                 pair_out
             );
-            printf("dnn_block returned\n"); fflush(stdout);
 
             wij[i][j] = pair_out[0][0];
         }

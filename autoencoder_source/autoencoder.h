@@ -6,14 +6,6 @@
 
 // dnn block doesnt supprot hidden layers of different widths, so we'll just do it manually here
 
-// encoder cascade_dims(14, 2, 4) =  [14, 11, 8, 5, 2];
-
-static const int AE_D0 = AE_IN_DIM; // 14
-static const int AE_D1 = 11; // 
-static const int AE_D2 = 8;
-static const int AE_D3 = 5;
-static const int AE_D4 = AE_DIM; //2
-
 struct AEEncoderWeights {
     // layer 0: 14 -> 11
 
@@ -71,6 +63,7 @@ struct AEDecoderWeights {
     weight_t b3[AE_D0];
 
 };
+
 
 inline void ae_encode(
     const data_t x[1][AE_IN_DIM],

@@ -24,7 +24,7 @@ int main() {
     {
         std::string block = "obj_blocks_0";
         printf("test 1: OBJ\n");
-        attn_weights w;
+        AttnWeights w;
         load_attn_weights(block, w);
 
         data_t x[N_MAX][E_DIM];
@@ -75,7 +75,7 @@ int main() {
     {
         std::string block = "cand_blocks_0";
         printf("test 2: CAND\n");
-        attn_weights w;
+        AttnWeights w;
         load_attn_weights(block, w);
 
         data_t c[T_DIM][E_DIM];
@@ -98,7 +98,7 @@ int main() {
     {
         std::string block = "cross_blocks_0";
         printf("test 3: CROSS\n");
-        attn_weights w;
+        AttnWeights w;
         load_attn_weights(block, w);
 
         data_t x[N_MAX][E_DIM];

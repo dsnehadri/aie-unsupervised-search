@@ -4,61 +4,6 @@
 #include "../autoencoder_source/autoencoder.h"
 #include "tb_helpers.h"
 
-void load_ae_encoder_weights(const std::string &wt_dir, AEEncoderWeights &w) {
-    std::string p = wt_dir + "ae_in_net_";
-
-    // layer 0: index 0 (linear) 1 (LN)
-    load_2d<weight_t, AE_D1, AE_D0>(p + "0_weight.npy", w.w0);
-    load_1d<weight_t, AE_D1>(p + "0_bias.npy", w.b0);
-    load_1d<ln_param_t, AE_D1>(p + "1_weight.npy", w.ln0_g);
-    load_1d<ln_param_t, AE_D1>(p + "1_bias.npy", w.ln0_b);
-
-    // layer 1: index 3 (linear) 4 (LN)
-    load_2d<weight_t, AE_D2, AE_D1>(p + "3_weight.npy", w.w1);
-    load_1d<weight_t, AE_D2>(p + "3_bias.npy", w.b1);
-    load_1d<ln_param_t, AE_D2>(p + "4_weight.npy", w.ln1_g);
-    load_1d<ln_param_t, AE_D2>(p + "4_bias.npy", w.ln1_b);
-
-    // layer 2: index 6 (linear) 7 (LN)
-    load_2d<weight_t, AE_D3, AE_D2>(p + "6_weight.npy", w.w2);
-    load_1d<weight_t, AE_D3>(p + "6_bias.npy", w.b2);
-    load_1d<ln_param_t, AE_D3>(p + "7_weight.npy", w.ln2_g);
-    load_1d<ln_param_t, AE_D3>(p + "7_bias.npy", w.ln2_b);
-
-    // layer 3: index 9 (linear, bare)
-
-    load_2d<weight_t, AE_D4, AE_D3>(p + "9_weight.npy", w.w3);
-    load_1d<weight_t, AE_D4>(p + "9_bias.npy", w.b3);
-
-}
-
-void load_ae_decoder_weights(const std::string &wt_dir, AEDecoderWeights &w) {
-    std::string p = wt_dir + "ae_out_net_";
-
-    // layer 0: index 0 (linear) 1 (LN)
-    load_2d<weight_t, AE_D3, AE_D4>(p + "0_weight.npy", w.w0);
-    load_1d<weight_t, AE_D3>(p + "0_bias.npy", w.b0);
-    load_1d<ln_param_t, AE_D3>(p + "1_weight.npy", w.ln0_g);
-    load_1d<ln_param_t, AE_D3>(p + "1_bias.npy", w.ln0_b);
-
-    // layer 1: index 3 (linear) 4 (LN)
-    load_2d<weight_t, AE_D2, AE_D3>(p + "3_weight.npy", w.w1);
-    load_1d<weight_t, AE_D2>(p + "3_bias.npy", w.b1);
-    load_1d<ln_param_t, AE_D2>(p + "4_weight.npy", w.ln1_g);
-    load_1d<ln_param_t, AE_D2>(p + "4_bias.npy", w.ln1_b);
-
-    // layer 2: index 6 (linear) 7 (LN)
-    load_2d<weight_t, AE_D1, AE_D2>(p + "6_weight.npy", w.w2);
-    load_1d<weight_t, AE_D1>(p + "6_bias.npy", w.b2);
-    load_1d<ln_param_t, AE_D1>(p + "7_weight.npy", w.ln2_g);
-    load_1d<ln_param_t, AE_D1>(p + "7_bias.npy", w.ln2_b);
-
-    // layer 3: index 9 (linear, bare)
-
-    load_2d<weight_t, AE_D0, AE_D1>(p + "9_weight.npy", w.w3);
-    load_1d<weight_t, AE_D0>(p + "9_bias.npy", w.b3);
-
-}
 
 // 1d comparison helper
 
@@ -76,12 +21,7 @@ bool compare_1d(const char* name, const data_t out[DIM], const data_t golden[DIM
     return pass;
 }
 
-bool compare_scalar(const char* name, float computed, float golden, float tol = 0.01f) {
-    float err = std::fabs(computed - golden);
-    bool pass = (err < tol);
-    printf(" %-30s computed = %.6f golden = %.6f err %.6f %s\n", name, computed, golden, err, pass ? "PASS" : "FAIL");
-    return pass;
-}
+
 
 int main() {
     int failures = 0;

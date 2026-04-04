@@ -11,4 +11,5 @@ dsp_style
 *.sh
 *.dir
 *.d
-*.o*.gch
+*.o
+*.gch

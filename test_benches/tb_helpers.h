@@ -10,6 +10,7 @@
 
 #include "../attn_block_source/attn_block_types.h"
 #include "../dnn_block_source/dnn_block.h"
+#include "../autoencoder_source/autoencoder.h"
 
 // helpers to load npy files
 
@@ -85,20 +86,15 @@ bool compare(const char* name, T out[ROWS][COLS], T golden[ROWS][COLS], const bo
     }
 }
 
-struct attn_weights {
-    weight_t Wq[E_DIM][E_DIM], Wk[E_DIM][E_DIM], Wv[E_DIM][E_DIM], Wo[E_DIM][E_DIM];
-    weight_t bq[E_DIM], bk[E_DIM], bv[E_DIM], bo[E_DIM];
-    weight_t bias_k[E_DIM], bias_v[E_DIM];
-    ln_param_t attn_ln_g[E_DIM], attn_ln_b[E_DIM];
-    weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM];
-    weight_t ffn_b[N_FFN_LAYERS][E_DIM];
-    ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM];
-    ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM];
-    ln_param_t post_ffn_g[E_DIM], post_ffn_b[E_DIM];
+bool compare_scalar(const char* name, float computed, float golden, float tol = 0.01f) {
+    float err = std::fabs(computed - golden);
+    bool pass = (err < tol);
+    printf(" %-30s computed = %.6f golden = %.6f err %.6f %s\n", name, computed, golden, err, pass ? "PASS" : "FAIL");
+    return pass;
+}
 
-};
 
-void load_attn_weights(const std::string& block, attn_weights& w) {
+void load_attn_weights(const std::string& block, AttnWeights& w) {
     std::string dir = "/home/snehadri/repos/unsupervised-search/phase3_export/";
     std::string weights_suffix = "weights/";
     std::string mha_suffix = "mha_decomposed/";
@@ -170,6 +166,63 @@ void load_dnn_block_weights(
 
     load_2d<weight_t, OUT_DIM, HIDDEN> (wt_dir + prefix + std::to_string(last_idx) + "_weight.npy", weights.last_w);
     load_1d<weight_t, OUT_DIM> (wt_dir + prefix + std::to_string(last_idx) + "_bias.npy", weights.last_b);
+}
+
+
+void load_ae_encoder_weights(const std::string &wt_dir, AEEncoderWeights &w) {
+    std::string p = wt_dir + "ae_in_net_";
+
+    // layer 0: index 0 (linear) 1 (LN)
+    load_2d<weight_t, AE_D1, AE_D0>(p + "0_weight.npy", w.w0);
+    load_1d<weight_t, AE_D1>(p + "0_bias.npy", w.b0);
+    load_1d<ln_param_t, AE_D1>(p + "1_weight.npy", w.ln0_g);
+    load_1d<ln_param_t, AE_D1>(p + "1_bias.npy", w.ln0_b);
+
+    // layer 1: index 3 (linear) 4 (LN)
+    load_2d<weight_t, AE_D2, AE_D1>(p + "3_weight.npy", w.w1);
+    load_1d<weight_t, AE_D2>(p + "3_bias.npy", w.b1);
+    load_1d<ln_param_t, AE_D2>(p + "4_weight.npy", w.ln1_g);
+    load_1d<ln_param_t, AE_D2>(p + "4_bias.npy", w.ln1_b);
+
+    // layer 2: index 6 (linear) 7 (LN)
+    load_2d<weight_t, AE_D3, AE_D2>(p + "6_weight.npy", w.w2);
+    load_1d<weight_t, AE_D3>(p + "6_bias.npy", w.b2);
+    load_1d<ln_param_t, AE_D3>(p + "7_weight.npy", w.ln2_g);
+    load_1d<ln_param_t, AE_D3>(p + "7_bias.npy", w.ln2_b);
+
+    // layer 3: index 9 (linear, bare)
+
+    load_2d<weight_t, AE_D4, AE_D3>(p + "9_weight.npy", w.w3);
+    load_1d<weight_t, AE_D4>(p + "9_bias.npy", w.b3);
+
+}
+
+void load_ae_decoder_weights(const std::string &wt_dir, AEDecoderWeights &w) {
+    std::string p = wt_dir + "ae_out_net_";
+
+    // layer 0: index 0 (linear) 1 (LN)
+    load_2d<weight_t, AE_D3, AE_D4>(p + "0_weight.npy", w.w0);
+    load_1d<weight_t, AE_D3>(p + "0_bias.npy", w.b0);
+    load_1d<ln_param_t, AE_D3>(p + "1_weight.npy", w.ln0_g);
+    load_1d<ln_param_t, AE_D3>(p + "1_bias.npy", w.ln0_b);
+
+    // layer 1: index 3 (linear) 4 (LN)
+    load_2d<weight_t, AE_D2, AE_D3>(p + "3_weight.npy", w.w1);
+    load_1d<weight_t, AE_D2>(p + "3_bias.npy", w.b1);
+    load_1d<ln_param_t, AE_D2>(p + "4_weight.npy", w.ln1_g);
+    load_1d<ln_param_t, AE_D2>(p + "4_bias.npy", w.ln1_b);
+
+    // layer 2: index 6 (linear) 7 (LN)
+    load_2d<weight_t, AE_D1, AE_D2>(p + "6_weight.npy", w.w2);
+    load_1d<weight_t, AE_D1>(p + "6_bias.npy", w.b2);
+    load_1d<ln_param_t, AE_D1>(p + "7_weight.npy", w.ln2_g);
+    load_1d<ln_param_t, AE_D1>(p + "7_bias.npy", w.ln2_b);
+
+    // layer 3: index 9 (linear, bare)
+
+    load_2d<weight_t, AE_D0, AE_D1>(p + "9_weight.npy", w.w3);
+    load_1d<weight_t, AE_D0>(p + "9_bias.npy", w.b3);
+
 }
 
 #endif

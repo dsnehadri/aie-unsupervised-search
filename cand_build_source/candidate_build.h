@@ -1,6 +1,6 @@
 // candidate building: jet choice = one_hot(argmax(x[:,:,T])) with ISR bias, c = jet_choice^T @ x
 
-#include "attn_block_types.h"
+#include "../attn_block_source/attn_block_types.h"
 
 template <int N_ROWS>
 void build_candidates(
