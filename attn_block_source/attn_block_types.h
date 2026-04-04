@@ -77,4 +77,19 @@ static const float LN_EPS = 1e-5f;
 static const int EXP_LUT_SIZE = 256;
 static const float EXP_MIN = -8.0f; // exp(-8) ~= 0.00034
 
+struct AttnWeights {
+    weight_t Wq[E_DIM][E_DIM], bq[E_DIM];   
+    weight_t Wk[E_DIM][E_DIM], bk[E_DIM];   
+    weight_t Wv[E_DIM][E_DIM], bv[E_DIM];
+    weight_t bias_k[E_DIM], bias_v[E_DIM];
+    weight_t Wo[E_DIM][E_DIM], bo[E_DIM];
+    ln_param_t attn_ln_g[E_DIM], attn_ln_b[E_DIM];
+    weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM];
+    weight_t ffn_b[N_FFN_LAYERS][E_DIM];
+    ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM];
+    ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM];
+    ln_param_t post_ffn_g[E_DIM], post_ffn_b[E_DIM];
+};  
+
+
 #endif
