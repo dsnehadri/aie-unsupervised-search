@@ -356,7 +356,7 @@ inline void expand_wij(
     score_t wij_bias[N_HEADS * N_MAX][N_KV]
 ) {
     //zero-init (column N_MAX) stays zero for the bias_kv token
-    EXPAND_ZERO: for (int i = 0; i < N_HEADS; i++) {
+    EXPAND_ZERO: for (int i = 0; i < N_HEADS * N_MAX; i++) {
         for (int j = 0; j < N_KV; j++) {
             wij_bias[i][j] = (score_t)0;
         }
