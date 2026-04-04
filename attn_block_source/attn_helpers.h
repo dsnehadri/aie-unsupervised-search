@@ -335,4 +335,41 @@ void skip_and_norm(
     layernorm<N_ROWS>(x, ln_g, ln_b);
 }
 
+// zero out padded jets after attn blocks
+inline void remask(data_t x[N_MAX][E_DIM], const bool mask[N_MAX]) {
+    REMASK_J: for (int j = 0; j < N_MAX; j++) {
+        if (mask[j]) {
+            REMASK_E: for (int e = 0; e < E_DIM; e++) {
+                #pragma HLS PIPELINE II=1
+                x[j][e] = (data_t)0;
+            }
+        }
+    }
+}
+
+// expand wij[12x12] to wij_bias[48x13] for multi-head attention
+// replicates the same 12x12 wij for each of N_HEADS heads
+// column 12 (bias_kv position) stays zero
+
+inline void expand_wij(
+    const data_t wij[N_MAX][N_MAX],
+    score_t wij_bias[N_HEADS * N_MAX][N_KV]
+) {
+    //zero-init (column N_MAX) stays zero for the bias_kv token
+    EXPAND_ZERO: for (int i = 0; i < N_HEADS; i++) {
+        for (int j = 0; j < N_KV; j++) {
+            wij_bias[i][j] = (score_t)0;
+        }
+    }
+
+    EXPAND_COPY: for (int h = 0; h < N_HEADS; h ++) {
+        for (int i = 0; i < N_MAX; i++) {
+            for (int j = 0; j < N_MAX; j ++) {
+                wij_bias[h * N_MAX + i][j] = (score_t)wij[i][j];
+            }
+        } 
+    }
+}
+
+
 #endif
