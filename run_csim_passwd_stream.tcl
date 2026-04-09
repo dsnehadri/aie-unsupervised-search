@@ -7,11 +7,11 @@ set_part {xcvc1902-vsva2197-2MP-e-S}
 create_clock -period 5 -name default
 
 # source files
-add_files passwd_stream_top.cpp
+add_files passwd_stream_source/passwd_stream_top.cpp
 
 # testbench files
 
-add_files -tb test_benches/passwd_tb_top.cpp
+add_files -tb test_benches/passwd_stream_tb.cpp
 add_files -tb test_benches/tb_helpers.h
 add_files -tb cnpy/cnpy.cpp
 add_files -tb cnpy/cnpy.h
