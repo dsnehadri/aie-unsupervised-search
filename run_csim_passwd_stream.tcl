@@ -19,4 +19,5 @@ add_files -tb cnpy/cnpy.h
 # run csim
 
 csim_design -ldflags "-lz" -clean
+csynth_design
 exit

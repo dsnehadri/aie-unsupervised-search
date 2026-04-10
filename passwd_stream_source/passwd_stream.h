@@ -448,9 +448,9 @@ inline void passwd_dataflow(
     hls::stream<data_t> s_jets_embed("jets_embed");
     hls::stream<data_t> s_jets_pairwise("jets_pair");
     hls::stream<data_t> s_jets_cand("jets_cand");
-    #pragma HLS STREAM variables = s_jets_embed depth = 60
-    #pragma HLS STREAM variables = s_jets_pairwise depth = 60
-    #pragma HLS STREAM variables = s_jets_cand depth = 60
+    #pragma HLS STREAM variable = s_jets_embed depth = 60
+    #pragma HLS STREAM variable = s_jets_pairwise depth = 60
+    #pragma HLS STREAM variable = s_jets_cand depth = 60
 
     // fork outputs for masks (4 consumers)
     hls::stream<bool> s_mask_embed("mask_embed");

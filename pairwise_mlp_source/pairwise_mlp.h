@@ -44,9 +44,7 @@ inline void pairwise_mlp(
     // compute pairwise features
 
     data_t wij_raw[N_MAX][N_MAX][3];
-    printf("before compute_pairwise\n"); fflush(stdout);
     compute_pairwise(w, wij_raw);
-    printf("after compute_pairwise\n"); fflush(stdout);
 
     // run mlp on each pair
 
@@ -55,7 +53,6 @@ inline void pairwise_mlp(
         PAIR_J:
         for (int j = 0; j < N_MAX; j++) {
 
-            fflush(stdout);
             data_t pair_in[1][MLP_IN];
             data_t pair_out[1][MLP_OUT];
 

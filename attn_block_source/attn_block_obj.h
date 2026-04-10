@@ -131,11 +131,9 @@ inline void attn_block_obj(
     // remask padded positions
 
     for (int i = 0; i < N_MAX; i++) {
-        if (padding_mask[i]) {
-            #pragma HLS PIPELINE II=1
-            for (int j = 0; j < E_DIM; j++) {
-                x[i][j] = 0;
-            }
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++) {
+            if (padding_mask[i]) x[i][j] = 0;
         }
     }
 
