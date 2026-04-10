@@ -14,17 +14,7 @@
 
 void passwd_stream_top(
     hls::stream<axi_word_t> &in_stream,
-    hls::stream<axi_word_t> &out_stream,
-    const EmbedWeights &embed_w,
-    const MLPWeights &mlp_w,
-    const AttnWeights &obj0_w,
-    const AttnWeights &cand0_w,
-    const AttnWeights &cross0_w,
-    const AttnWeights &obj1_w,
-    const AttnWeights &cand1_w,
-    const AttnWeights &cross1_w,
-    const AEEncoderWeights &ae_enc_w,
-    const AEDecoderWeights &ae_dec_w
+    hls::stream<axi_word_t> &out_stream
 );
 
 // seralize data_t to AXI word
@@ -65,36 +55,6 @@ int main() {
     std::string tv_dir = "/home/snehadri/repos/unsupervised-search/phase3_export/test_vectors/";
 
     printf("passwd abc stream pipeline test\n");
-
-    EmbedWeights embed_w;
-    load_dnn_block_weights<EMBED_IN, EMBED_HIDDEN, EMBED_OUT, EMBED_N_MID>(
-        wt_dir, "embed_net_", embed_w);
-
-    // pairwise mlp
-    MLPWeights mlp_w;
-    load_dnn_block_weights<MLP_IN, MLP_HIDDEN, MLP_OUT, MLP_N_MID>(
-        wt_dir, "mlp_net_", mlp_w);
-
-    // attention blocks
-
-    AttnWeights obj0_w, cand0_w, cross0_w;
-    AttnWeights obj1_w, cand1_w, cross1_w;
-
-    load_attn_weights("obj_blocks_0", obj0_w);
-    load_attn_weights("cand_blocks_0", cand0_w);
-    load_attn_weights("cross_blocks_0", cross0_w);
-    load_attn_weights("obj_blocks_1", obj1_w);
-    load_attn_weights("cand_blocks_1", cand1_w);
-    load_attn_weights("cross_blocks_1", cross1_w);
-
-    // autoencoder
-
-    AEEncoderWeights ae_enc_w;
-    AEDecoderWeights ae_dec_w;
-    load_ae_encoder_weights(wt_dir, ae_enc_w);
-    load_ae_decoder_weights(wt_dir, ae_dec_w);
-
-    printf("all weights loaded\n");
 
     // load input test vectors
 
@@ -141,11 +101,7 @@ int main() {
 
     // run DUT
 
-    passwd_stream_top(in_stream, out_stream,
-        embed_w, mlp_w,
-        obj0_w, cand0_w, cross0_w,
-        obj1_w, cand1_w, cross1_w,
-        ae_enc_w, ae_dec_w);
+    passwd_stream_top(in_stream, out_stream);
 
     // read output from axi-stream
     // protocol: 3 float words(mse, crossed, latent)
