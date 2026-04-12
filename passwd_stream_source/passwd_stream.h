@@ -286,7 +286,7 @@ inline void abc_layer_1_stage(
     // object self-attention (without wij bias)
     // need a dummy wij since the function signature requires it
     score_t dummy_wij[N_MAX * N_HEADS][N_KV];
-    #pragma HLS ARRAY_PARTITION variable=dummy_wij complete dim=0
+    // #pragma HLS ARRAY_PARTITION variable=dummy_wij complete dim=0
     attn_block_obj(x, mask, dummy_wij, /*use_wij =*/ false, 
         obj_w.Wq, obj_w.bq, obj_w.Wk, obj_w.bk, obj_w.Wv, obj_w.bv,
         obj_w.bias_k, obj_w.bias_v, obj_w.Wo, obj_w.bo,

@@ -60,13 +60,21 @@ static const int FFN_DIM = E_DIM;
 
 // typedef ap_fixed<32, 10> exp_t;
 
-typedef ap_fixed<32, 12> data_t;
-typedef ap_fixed<32, 12> weight_t;
-typedef ap_fixed<32, 12> score_t;
-typedef ap_fixed<32, 12> prob_t;
-typedef ap_fixed<32, 12> ln_param_t;
-typedef ap_fixed<64, 20> acc_t;
-typedef ap_fixed<64, 20> exp_t;
+// typedef ap_fixed<32, 12> data_t;
+// typedef ap_fixed<32, 12> weight_t;
+// typedef ap_fixed<32, 12> score_t;
+// typedef ap_fixed<32, 12> prob_t;
+// typedef ap_fixed<32, 12> ln_param_t;
+// typedef ap_fixed<64, 20> acc_t;
+// typedef ap_fixed<64, 20> exp_t;
+
+typedef ap_fixed<16, 5> data_t;
+typedef ap_fixed<16, 4> weight_t;
+typedef ap_fixed<16, 6> score_t;
+typedef ap_fixed<16, 2> prob_t;
+typedef ap_fixed<16, 4> ln_param_t;
+typedef ap_fixed<32, 10> acc_t;
+typedef ap_fixed<32, 10> exp_t;
 
 // scaling constant = 1/sqrt(D_HEAD)
 

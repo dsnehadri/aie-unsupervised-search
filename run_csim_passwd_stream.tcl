@@ -19,5 +19,6 @@ add_files -tb cnpy/cnpy.h
 # run csim
 
 csim_design -ldflags "-lz" -clean
+config_compile -pipeline_style frp
 csynth_design
 exit

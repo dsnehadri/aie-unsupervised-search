@@ -122,7 +122,8 @@ int main() {
 
     // compare against golden reference
 
-    const float TOL = 1e-3f; //tolerance for wide ap_fixed<32,12>
+    // const float TOL = 1e-3f; //tolerance for wide ap_fixed<32,12>
+    const float TOL = 0.5f; //tolerance for ap_fixed<16,5>
 
     printf("\n%-20s %12s %12s %12s %s\n",
         "Metric", "HW", "Golden", "AbsErr", "Status");
