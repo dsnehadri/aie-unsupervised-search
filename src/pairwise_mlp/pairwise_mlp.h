@@ -1,7 +1,7 @@
 #ifndef PAIRWISE_MLP_H
 #define PAIRWISE_MLP_H
 
-#include "../dnn_block_source/dnn_block.h"
+#include "../dnn_block/dnn_block.h"
 #include <string>
 
 static const int MLP_IN = 3; // (delta_eta, cos_dphi, sin_dphi)

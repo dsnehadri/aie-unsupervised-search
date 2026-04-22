@@ -1,7 +1,7 @@
 #ifndef CAND_LORENTZ_H
 #define CAND_LORENTZ_H
 
-#include "../attn_block_source/attn_block_types.h"
+#include "../attn_block_pl/attn_block_types.h"
 #include <cmath>
 
 // dimensions

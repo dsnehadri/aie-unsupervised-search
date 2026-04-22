@@ -1,8 +1,8 @@
 #ifndef AUTOENCODER_H
 #define AUTOENCODER_H
 
-#include "../attn_block_source/attn_block_types.h"
-#include "../attn_block_source/attn_helpers.h"
+#include "../attn_block_pl/attn_block_types.h"
+#include "../attn_block_pl/attn_helpers.h"
 
 // dnn block doesnt supprot hidden layers of different widths, so we'll just do it manually here
 

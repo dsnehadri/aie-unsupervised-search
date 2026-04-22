@@ -9,9 +9,9 @@
 
 // forward declaration of the dut
 
-#include "../attn_block_source/attn_block_obj.h"
-#include "../attn_block_source/attn_block_cand.h"
-#include "../attn_block_source/attn_block_cross.h"
+#include "../attn_block_pl/attn_block_obj.h"
+#include "../attn_block_pl/attn_block_cand.h"
+#include "../attn_block_pl/attn_block_cross.h"
 
 int main() {
     std::string dir = "/home/snehadri/repos/unsupervised-search/phase3_export/";

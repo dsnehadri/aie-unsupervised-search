@@ -190,11 +190,11 @@ def main():
     with open(args.output, "w") as f:
         f.write("#ifndef WEIGHTS_ROM_H\n#define WEIGHTS_ROM_H\n\n")
         f.write("// Auto-generated — do not edit\n\n")
-        f.write('#include "../attn_block_source/attn_block_types.h"\n')
-        f.write('#include "../attn_block_source/attn_helpers.h"\n')
-        f.write('#include "../embed_ffn_source/embed_ffn.h"\n')
-        f.write('#include "../pairwise_mlp_source/pairwise_mlp.h"\n')
-        f.write('#include "../autoencoder_source/autoencoder.h"\n\n')
+        f.write('#include "../attn_block_pl/attn_block_types.h"\n')
+        f.write('#include "../attn_block_pl/attn_helpers.h"\n')
+        f.write('#include "../embed_ffn/embed_ffn.h"\n')
+        f.write('#include "../pairwise_mlp/pairwise_mlp.h"\n')
+        f.write('#include "../autoencoder/autoencoder.h"\n\n')
 
         # Part 1: float arrays
         for tag, c_type, rom_name, fields in structs:

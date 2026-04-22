@@ -1,8 +1,8 @@
 #ifndef DNN_BLOCK_H
 #define DNN_BLOCK_H
 
-#include "../attn_block_source/attn_block_types.h"
-#include "../attn_block_source/attn_helpers.h"
+#include "../attn_block_pl/attn_block_types.h"
+#include "../attn_block_pl/attn_helpers.h"
 
 // general dnn block 
 // pattern:

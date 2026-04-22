@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cmath>
 #include <chrono>
+#include <thread>
 
 // XRT includes
 
@@ -117,7 +118,17 @@ int main(int argc, char* argv[]) {
     std::cout << "running kernel (" << n_events << "events)..." << std::endl;
     auto t_start = std::chrono::high_resolution_clock::now();
 
+
     auto run = kernel(in_bo, out_bo, n_events);
+
+    while (run.state() == ERT_CMD_STATE_RUNNING) {
+        // Read register at offset for debug_stage
+        // The offset is auto-assigned — check xclbinutil --info
+        uint32_t val = kernel.read_register(0x50);  // offset TBD
+        std::cout << "debug_stage = " << val << "\n";
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
     run.wait();
 
     auto t_end = std::chrono::high_resolution_clock::now();

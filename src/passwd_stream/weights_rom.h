@@ -3,11 +3,11 @@
 
 // Auto-generated — do not edit
 
-#include "../attn_block_source/attn_block_types.h"
-#include "../attn_block_source/attn_helpers.h"
-#include "../embed_ffn_source/embed_ffn.h"
-#include "../pairwise_mlp_source/pairwise_mlp.h"
-#include "../autoencoder_source/autoencoder.h"
+#include "../attn_block_pl/attn_block_types.h"
+#include "../attn_block_pl/attn_helpers.h"
+#include "../embed_ffn/embed_ffn.h"
+#include "../pairwise_mlp/pairwise_mlp.h"
+#include "../autoencoder/autoencoder.h"
 
 // ---- EMBED ----
 static const float ROM_EMBED_W_first_w[16][5] = {{0.1060096174,-0.0281097889,0.4206389189,-0.7965413928,0.0153546548},

@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cmath>
 #include <string>
-#include "../cand_lorentz_source/cand_lorentz.h"
+#include "../cand_lorentz/cand_lorentz.h"
 #include "../test_benches/tb_helpers.h"
 
 int main() {

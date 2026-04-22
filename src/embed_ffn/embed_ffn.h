@@ -1,7 +1,7 @@
 #ifndef EMBED_FFN_H
 #define EMBED_FFN_H
 
-#include "../dnn_block_source/dnn_block.h"
+#include "../dnn_block/dnn_block.h"
 
 // embedding specific constant
 static const int EMBED_IN = 5; // raw jet features, log pT, eta, cos phi, sin phi, log E

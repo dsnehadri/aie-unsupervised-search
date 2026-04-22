@@ -14,15 +14,15 @@
 #include "hls_stream.h"
 #include "ap_axi_sdata.h"
 
-#include "../embed_ffn_source/embed_ffn.h"
-#include "../pairwise_mlp_source/pairwise_mlp.h"
-#include "../cand_lorentz_source/cand_lorentz.h"
-#include "../autoencoder_source/autoencoder.h"
-#include "../cand_build_source/candidate_build.h"
+#include "../embed_ffn/embed_ffn.h"
+#include "../pairwise_mlp/pairwise_mlp.h"
+#include "../cand_lorentz/cand_lorentz.h"
+#include "../autoencoder/autoencoder.h"
+#include "../cand_build/candidate_build.h"
 
-#include "../attn_block_source/attn_block_obj.h"
-#include "../attn_block_source/attn_block_cand.h"
-#include "../attn_block_source/attn_block_cross.h"
+#include "../attn_block_pl/attn_block_obj.h"
+#include "../attn_block_pl/attn_block_cand.h"
+#include "../attn_block_pl/attn_block_cross.h"
 
 // serialization helpers
 
@@ -414,6 +414,7 @@ inline void write_output(
 
 // DDR -> stream (DATAFLOW stage)
 static void read_input(const ap_uint<32>* in_buf, int offset, hls::stream<ap_uint<32>>& out) {
+    #pragma HLS INLINE off
     for (int i = 0; i < 72; i++) {
         #pragma HLS PIPELINE II=1
         out.write(in_buf[offset + i]);
@@ -422,6 +423,7 @@ static void read_input(const ap_uint<32>* in_buf, int offset, hls::stream<ap_uin
 
 // stream -> DDR
 static void write_output_ddr(hls::stream<ap_uint<32>>& in, ap_uint<32>* out_buf, int offset) {
+    #pragma HLS INLINE off
     for (int i = 0; i < 3; i++) {
         #pragma HLS PIPELINE II=1
         out_buf[offset + i] = in.read();

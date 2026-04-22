@@ -1,4 +1,4 @@
-#include "../pairwise_mlp_source/pairwise_mlp.h"
+#include "../pairwise_mlp/pairwise_mlp.h"
 #include "tb_helpers.h"
 
 

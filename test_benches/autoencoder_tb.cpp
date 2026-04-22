@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cmath>
 #include <string>
-#include "../autoencoder_source/autoencoder.h"
+#include "../autoencoder/autoencoder.h"
 #include "tb_helpers.h"
 
 

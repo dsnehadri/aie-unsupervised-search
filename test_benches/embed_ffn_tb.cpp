@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cmath>
 #include <string>
-#include "../embed_ffn_source/embed_ffn.h"
+#include "../embed_ffn/embed_ffn.h"
 #include "tb_helpers.h"
 
 int main() {

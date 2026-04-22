@@ -1,15 +1,15 @@
 #ifndef PASSWD_H
 #define PASSWD_H
 
-#include "../embed_ffn_source/embed_ffn.h"
-#include "../pairwise_mlp_source/pairwise_mlp.h"
-#include "../cand_lorentz_source/cand_lorentz.h"
-#include "../autoencoder_source/autoencoder.h"
-#include "../cand_build_source/candidate_build.h"
+#include "../embed_ffn/embed_ffn.h"
+#include "../pairwise_mlp/pairwise_mlp.h"
+#include "../cand_lorentz/cand_lorentz.h"
+#include "../autoencoder/autoencoder.h"
+#include "../cand_build/candidate_build.h"
 
-#include "../attn_block_source/attn_block_obj.h"
-#include "../attn_block_source/attn_block_cand.h"
-#include "../attn_block_source/attn_block_cross.h"
+#include "../attn_block_pl/attn_block_obj.h"
+#include "../attn_block_pl/attn_block_cand.h"
+#include "../attn_block_pl/attn_block_cross.h"
 
 inline void passwd_pipeline(
     const data_t raw_jets[N_MAX][RAW_DIM],
