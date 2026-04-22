@@ -13,45 +13,15 @@
 // forward declaration of DUT
 
 void passwd_stream_top(
-    hls::stream<axi_word_t> &in_stream,
-    hls::stream<axi_word_t> &out_stream
+    ap_uint<32>* in_buf,
+    ap_uint<32>* out_buf,
+    int n_events
 );
-
-// seralize data_t to AXI word
-
-static axi_word_t make_axi_word(data_t val, bool last) {
-    axi_word_t w;
-    ap_uint<32> bits = *(ap_uint<32>*)&val;
-    w.data = bits;
-    w.keep = 0xF;
-    w.strb = 0xF;
-    w.last = last ? 1 : 0;
-    return w;
-}
-
-// serialize bool to AXI word
-
-static axi_word_t make_axi_bool(bool val, bool last) {
-    axi_word_t w;
-    w.data = val? 1 : 0;
-    w.keep = 0xF;
-    w.strb = 0xF;
-    w.last = last ? 1 : 0;
-    return w;
-}
-
-// read float from AXI word
-
-static float axi_to_float(axi_word_t w) {
-    ap_uint<32> bits = w.data;
-    return *(float*)&bits;
-}
 
 int main() {
     int failures = 0;
     const int EVENT_IDX = 0;
 
-    std::string wt_dir = "/home/snehadri/repos/unsupervised-search/phase3_export/weights/";
     std::string tv_dir = "/home/snehadri/repos/unsupervised-search/phase3_export/test_vectors/";
 
     printf("passwd abc stream pipeline test\n");
@@ -79,48 +49,35 @@ int main() {
         golden_ldist = a3.data<float>()[EVENT_IDX];
     }
 
-    // serialize input into axi-stream
-
-    hls::stream<axi_word_t> in_stream("tb_in");
-    hls::stream<axi_word_t> out_stream("tb_out");
+    // pack input into memory mapped buffer
+    ap_uint<32> in_buf[72];
+    ap_uint<32> out_buf[3];
 
     // write raw jets
 
     for (int i = 0; i < N_MAX; i++) {
         for (int j = 0; j < RAW_DIM; j++) {
-            bool is_last = (i == N_MAX-1 && j == RAW_DIM -1 && N_MAX == 0);
-            in_stream.write(make_axi_word(raw_jets[i][j], false));
+            data_t val = raw_jets[i][j];
+            ap_uint<16> bits = val.range(15, 0);
+            in_buf[i * RAW_DIM + j] = (ap_uint<32>)bits;
         }
     }
 
     // write mask
 
     for (int i = 0; i <N_MAX; i++) {
-        in_stream.write(make_axi_bool(mask[i], (i == N_MAX - 1)));
+        in_buf[60 + i] = mask[i] ? 1 : 0;
     }
 
     // run DUT
 
-    passwd_stream_top(in_stream, out_stream);
+    passwd_stream_top(in_buf, out_buf, 1);
 
-    // read output from axi-stream
-    // protocol: 3 float words(mse, crossed, latent)
+    // unpack output
 
-    axi_word_t w0 = out_stream.read();
-    axi_word_t w1 = out_stream.read();
-    axi_word_t w2 = out_stream.read();
-
-    float hw_mse = axi_to_float(w0);
-    float hw_xloss = axi_to_float(w1);
-    float hw_ldist = axi_to_float(w2);
-
-    // verify TLAST on last word
-
-    if (!w2.last) {
-        printf("WARNING: TLAST not set on final word output\n");
-    }
-
-    // compare against golden reference
+    float hw_mse = *(float*)&out_buf[0];
+    float hw_xloss = *(float*)&out_buf[1];
+    float hw_ldist = *(float*)&out_buf[2];
 
     // const float TOL = 1e-3f; //tolerance for wide ap_fixed<32,12>
     const float TOL = 0.5f; //tolerance for ap_fixed<16,5>
