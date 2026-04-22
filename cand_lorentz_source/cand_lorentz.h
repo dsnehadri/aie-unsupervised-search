@@ -68,7 +68,7 @@ inline void x_to_p4_hw(
     float p4[N_MAX][P4_DIM]
 ) {
     for (int i = 0; i < N_MAX; i++) {
-        #pragma HLS PIPELINE II=1
+        // #pragma HLS PIPELINE II=1
 
         if (mask[i]) {
             p4[i][0] = 0.0f;
@@ -120,7 +120,7 @@ inline void build_candidates_p4(
     // accumulate
 
     for (int i = 0; i < N_MAX; i++) {
-        #pragma HLS PIPELINE II=1
+        #pragma HLS PIPELINE II=8
         for (int t = 0; t < T_DIM; t++) {
             if (jet_choice[i][t] > 0.5f) {
                 for (int d = 0; d < P4_DIM; d++) {
@@ -137,7 +137,7 @@ inline void compute_mass(
     float cand_mass_scaled[T_DIM]
 ) {
     for (int t = 0; t < T_DIM; t++) {
-        #pragma HLS PIPELINE II=1
+        // #pragma HLS PIPELINE II=1
         float e = cand_p4[t][0];
         float px = cand_p4[t][1];
         float py = cand_p4[t][2];
