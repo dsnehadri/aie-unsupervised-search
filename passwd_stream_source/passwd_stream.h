@@ -24,10 +24,6 @@
 #include "../attn_block_source/attn_block_cand.h"
 #include "../attn_block_source/attn_block_cross.h"
 
-// axi stream word type for top level ports
-
-typedef ap_axiu<32, 0, 0, 0> axi_word_t;
-
 // serialization helpers
 
 // write 2d array to a stream in row-major order
@@ -49,6 +45,7 @@ void stream_to_array2d(hls::stream<T> &in, T arr[ROWS][COLS]) {
     ROWS_LOOP: for (int i = 0; i < ROWS; i++) {
         COLS_LOOP: for (int j = 0; j < COLS; j++) {
             #pragma HLS PIPELINE II=1
+            #pragma HLS LOOP_FLATTEN off
             arr[i][j] = in.read();
         }
     }
@@ -60,6 +57,7 @@ template<int LEN, typename T>
 void array1d_to_stream(const T arr[LEN], hls::stream<T> &out) {
     for (int i = 0; i < LEN; i++) {
         #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_FLATTEN off
         out.write(arr[i]);
     }
 }
@@ -82,7 +80,7 @@ void stream_to_array1d(hls::stream<T> &in, T arr[LEN]) {
 // each word is a 32-bit data_t reinterpreted as ap_uint<32>
 
 inline void read_and_fork(
-    hls::stream<axi_word_t> &in_s,
+    hls::stream<ap_uint<32>> &in_s,
 
     // raw jets go to 3 consumers (embed, pairwise, cand_lorentz)
     hls::stream<data_t> &out_jets_embed,
@@ -100,10 +98,11 @@ inline void read_and_fork(
     READ_JETS: for (int i = 0; i < N_MAX; i++) {
         for (int j = 0; j < RAW_DIM; j++) {
             #pragma HLS PIPELINE II=1
-            axi_word_t w = in_s.read();
             //reinterpret 32-bit unsigned as data_t
-            ap_uint<32> bits = w.data;
-            raw_jets[i][j] = *(data_t*)&bits;
+            ap_uint<32> bits = in_s.read();
+            data_t val;
+            val.range(15, 0) =  bits.range(15, 0);
+            raw_jets[i][j] = val;
         }
     }
 
@@ -111,8 +110,8 @@ inline void read_and_fork(
     bool mask[N_MAX];
     READ_MASK: for (int i = 0; i < N_MAX; i++) {
         #pragma HLS PIPELINE II=1
-        axi_word_t w = in_s.read();
-        mask[i] = (w.data != 0);
+        ap_uint<32> w = in_s.read();
+        mask[i] = (w != 0);
     }
 
     // fork raw jets into 3 output streams
@@ -402,18 +401,30 @@ inline void ae_loss_stage(
 
 inline void write_output(
     hls::stream<float> &in_losses,
-    hls::stream<axi_word_t> &out_s
+    hls::stream<ap_uint<32>> &out_s
 ) {
     for (int i = 0; i < 3; i++) {
         #pragma HLS PIPELINE II=1
         float val = in_losses.read();
-        axi_word_t w;
         ap_uint<32> bits = *(ap_uint<32>*)&val;
-        w.data = bits;
-        w.keep = 0xF; // all 4 bytes valid
-        w.strb = 0xF; 
-        w.last = (i == 2) ? 1 : 0; // TLAST on final word
-        out_s.write(w);
+        out_s.write(bits);
+    }
+}
+
+
+// DDR -> stream (DATAFLOW stage)
+static void read_input(const ap_uint<32>* in_buf, int offset, hls::stream<ap_uint<32>>& out) {
+    for (int i = 0; i < 72; i++) {
+        #pragma HLS PIPELINE II=1
+        out.write(in_buf[offset + i]);
+    }
+}
+
+// stream -> DDR
+static void write_output_ddr(hls::stream<ap_uint<32>>& in, ap_uint<32>* out_buf, int offset) {
+    for (int i = 0; i < 3; i++) {
+        #pragma HLS PIPELINE II=1
+        out_buf[offset + i] = in.read();
     }
 }
 
@@ -423,8 +434,8 @@ inline void write_output(
 
 inline void passwd_dataflow(
     // axi stream io
-    hls::stream<axi_word_t> &in_stream,
-    hls::stream<axi_word_t> &out_stream,
+    const ap_uint<32>* in_buf, int in_offset,
+    ap_uint<32>* out_buf, int out_offset,
     // weights (stored in bram)
 
     const EmbedWeights &embed_w,
@@ -439,7 +450,18 @@ inline void passwd_dataflow(
     const AEDecoderWeights &ae_dec_w
 
 ) {
+    
     #pragma HLS DATAFLOW
+
+    // internal axi-stream FIFOs
+    hls::stream<ap_uint<32>> in_stream("mm2s");
+    hls::stream<ap_uint<32>> out_stream("s2mm");
+    #pragma HLS STREAM variable=in_stream depth = 72;
+    #pragma HLS STREAM variable=out_stream depth = 4;
+
+    // read from ddr into internal stream
+
+    read_input(in_buf, in_offset, in_stream);
 
     // internal streams 
     // stream depths = number of elements per event (prevents deadlock)
@@ -502,6 +524,7 @@ inline void passwd_dataflow(
     ae_loss_stage(s_ae, ae_enc_w, ae_dec_w, s_losses);
 
     write_output(s_losses, out_stream);
+    write_output_ddr(out_stream, out_buf, out_offset);
     
 }
 
