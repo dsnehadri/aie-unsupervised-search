@@ -2,23 +2,14 @@
     "configurations": [
         {
             "name": "Linux",
-            "compilerPath": "/usr/bin/g++",
-            "intelliSenseMode": "linux-gcc-x64",
-            "cStandard": "c17",
-            "cppStandard": "c++17",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/home/snehadri/Vitis_HLS/2022.2/include",
-                "/code/Xilinx_2023.2/Vitis/2024.1/aietools/include/**",
-                "/code/Xilinx_2023.2/Vitis/2024.1/include/**"
-            ],
-            "compilerArgs": [
-                "-isystem",
-                "/home/snehadri/Vitis_HLS/2022.2/include"
-            ],
-            "defines": [
-                "__SYNTHESIS__"
-            ]
+                "/home/snehadri/Vitis/2022.2/aietools/include",
+                "/home/snehadri/Vitis/2022.2/include"            ],
+            "defines": [],
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64"
         }
     ],
     "version": 4
