@@ -6,7 +6,7 @@ Emits plain float arrays + init functions that copy float→ap_fixed.
 Usage:
     python export_weights_to_header.py \
         --weight_dir /home/snehadri/repos/unsupervised-search/phase3_export/weights/ \
-        --output     /home/snehadri/repos/aie-unsupervised-search/passwd_stream_source/weights_rom.h
+        --output     /home/snehadri/repos/aie-unsupervised-search/pl_stream_source/weights_rom.h
 """
 
 import argparse

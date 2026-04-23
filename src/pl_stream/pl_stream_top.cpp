@@ -1,4 +1,4 @@
-#include "passwd_stream.h"
+#include "pl_stream.h"
 #include "weights_rom.h"
 
 // hls systhesis top function
@@ -15,7 +15,7 @@ static AEEncoderWeights ae_enc_w;
 static AEDecoderWeights ae_dec_w;
 
 
-extern "C" void passwd_stream_top(
+extern "C" void pl_stream_top(
     ap_uint<32>* in_buf,
     ap_uint<32>* out_buf,
     int n_events,

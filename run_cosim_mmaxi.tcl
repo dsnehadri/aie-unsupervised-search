@@ -1,13 +1,13 @@
 # run_cosim_mmaxi.tcl
-open_project passwd_stream_proj
-set_top passwd_stream_top
+open_project pl_stream_proj
+set_top pl_stream_top
 open_solution "solution1"
 set_part {xcvc1902-vsva2197-2MP-e-S}
 create_clock -period 5 -name default
 
-add_files passwd_stream_source/passwd_stream_top.cpp
+add_files pl_stream_source/pl_stream_top.cpp
 
-add_files -tb test_benches/passwd_stream_tb.cpp
+add_files -tb test_benches/pl_stream_tb.cpp
 add_files -tb cnpy/cnpy.cpp
 add_files -tb cnpy/cnpy.h
 

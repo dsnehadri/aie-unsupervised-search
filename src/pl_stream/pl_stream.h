@@ -1,5 +1,5 @@
-#ifndef PASSWD_STREAM_H
-#define PASSWD_STREAM_H
+#ifndef PL_STREAM_H
+#define PL_STREAM_H
 
 // passwd abc stream-based DATAFLOW pipeline
 // each pipeline stage is a wrapper function that

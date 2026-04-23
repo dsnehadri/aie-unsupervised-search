@@ -1,7 +1,7 @@
 /// host.cpp - XRT host application for passwd-abc on vck190
 
 // compile on vck190: g++ -o host host.cpp -lxrt_coreutil -I$XILINX_XRT/include -L$XILINX_XRT/lib
-// usage: ./host passwd_stream.xsa [input.bin] [n_events]
+// usage: ./host pl_stream.xsa [input.bin] [n_events]
 
 // if no input file is given, runs a single hardcoded test event
 
@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
     auto uuid = device.load_xclbin(xsa_path);
 
     std::cout << "creating kernel handle..." << std::endl;
-    auto kernel = xrt::kernel(device, uuid, "passwd_stream_top");
+    auto kernel = xrt::kernel(device, uuid, "pl_stream_top");
 
     // allocate device buffers
 
