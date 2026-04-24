@@ -4,7 +4,7 @@
 // but input/output go through hls::stream<axi_word_t> instead of direct
 // array arguments
 
-#include "../pl_stream_source/pl_stream.h"
+#include "../src/pl_stream/pl_stream.h"
 #include "tb_helpers.h"
 #include <cstdio>
 #include <cmath>
@@ -15,7 +15,14 @@
 void pl_stream_top(
     ap_uint<32>* in_buf,
     ap_uint<32>* out_buf,
-    int n_events
+    int n_events,
+    volatile ap_uint<32>* debug_stage,   // top-level progress
+    volatile ap_uint<32>* debug_embed,
+    volatile ap_uint<32>* debug_pairwise,
+    volatile ap_uint<32>* debug_abc0,
+    volatile ap_uint<32>* debug_abc1,
+    volatile ap_uint<32>* debug_cand_lorentz,
+    volatile ap_uint<32>* debug_ae
 );
 
 int main() {

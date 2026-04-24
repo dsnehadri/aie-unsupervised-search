@@ -19,7 +19,14 @@ extern "C" void pl_stream_top(
     ap_uint<32>* in_buf,
     ap_uint<32>* out_buf,
     int n_events,
-    volatile ap_uint<32>* debug_stage
+    volatile ap_uint<32>* debug_stage,   // top-level progress
+    volatile ap_uint<32>* debug_read_fork,
+    volatile ap_uint<32>* debug_embed,
+    volatile ap_uint<32>* debug_pairwise,
+    volatile ap_uint<32>* debug_abc0,
+    volatile ap_uint<32>* debug_abc1,
+    volatile ap_uint<32>* debug_cand_lorentz,
+    volatile ap_uint<32>* debug_ae
 ) {
     // axi-stream ports
     #pragma HLS INTERFACE m_axi port=in_buf  offset=slave bundle=gmem0 depth=720 num_read_outstanding=16 max_read_burst_length=64
@@ -28,6 +35,13 @@ extern "C" void pl_stream_top(
     #pragma HLS INTERFACE s_axilite port = out_buf
     #pragma HLS INTERFACE s_axilite port = n_events
     #pragma HLS INTERFACE s_axilite port = debug_stage
+    #pragma HLS INTERFACE s_axilite port = debug_read_fork
+    #pragma HLS INTERFACE s_axilite port = debug_embed
+    #pragma HLS INTERFACE s_axilite port = debug_pairwise
+    #pragma HLS INTERFACE s_axilite port = debug_abc0
+    #pragma HLS INTERFACE s_axilite port = debug_abc1
+    #pragma HLS INTERFACE s_axilite port = debug_cand_lorentz
+    #pragma HLS INTERFACE s_axilite port = debug_ae
     #pragma HLS INTERFACE s_axilite port = return
 
     *debug_stage = 1;
@@ -50,7 +64,7 @@ extern "C" void pl_stream_top(
         embed_w, mlp_w, 
         obj0_w, cand0_w, cross0_w,
         obj1_w, cand1_w, cross1_w,
-        ae_enc_w, ae_dec_w);
+        ae_enc_w, ae_dec_w, debug_read_fork, debug_embed, debug_pairwise, debug_abc0, debug_abc1, debug_cand_lorentz, debug_ae);
 
         *debug_stage = 100+ev;
     }

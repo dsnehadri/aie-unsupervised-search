@@ -75,7 +75,8 @@ int main(int argc, char* argv[]) {
     auto uuid = device.load_xclbin(xsa_path);
 
     std::cout << "creating kernel handle..." << std::endl;
-    auto kernel = xrt::kernel(device, uuid, "pl_stream_top");
+    auto kernel = xrt::kernel(device, uuid, "passwd_stream_top",
+                          xrt::kernel::cu_access_mode::exclusive);
 
     // allocate device buffers
 
@@ -121,12 +122,14 @@ int main(int argc, char* argv[]) {
 
     auto run = kernel(in_bo, out_bo, n_events);
 
-    while (run.state() == ERT_CMD_STATE_RUNNING) {
-        // Read register at offset for debug_stage
-        // The offset is auto-assigned — check xclbinutil --info
-        uint32_t val = kernel.read_register(0x50);  // offset TBD
-        std::cout << "debug_stage = " << val << "\n";
+    for (int i = 0; i < 30; i++) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        auto st = run.state();
+        uint32_t val = kernel.read_register(0x30);
+        std::cout << "t=" << i << "s  state=" << st 
+                << "  debug_stage=" << val << std::endl;
+        std::cout.flush();
+        if (st == ERT_CMD_STATE_COMPLETED) break;
     }
 
     run.wait();
