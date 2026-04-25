@@ -75,8 +75,13 @@ int main(int argc, char* argv[]) {
     auto uuid = device.load_xclbin(xsa_path);
 
     std::cout << "creating kernel handle..." << std::endl;
-    auto kernel = xrt::kernel(device, uuid, "passwd_stream_top",
+    auto kernel = xrt::kernel(device, uuid, "pl_stream_top",
                           xrt::kernel::cu_access_mode::exclusive);
+
+    uint32_t dbg_lo = kernel.read_register(0x30);
+    uint32_t dbg_hi = kernel.read_register(0x34);
+    std::cout << "debug_stage pointer = 0x" << std::hex 
+            << dbg_hi << dbg_lo << std::dec << std::endl;
 
     // allocate device buffers
 
@@ -86,6 +91,12 @@ int main(int argc, char* argv[]) {
     std::cout << "allocating buffers: in = " << in_size << " bytes, out =" << out_size << " bytes" << std::endl;
 
     auto in_bo = xrt::bo(device, in_size, kernel.group_id(0));
+
+    auto verify = in_bo.map<uint32_t*>();
+    std::cout << "in_buf[0..3] after sync: " 
+            << verify[0] << " " << verify[1] << " " 
+            << verify[2] << " " << verify[3] << std::endl;
+
     auto out_bo = xrt::bo(device, out_size, kernel.group_id(1));
 
     // prepare input data
@@ -119,20 +130,62 @@ int main(int argc, char* argv[]) {
     std::cout << "running kernel (" << n_events << "events)..." << std::endl;
     auto t_start = std::chrono::high_resolution_clock::now();
 
+    {
+        std::cout << "PRE-LAUNCH: ";
+        std::cout << "top=" << kernel.read_register(0x30);
+        std::cout << " rf=" << kernel.read_register(0x40);
+        std::cout << " em=" << kernel.read_register(0x50);
+        std::cout << " a1=" << kernel.read_register(0x80);
+        std::cout << std::endl;
+    }
+
+
 
     auto run = kernel(in_bo, out_bo, n_events);
 
     for (int i = 0; i < 30; i++) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         auto st = run.state();
-        uint32_t val = kernel.read_register(0x30);
-        std::cout << "t=" << i << "s  state=" << st 
-                << "  debug_stage=" << val << std::endl;
+        uint32_t top  = kernel.read_register(0x30);
+        uint32_t rf   = kernel.read_register(0x40);
+        uint32_t em   = kernel.read_register(0x50);
+        uint32_t pw   = kernel.read_register(0x60);
+        uint32_t a0   = kernel.read_register(0x70);
+        uint32_t a1   = kernel.read_register(0x80);
+        uint32_t cl   = kernel.read_register(0x90);
+        uint32_t ae   = kernel.read_register(0xA0);
+        std::cout << "t=" << i << "s state=" << st
+                << " top=" << top 
+                << " rf=" << rf
+                << " em=" << em
+                << " pw=" << pw
+                << " a0=" << a0
+                << " a1=" << a1
+                << " cl=" << cl
+                << " ae=" << ae << std::endl;
         std::cout.flush();
         if (st == ERT_CMD_STATE_COMPLETED) break;
-    }
+        }
 
     run.wait();
+    uint32_t ctrl = kernel.read_register(0x00);
+    std::cout << "AP_CTRL register = 0x" << std::hex << ctrl << std::dec << std::endl;
+    
+
+    {
+        uint32_t top = kernel.read_register(0x30);
+        uint32_t rf  = kernel.read_register(0x40);
+        uint32_t em  = kernel.read_register(0x50);
+        uint32_t pw  = kernel.read_register(0x60);
+        uint32_t a0  = kernel.read_register(0x70);
+        uint32_t a1  = kernel.read_register(0x80);
+        uint32_t cl  = kernel.read_register(0x90);
+        uint32_t ae  = kernel.read_register(0xA0);
+        std::cout << "FINAL: top=" << top 
+                << " rf=" << rf << " em=" << em << " pw=" << pw
+                << " a0=" << a0 << " a1=" << a1 
+                << " cl=" << cl << " ae=" << ae << std::endl;
+    }
 
     auto t_end = std::chrono::high_resolution_clock::now();
     double elapsed_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();

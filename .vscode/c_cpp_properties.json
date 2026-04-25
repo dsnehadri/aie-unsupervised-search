@@ -5,7 +5,9 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "/home/snehadri/Vitis/2022.2/aietools/include",
-                "/home/snehadri/Vitis/2022.2/include"            ],
+                "/home/snehadri/Vitis/2022.2/include",
+                "/home/snehadri/Vitis_HLS/2022.2/include"
+                        ],
             "defines": [],
             "cStandard": "c17",
             "cppStandard": "c++17",

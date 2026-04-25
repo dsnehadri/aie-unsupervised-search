@@ -91,10 +91,10 @@ inline void read_and_fork(
     hls::stream<bool> &out_mask_embed,
     hls::stream<bool> &out_mask_abc0,
     hls::stream<bool> &out_mask_abc1,
-    hls::stream<bool> &out_mask_cand,
-    volatile ap_uint<32>* dbg
+    hls::stream<bool> &out_mask_cand
+    // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
-    *dbg = 1;
+    // debug_buf[dbg_idx] = 1;
     // read raw_jets from axi-stream
     data_t raw_jets[N_MAX][RAW_DIM];
     READ_JETS: for (int i = 0; i < N_MAX; i++) {
@@ -138,7 +138,7 @@ inline void read_and_fork(
         out_mask_abc1.write(val);
         out_mask_cand.write(val);
     }
-    *dbg = 2;
+    // debug_buf[dbg_idx] = 2;
 }
 
 // stage 1 embed
@@ -148,10 +148,10 @@ inline void embed_stage(
     hls::stream<data_t> &in_jets,
     hls::stream<bool> &in_mask,
     const EmbedWeights &embed_w,
-    hls::stream<data_t> &out_embed,
-    volatile ap_uint<32>* dbg
+    hls::stream<data_t> &out_embed
+    // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
-    *dbg = 1;
+    // debug_buf[dbg_idx] = 1;
     // deserialize
     data_t raw_jets[N_MAX][RAW_DIM];
     stream_to_array2d<N_MAX, RAW_DIM>(in_jets, raw_jets);
@@ -164,7 +164,7 @@ inline void embed_stage(
 
     // serialize
     array2d_to_stream<N_MAX, E_DIM>(x, out_embed);
-    *dbg = 2;
+    // debug_buf[dbg_idx] = 2;
 }
 
 // pairwise stage
@@ -173,10 +173,10 @@ inline void embed_stage(
 inline void pairwise_stage(
     hls::stream<data_t> &in_jets,
     const MLPWeights &mlp_w,
-    hls::stream<score_t> &out_wij_bias,
-    volatile ap_uint<32>* dbg
+    hls::stream<score_t> &out_wij_bias
+    // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
-    *dbg = 1;
+    // debug_buf[dbg_idx] = 1;
     // deserialize
     data_t raw_jets[N_MAX][RAW_DIM];
     stream_to_array2d<N_MAX, RAW_DIM>(in_jets, raw_jets);
@@ -206,7 +206,7 @@ inline void pairwise_stage(
             out_wij_bias.write(wij_bias[i][j]);
         }
     }
-    *dbg = 2;
+    // debug_buf[dbg_idx] = 2;
 }
 
 // abc layer 0 stage
@@ -219,14 +219,14 @@ inline void abc_layer_0_stage(
     const AttnWeights &obj_w,
     const AttnWeights &cand_w,
     const AttnWeights &cross_w,
-    hls::stream<data_t> &out_x,
-    volatile ap_uint<32>* dbg
+    hls::stream<data_t> &out_x
+    // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
-    *dbg = 1;
+    // debug_buf[dbg_idx] = 1;
     // deserialize
     data_t x[N_MAX][E_DIM];
     stream_to_array2d<N_MAX,E_DIM>(in_embed, x);
-    *dbg = 2;
+    // debug_buf[dbg_idx] = 2;
 
     score_t wij_bias[N_MAX*N_HEADS][N_KV];
     READ_WIJ: for(int i = 0; i < N_MAX * N_HEADS; i++) {
@@ -236,7 +236,7 @@ inline void abc_layer_0_stage(
         }
     }
 
-    *dbg = 3;
+    // debug_buf[dbg_idx] = 3;
 
     bool mask[N_MAX];
     stream_to_array1d<N_MAX>(in_mask, mask);
@@ -250,7 +250,7 @@ inline void abc_layer_0_stage(
         obj_w.post_ffn_g, obj_w.post_ffn_b);
     remask(x, mask);
 
-    *dbg = 4;
+    // debug_buf[dbg_idx] = 4;
 
     // build embedded candidates
     data_t c[T_DIM][E_DIM];
@@ -259,7 +259,7 @@ inline void abc_layer_0_stage(
 
     // candidate self attention
 
-    *dbg = 5;
+    // debug_buf[dbg_idx] = 5;
 
     attn_block_cand(c, 
         cand_w.Wq, cand_w.bq, cand_w.Wk, cand_w.bk, cand_w.Wv, cand_w.bv,
@@ -268,7 +268,7 @@ inline void abc_layer_0_stage(
         cand_w.ffn_w, cand_w.ffn_b, cand_w.ffn_ln_g, cand_w.ffn_ln_b,
         cand_w.post_ffn_g, cand_w.post_ffn_b);
 
-    *dbg = 6;
+    // debug_buf[dbg_idx] = 6;
 
     attn_block_cross(x, c, 
         cross_w.Wq, cross_w.bq, cross_w.Wk, cross_w.bk, cross_w.Wv, cross_w.bv,
@@ -278,12 +278,12 @@ inline void abc_layer_0_stage(
         cross_w.post_ffn_g, cross_w.post_ffn_b);
     remask(x, mask);
 
-    *dbg = 7;
+    // debug_buf[dbg_idx] = 7;
 
     // serialize
     array2d_to_stream<N_MAX, E_DIM>(x, out_x);
 
-    *dbg = 8;
+    // debug_buf[dbg_idx] = 8;
 }
 
 
@@ -298,18 +298,18 @@ inline void abc_layer_1_stage(
     const AttnWeights &cand_w,
     const AttnWeights &cross_w,
     hls::stream<data_t> &out_x,
-    hls::stream<data_t> &out_c,
-    volatile ap_uint<32>* dbg
+    hls::stream<data_t> &out_c
+    // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
 
-    *dbg = 1;
+    // debug_buf[dbg_idx] = 1;
     // deserialize
     data_t x[N_MAX][E_DIM];
     stream_to_array2d<N_MAX,E_DIM>(in_x, x);
     bool mask[N_MAX];
     stream_to_array1d<N_MAX>(in_mask, mask);
 
-    *dbg = 2;
+    // debug_buf[dbg_idx] = 2;
 
     // object self-attention (without wij bias)
     // need a dummy wij since the function signature requires it
@@ -323,14 +323,14 @@ inline void abc_layer_1_stage(
         obj_w.post_ffn_g, obj_w.post_ffn_b);
     remask(x, mask);
 
-    *dbg = 3;
+    // debug_buf[dbg_idx] = 3;
 
     // build embedded candidates
     data_t c[T_DIM][E_DIM];
     int jet_assign_tmp[N_MAX];
     build_candidates<N_MAX>(x, c, jet_assign_tmp);
 
-    *dbg = 4;
+    // debug_buf[dbg_idx] = 4;
 
     // candidate self attention
 
@@ -341,7 +341,7 @@ inline void abc_layer_1_stage(
         cand_w.ffn_w, cand_w.ffn_b, cand_w.ffn_ln_g, cand_w.ffn_ln_b,
         cand_w.post_ffn_g, cand_w.post_ffn_b);
 
-    *dbg = 5;
+    // debug_buf[dbg_idx] = 5;
 
     attn_block_cross(x, c, 
         cross_w.Wq, cross_w.bq, cross_w.Wk, cross_w.bk, cross_w.Wv, cross_w.bv,
@@ -351,13 +351,13 @@ inline void abc_layer_1_stage(
         cross_w.post_ffn_g, cross_w.post_ffn_b);
     remask(x, mask);
 
-    *dbg = 6;
+    // debug_buf[dbg_idx] = 6;
 
     // serialize to both x and c
     array2d_to_stream<N_MAX, E_DIM>(x, out_x);
     array2d_to_stream<T_DIM, E_DIM>(c, out_c);
 
-    *dbg = 7;
+    // debug_buf[dbg_idx] = 7;
 }
 
 // cand lorentz stage
@@ -367,12 +367,12 @@ inline void cand_lorentz_stage(
     hls::stream<data_t> &in_x,
     hls::stream<data_t> &in_c,
     hls::stream<bool> &in_mask,
-    hls::stream<data_t> &out_ae_input,
-    volatile ap_uint<32>* dbg
+    hls::stream<data_t> &out_ae_input
+    // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
     //deserialize
 
-    *dbg = 1;
+    // debug_buf[dbg_idx] = 1;
 
     data_t raw_jets[N_MAX][RAW_DIM];
     stream_to_array2d<N_MAX, RAW_DIM>(in_jets, raw_jets);
@@ -402,7 +402,7 @@ inline void cand_lorentz_stage(
         } 
     }    
 
-    *dbg = 2;
+    // debug_buf[dbg_idx] = 2;
 }
 
 // ae loss stage
@@ -412,10 +412,10 @@ inline void ae_loss_stage(
     hls::stream<data_t> &in_ae,
     const AEEncoderWeights &ae_enc_w,
     const AEDecoderWeights &ae_dec_w,
-    hls::stream<float> &out_losses,
-    volatile ap_uint<32>* dbg
+    hls::stream<float> &out_losses
+    // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
-    *dbg = 1;
+    // debug_buf[dbg_idx] = 1;
     // deserialize cand 0 and cand 1
     data_t c0_in[1][AE_IN_DIM], c1_in[1][AE_IN_DIM];
     for (int i = 0; i < AE_IN_DIM; i++) {
@@ -441,7 +441,7 @@ inline void ae_loss_stage(
     out_losses.write(mse_loss);
     out_losses.write(mse_crossed_loss);
     out_losses.write(latent_dist);
-    *dbg = 2;
+    // debug_buf[dbg_idx] = 2;
 }
 
 // serialize 3 loss scalars to axi-stream output
@@ -496,15 +496,8 @@ inline void passwd_dataflow(
     const AttnWeights &cand1_w,
     const AttnWeights &cross1_w,
     const AEEncoderWeights &ae_enc_w,
-    const AEDecoderWeights &ae_dec_w,
-    volatile ap_uint<32>* dbg_read_fork,
-    volatile ap_uint<32>* dbg_embed,
-    volatile ap_uint<32>* dbg_pairwise,
-    volatile ap_uint<32>* dbg_abc0,
-    volatile ap_uint<32>* dbg_abc1,
-    volatile ap_uint<32>* dbg_cand_lorentz,
-    volatile ap_uint<32>* dbg_ae
-
+    const AEDecoderWeights &ae_dec_w
+    // volatile ap_uint<32>* debug_buf
 ) {
     
     #pragma HLS DATAFLOW
@@ -561,23 +554,23 @@ inline void passwd_dataflow(
 
     read_and_fork(in_stream,
         s_jets_embed, s_jets_pairwise, s_jets_cand,
-        s_mask_embed, s_mask_abc0, s_mask_abc1, s_mask_cand, dbg_read_fork);
+        s_mask_embed, s_mask_abc0, s_mask_abc1, s_mask_cand);
 
-    embed_stage(s_jets_embed, s_mask_embed, embed_w, s_embed, dbg_embed);
+    embed_stage(s_jets_embed, s_mask_embed, embed_w, s_embed);
 
-    pairwise_stage(s_jets_pairwise, mlp_w, s_wij, dbg_pairwise);
+    pairwise_stage(s_jets_pairwise, mlp_w, s_wij);
 
     abc_layer_0_stage(s_embed, s_wij, s_mask_abc0,
         obj0_w, cand0_w, cross0_w,
-        s_x0, dbg_abc0);
+        s_x0);
 
     abc_layer_1_stage(s_x0, s_mask_abc1,
         obj1_w, cand1_w, cross1_w,
-        s_x1, s_c1, dbg_abc1);
+        s_x1, s_c1);
 
-    cand_lorentz_stage(s_jets_cand, s_x1, s_c1, s_mask_cand, s_ae, dbg_cand_lorentz);
+    cand_lorentz_stage(s_jets_cand, s_x1, s_c1, s_mask_cand, s_ae);
 
-    ae_loss_stage(s_ae, ae_enc_w, ae_dec_w, s_losses, dbg_ae);
+    ae_loss_stage(s_ae, ae_enc_w, ae_dec_w, s_losses);
 
     write_output(s_losses, out_stream);
     write_output_ddr(out_stream, out_buf, out_offset);
