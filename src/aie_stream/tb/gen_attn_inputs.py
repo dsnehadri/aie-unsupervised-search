@@ -63,7 +63,12 @@ def to_int16(x_float):
 
 
 def write_plio_text(path, int16_arr):
-    """Write a flat int16 array as a PLIO text file (4 hex int16s per line)."""
+    """Write a flat int16 array as a PLIO text file (4 signed-decimal int16s per line).
+
+    aiesimulator's default PLIO parser reads tokens as signed decimal integers;
+    hex tokens with letters (e.g. 'fcbd') fail to parse and silently starve the
+    input stream, which deadlocks the graph. Always emit decimal.
+    """
     flat = int16_arr.reshape(-1).astype(np.int16)
 
     # Pad to a multiple of INT16S_PER_TRANSFER so every line is a full transfer.
@@ -71,14 +76,11 @@ def write_plio_text(path, int16_arr):
     if pad:
         flat = np.concatenate([flat, np.zeros(pad, dtype=np.int16)])
 
-    # Reinterpret as uint16 for clean two's-complement hex formatting.
-    u = flat.view(np.uint16)
-
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
-        for i in range(0, len(u), INT16S_PER_TRANSFER):
-            row = u[i:i + INT16S_PER_TRANSFER]
-            f.write(" ".join(f"{v:04x}" for v in row) + "\n")
+        for i in range(0, len(flat), INT16S_PER_TRANSFER):
+            row = flat[i:i + INT16S_PER_TRANSFER]
+            f.write(" ".join(str(int(v)) for v in row) + "\n")
     print(f"  wrote {path}  ({len(flat)} int16s, {len(flat)//INT16S_PER_TRANSFER} transfers)")
 
 
@@ -145,9 +147,14 @@ def main():
         write_plio_text(os.path.join(args.data_dir, f"obj_wij_h{h}_L0.txt"), wij_q)
 
     # ---- cand0 inputs -------------------------------------------------------
+    # Cand pipeline runs at Q6.9 (scale 512) so unnormalized cand_build sums
+    # up to ~|19| fit. The cand kernel uses CAND_SCALE/CAND_ACC_SHIFT and the
+    # cand weight headers are regenerated at the matching scale.
+    CAND_SCALE = 1 << 9   # 512
     print("\n[cand0]")
     c_cand = load_event("stage3_layer0_candidates_embedded.npy", (T_DIM, E_DIM))
-    write_plio_text(os.path.join(args.data_dir, "cand_c_in_L0.txt"), to_int16(c_cand))
+    c_cand_int = np.clip(np.round(c_cand * CAND_SCALE), -32768, 32767).astype(np.int16)
+    write_plio_text(os.path.join(args.data_dir, "cand_c_in_L0.txt"), c_cand_int)
 
     # ---- cross0 inputs ------------------------------------------------------
     # Cross attention takes Q from post-obj-selfattn output and K=V from

@@ -50,10 +50,12 @@ DEFAULT_TOL = 0.5
 # PLIO text file -> int16 array
 # ----------------------------------------------------------------------------
 def parse_plio_text(path, expected_count):
-    """Read a PLIO text file (4 hex int16s per line) into a flat int16 array.
+    """Read a PLIO text file (4 signed-decimal int16s per line) into a flat int16 array.
 
-    Trailing zero-padding (added by gen_attn_inputs to align to 64-bit transfers)
-    is trimmed back to expected_count.
+    aiesimulator interleaves "T <time> ps|ns" timestamp lines with the data
+    lines in its outputs; these are skipped here. Trailing zero-padding (added
+    by gen_attn_inputs to align to 64-bit transfers) is trimmed back to
+    expected_count.
     """
     if not os.path.isfile(path):
         sys.exit(f"output file not found: {path}")
@@ -62,17 +64,13 @@ def parse_plio_text(path, expected_count):
     with open(path, "r") as f:
         for line_no, raw in enumerate(f, 1):
             line = raw.strip()
-            if not line or line.startswith("#"):
+            if not line or line.startswith("#") or line.startswith("T ") or line == "TLAST":
                 continue
             for tok in line.split():
-                # accept "0x1234" or "1234" (hex assumed)
-                tok = tok.lower().lstrip("0x") or "0"
                 try:
-                    u = int(tok, 16) & 0xFFFF
+                    vals.append(int(tok))
                 except ValueError:
                     sys.exit(f"{path}:{line_no}: cannot parse token '{tok}'")
-                # uint16 -> int16 two's complement
-                vals.append(u - 0x10000 if u >= 0x8000 else u)
 
     if len(vals) < expected_count:
         sys.exit(f"{path}: only {len(vals)} values, expected at least {expected_count}")
@@ -80,9 +78,13 @@ def parse_plio_text(path, expected_count):
     return np.array(vals[:expected_count], dtype=np.int16)
 
 
-def dequantize(int16_arr):
-    """int16 -> float using the same Q4.11 scaling as gen_attn_inputs.py."""
-    return int16_arr.astype(np.float32) / DATA_SCALE
+def dequantize(int16_arr, scale=DATA_SCALE):
+    """int16 -> float. Default Q4.11 for obj/cross outputs; cand uses scale=512 (Q6.9)."""
+    return int16_arr.astype(np.float32) / scale
+
+
+# cand pipeline runs at Q6.9 throughout (see attn_aie_types.h CAND_SCALE).
+CAND_SCALE = 1 << 9   # 512
 
 
 # ----------------------------------------------------------------------------
@@ -180,7 +182,7 @@ def main():
     print("\ntest 2: CAND")
     out_path = find_output("cand_c_out_L0.txt", args.output_dir)
     cand_int16 = parse_plio_text(out_path, expected_count=T_DIM * E_DIM)
-    cand_out = dequantize(cand_int16).reshape(T_DIM, E_DIM)
+    cand_out = dequantize(cand_int16, scale=CAND_SCALE).reshape(T_DIM, E_DIM)
     cand_gold = np.load(os.path.join(tv, "stage3_layer0_post_cand_selfattn.npy"))[ev]
     ok, _, _ = compare("cand_blocks", cand_out, cand_gold, mask=None, tol=args.tol)
     if not ok:

@@ -1,30 +1,35 @@
-// instantiates 6 attention subgraphs   
+// instantiates 6 attention subgraphs; each head split across pre/post tiles
 
 #ifndef PASSWD_FULL_GRAPH_H
 #define PASSWD_FULL_GRAPH_H
 
 #include <adf.h>
+
+using namespace adf;
+
 #include "../../attn_block_aie/kernels/attn_aie_types.h"
 #include "../../attn_block_aie/kernels/attn_head_kernel.h"
 #include "../../attn_block_aie/kernels/attn_post_kernel.h"
 
-using namespace adf;
+// Heads need 4 distinct kernel functions per layer (the aiecompiler dedups
+// wrappers by function symbol identity). The aiecompiler can't see through a
+// typedef'd function-pointer variable for signature introspection, so we
+// dispatch with `if constexpr` over LAYER and a switch over h.
 
 // obj attn subgraph
 
-// template parameter to distinguish layer instances
-template <int LAYER>    
+template <int LAYER>
 class ObjAttnGraphL : public graph {
 public:
     input_plio  plio_x_in;
     input_plio  plio_wij_h0, plio_wij_h1, plio_wij_h2, plio_wij_h3;
     output_plio plio_x_out;
 private:
-    kernel k_head[N_HEADS];
-    kernel k_post;
+    kernel k_pre[N_HEADS];
+    kernel k_post_h[N_HEADS];
+    kernel k_post_ac, k_post_ap, k_post_b1, k_post_b2, k_post_c;
 public:
     ObjAttnGraphL() {
-        // layer unique plio names
         const std::string suffix = "_L" + std::to_string(LAYER);
         plio_x_in = input_plio::create("obj_x_in" + suffix, plio_64_bits,
                                         "data/obj_x_in" + suffix + ".txt");
@@ -39,115 +44,213 @@ public:
         plio_x_out = output_plio::create("obj_x_out" + suffix, plio_64_bits,
                                         "data/obj_x_out" + suffix + ".txt");
 
-        // layer specific kernel source files
+        if constexpr (LAYER == 0) {
+            k_pre[0] = kernel::create(obj_attn_head_pre_h0_L0);
+            k_pre[1] = kernel::create(obj_attn_head_pre_h1_L0);
+            k_pre[2] = kernel::create(obj_attn_head_pre_h2_L0);
+            k_pre[3] = kernel::create(obj_attn_head_pre_h3_L0);
+            k_post_h[0] = kernel::create(obj_attn_head_post_h0_L0);
+            k_post_h[1] = kernel::create(obj_attn_head_post_h1_L0);
+            k_post_h[2] = kernel::create(obj_attn_head_post_h2_L0);
+            k_post_h[3] = kernel::create(obj_attn_head_post_h3_L0);
+        } else {
+            k_pre[0] = kernel::create(obj_attn_head_pre_h0_L1);
+            k_pre[1] = kernel::create(obj_attn_head_pre_h1_L1);
+            k_pre[2] = kernel::create(obj_attn_head_pre_h2_L1);
+            k_pre[3] = kernel::create(obj_attn_head_pre_h3_L1);
+            k_post_h[0] = kernel::create(obj_attn_head_post_h0_L1);
+            k_post_h[1] = kernel::create(obj_attn_head_post_h1_L1);
+            k_post_h[2] = kernel::create(obj_attn_head_post_h2_L1);
+            k_post_h[3] = kernel::create(obj_attn_head_post_h3_L1);
+        }
         for (int h = 0; h < N_HEADS; h++) {
-            k_head[h] = kernel::create(obj_attn_head);
-            source(k_head[h]) = ("kernels/obj_head" + std::to_string(h) +
-                                "_L" + std::to_string(LAYER) + ".cc").c_str();
-            runtime<ratio>(k_head[h]) = 0.9;
+            source(k_pre[h]) = ("kernels/obj_head" + std::to_string(h) +
+                                "_pre_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_pre[h]) = 0.9;
+            source(k_post_h[h]) = ("kernels/obj_head" + std::to_string(h) +
+                                "_post_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_post_h[h]) = 0.9;
         }
 
-        k_post = kernel::create(attn_post);
-        source(k_post) = ("kernels/obj_post_L" + std::to_string(LAYER) + ".cc").c_str();
-        runtime<ratio>(k_post) = 0.9;
+        if constexpr (LAYER == 0) {
+            k_post_ac = kernel::create(obj_post_a_concat_L0);
+            k_post_ap = kernel::create(obj_post_a_proj_L0);
+            k_post_b1 = kernel::create(obj_post_b1_L0);
+            k_post_b2 = kernel::create(obj_post_b2_L0);
+            k_post_c  = kernel::create(obj_post_c_L0);
+        } else {
+            k_post_ac = kernel::create(obj_post_a_concat_L1);
+            k_post_ap = kernel::create(obj_post_a_proj_L1);
+            k_post_b1 = kernel::create(obj_post_b1_L1);
+            k_post_b2 = kernel::create(obj_post_b2_L1);
+            k_post_c  = kernel::create(obj_post_c_L1);
+        }
+        source(k_post_ac) = ("kernels/obj_post_ac_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_ac) = 0.9;
+        source(k_post_ap) = ("kernels/obj_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_ap) = 0.9;
+        source(k_post_b1) = ("kernels/obj_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_b1) = 0.9;
+        source(k_post_b2) = ("kernels/obj_post_b2_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_b2) = 0.9;
+        source(k_post_c) = ("kernels/obj_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_c) = 0.9;
 
         // window sizes
+        constexpr int x_sz       = N_MAX * E_DIM * sizeof(int16);
+        constexpr int wij_sz     = N_MAX * N_KV * sizeof(int16);
+        constexpr int scores_sz  = N_MAX * N_KV_PAD * sizeof(int16);
+        constexpr int v_sz       = N_KV_PAD * D_HEAD * sizeof(int16);
+        constexpr int hout       = N_MAX * D_HEAD * sizeof(int16);
+        constexpr int concat_sz  = N_MAX * E_DIM * sizeof(int16);
+        constexpr int proj_sz    = N_MAX * E_DIM * sizeof(int16);
 
-        constexpr int x_sz = N_MAX * E_DIM * sizeof(int16);
-        constexpr int wij_sz = N_MAX * N_KV * sizeof(int16);
-        constexpr int hout = N_MAX * D_HEAD * sizeof(int16);
+        // plio -> pre (X for all 4 heads)
+        for (int h = 0; h < N_HEADS; h++) {
+            connect<window<x_sz>>(plio_x_in.out[0], k_pre[h].in[0]);
+        }
 
-        // plio -> heads
+        // pre -> post_h: scores + V
+        for (int h = 0; h < N_HEADS; h++) {
+            connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
+            connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
+        }
 
-        connect<window<x_sz>> (plio_x_in.out[0], k_head[0].in[0]);
-        connect<window<wij_sz>> (plio_wij_h0.out[0], k_head[0].in[1]);
-        connect<window<x_sz>> (plio_x_in.out[0], k_head[1].in[0]);
-        connect<window<wij_sz>> (plio_wij_h1.out[0], k_head[1].in[1]);
-        connect<window<x_sz>> (plio_x_in.out[0], k_head[2].in[0]);
-        connect<window<wij_sz>> (plio_wij_h2.out[0], k_head[2].in[1]);
-        connect<window<x_sz>> (plio_x_in.out[0], k_head[3].in[0]);
-        connect<window<wij_sz>> (plio_wij_h3.out[0], k_head[3].in[1]);
+        // wij PLIOs -> post_h
+        connect<window<wij_sz>>(plio_wij_h0.out[0], k_post_h[0].in[2]);
+        connect<window<wij_sz>>(plio_wij_h1.out[0], k_post_h[1].in[2]);
+        connect<window<wij_sz>>(plio_wij_h2.out[0], k_post_h[2].in[2]);
+        connect<window<wij_sz>>(plio_wij_h3.out[0], k_post_h[3].in[2]);
 
-        // heads -> post
+        // head_post -> post_a_concat (4 heads)
+        for (int h = 0; h < N_HEADS; h++) {
+            connect<window<hout>>(k_post_h[h].out[0], k_post_ac.in[h]);
+        }
 
-        connect<window<hout>> (k_head[0].out[0], k_post.in[0]);
-        connect<window<hout>> (k_head[1].out[0], k_post.in[1]);
-        connect<window<hout>> (k_head[2].out[0], k_post.in[2]);
-        connect<window<hout>> (k_head[3].out[0], k_post.in[3]);
-        connect<window<x_sz>> (plio_x_in.out[0], k_post.in[4]);
+        // post_a_concat -> post_a_proj, residual X -> post_a_proj
+        connect<window<concat_sz>>(k_post_ac.out[0], k_post_ap.in[0]);
+        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[1]);
 
-        // post -> PLIO
-        connect<window<x_sz>> (k_post.out[0], plio_x_out.in[0]);
+        // post_a_proj -> post_b1 (ffn0) and post_a_proj -> post_c (FFN-residual broadcast)
+        connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
+        connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
+
+        // post_b1 -> post_b2 -> post_c -> PLIO
+        connect<window<proj_sz>>(k_post_b1.out[0], k_post_b2.in[0]);
+        connect<window<proj_sz>>(k_post_b2.out[0], k_post_c.in[0]);
+        connect<window<x_sz>>(k_post_c.out[0], plio_x_out.in[0]);
     }
 };
 
 // cand attn subgraph
 
-template <int LAYER>    
+template <int LAYER>
 class CandAttnGraphL : public graph {
 public:
     input_plio  plio_c_in;
     output_plio plio_c_out;
 private:
-    kernel k_head[N_HEADS];
-    kernel k_post;
+    kernel k_pre[N_HEADS];
+    kernel k_post_h[N_HEADS];
+    kernel k_post_ac, k_post_ap, k_post_b1, k_post_b2, k_post_c;
 public:
     CandAttnGraphL() {
-        // layer unique plio names
         const std::string suffix = "_L" + std::to_string(LAYER);
         plio_c_in = input_plio::create("cand_c_in" + suffix, plio_64_bits,
                                         "data/cand_c_in" + suffix + ".txt");
         plio_c_out = output_plio::create("cand_c_out" + suffix, plio_64_bits,
                                         "data/cand_c_out" + suffix + ".txt");
 
-        // layer specific kernel source files
+        if constexpr (LAYER == 0) {
+            k_pre[0] = kernel::create(cand_attn_head_pre_h0_L0);
+            k_pre[1] = kernel::create(cand_attn_head_pre_h1_L0);
+            k_pre[2] = kernel::create(cand_attn_head_pre_h2_L0);
+            k_pre[3] = kernel::create(cand_attn_head_pre_h3_L0);
+            k_post_h[0] = kernel::create(cand_attn_head_post_h0_L0);
+            k_post_h[1] = kernel::create(cand_attn_head_post_h1_L0);
+            k_post_h[2] = kernel::create(cand_attn_head_post_h2_L0);
+            k_post_h[3] = kernel::create(cand_attn_head_post_h3_L0);
+        } else {
+            k_pre[0] = kernel::create(cand_attn_head_pre_h0_L1);
+            k_pre[1] = kernel::create(cand_attn_head_pre_h1_L1);
+            k_pre[2] = kernel::create(cand_attn_head_pre_h2_L1);
+            k_pre[3] = kernel::create(cand_attn_head_pre_h3_L1);
+            k_post_h[0] = kernel::create(cand_attn_head_post_h0_L1);
+            k_post_h[1] = kernel::create(cand_attn_head_post_h1_L1);
+            k_post_h[2] = kernel::create(cand_attn_head_post_h2_L1);
+            k_post_h[3] = kernel::create(cand_attn_head_post_h3_L1);
+        }
         for (int h = 0; h < N_HEADS; h++) {
-            k_head[h] = kernel::create(cand_attn_head);
-            source(k_head[h]) = ("kernels/cand_head" + std::to_string(h) +
-                                "_L" + std::to_string(LAYER) + ".cc").c_str();
-            runtime<ratio>(k_head[h]) = 0.9;
+            source(k_pre[h]) = ("kernels/cand_head" + std::to_string(h) +
+                                "_pre_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_pre[h]) = 0.9;
+            source(k_post_h[h]) = ("kernels/cand_head" + std::to_string(h) +
+                                "_post_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_post_h[h]) = 0.9;
         }
 
-        k_post = kernel::create(attn_post);
-        source(k_post) = ("kernels/cand_post_L" + std::to_string(LAYER) + ".cc").c_str();
-        runtime<ratio>(k_post) = 0.9;
+        if constexpr (LAYER == 0) {
+            k_post_ac = kernel::create(cand_post_a_concat_L0);
+            k_post_ap = kernel::create(cand_post_a_proj_L0);
+            k_post_b1 = kernel::create(cand_post_b1_L0);
+            k_post_b2 = kernel::create(cand_post_b2_L0);
+            k_post_c  = kernel::create(cand_post_c_L0);
+        } else {
+            k_post_ac = kernel::create(cand_post_a_concat_L1);
+            k_post_ap = kernel::create(cand_post_a_proj_L1);
+            k_post_b1 = kernel::create(cand_post_b1_L1);
+            k_post_b2 = kernel::create(cand_post_b2_L1);
+            k_post_c  = kernel::create(cand_post_c_L1);
+        }
+        source(k_post_ac) = ("kernels/cand_post_ac_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_ac) = 0.9;
+        source(k_post_ap) = ("kernels/cand_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_ap) = 0.9;
+        source(k_post_b1) = ("kernels/cand_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_b1) = 0.9;
+        source(k_post_b2) = ("kernels/cand_post_b2_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_b2) = 0.9;
+        source(k_post_c) = ("kernels/cand_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_c) = 0.9;
 
-        // window sizes
-
-        constexpr int c_sz = T_DIM * E_DIM * sizeof(int16);
-        constexpr int hout = T_DIM * D_HEAD * sizeof(int16);
+        constexpr int c_sz      = T_DIM * E_DIM * sizeof(int16);
+        constexpr int scores_sz = 4 * T_KV * sizeof(int16);
+        constexpr int v_sz      = T_KV * D_HEAD * sizeof(int16);
+        constexpr int hout      = T_DIM * D_HEAD * sizeof(int16);
+        constexpr int concat_sz = T_DIM * E_DIM * sizeof(int16);
+        constexpr int proj_sz   = T_DIM * E_DIM * sizeof(int16);
 
         for (int h = 0; h < N_HEADS; h++) {
-            connect<window<c_sz>>(plio_c_in.out[0], k_head[h].in[0]);
+            connect<window<c_sz>>(plio_c_in.out[0], k_pre[h].in[0]);
+            connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
+            connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
+            connect<window<hout>>(k_post_h[h].out[0], k_post_ac.in[h]);
         }
+        connect<window<concat_sz>>(k_post_ac.out[0], k_post_ap.in[0]);
+        connect<window<c_sz>>(plio_c_in.out[0], k_post_ap.in[1]);
 
-        // heads -> post
-
-        connect<window<hout>> (k_head[0].out[0], k_post.in[0]);
-        connect<window<hout>> (k_head[1].out[0], k_post.in[1]);
-        connect<window<hout>> (k_head[2].out[0], k_post.in[2]);
-        connect<window<hout>> (k_head[3].out[0], k_post.in[3]);
-        connect<window<c_sz>> (plio_c_in.out[0], k_post.in[4]);
-
-        // post -> PLIO
-        connect<window<c_sz>> (k_post.out[0], plio_c_out.in[0]);
+        connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
+        connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
+        connect<window<proj_sz>>(k_post_b1.out[0], k_post_b2.in[0]);
+        connect<window<proj_sz>>(k_post_b2.out[0], k_post_c.in[0]);
+        connect<window<c_sz>>(k_post_c.out[0], plio_c_out.in[0]);
     }
 };
 
-// cross attn subgrapg
+// cross attn subgraph
 
-template <int LAYER>    
+template <int LAYER>
 class CrossAttnGraphL : public graph {
 public:
     input_plio  plio_x_in;
     input_plio  plio_c_in;
     output_plio plio_x_out;
 private:
-    kernel k_head[N_HEADS];
-    kernel k_post;
+    kernel k_pre[N_HEADS];
+    kernel k_post_h[N_HEADS];
+    kernel k_post_ac, k_post_ap, k_post_b1, k_post_b2, k_post_c;
 public:
     CrossAttnGraphL() {
-        // layer unique plio names
         const std::string suffix = "_L" + std::to_string(LAYER);
         plio_x_in = input_plio::create("cross_x_in" + suffix, plio_64_bits,
                                         "data/cross_x_in" + suffix + ".txt");
@@ -156,39 +259,81 @@ public:
         plio_x_out = output_plio::create("cross_x_out" + suffix, plio_64_bits,
                                         "data/cross_x_out" + suffix + ".txt");
 
-        // layer specific kernel source files
+        if constexpr (LAYER == 0) {
+            k_pre[0] = kernel::create(cross_attn_head_pre_h0_L0);
+            k_pre[1] = kernel::create(cross_attn_head_pre_h1_L0);
+            k_pre[2] = kernel::create(cross_attn_head_pre_h2_L0);
+            k_pre[3] = kernel::create(cross_attn_head_pre_h3_L0);
+            k_post_h[0] = kernel::create(cross_attn_head_post_h0_L0);
+            k_post_h[1] = kernel::create(cross_attn_head_post_h1_L0);
+            k_post_h[2] = kernel::create(cross_attn_head_post_h2_L0);
+            k_post_h[3] = kernel::create(cross_attn_head_post_h3_L0);
+        } else {
+            k_pre[0] = kernel::create(cross_attn_head_pre_h0_L1);
+            k_pre[1] = kernel::create(cross_attn_head_pre_h1_L1);
+            k_pre[2] = kernel::create(cross_attn_head_pre_h2_L1);
+            k_pre[3] = kernel::create(cross_attn_head_pre_h3_L1);
+            k_post_h[0] = kernel::create(cross_attn_head_post_h0_L1);
+            k_post_h[1] = kernel::create(cross_attn_head_post_h1_L1);
+            k_post_h[2] = kernel::create(cross_attn_head_post_h2_L1);
+            k_post_h[3] = kernel::create(cross_attn_head_post_h3_L1);
+        }
         for (int h = 0; h < N_HEADS; h++) {
-            k_head[h] = kernel::create(cross_attn_head);
-            source(k_head[h]) = ("kernels/cross_head" + std::to_string(h) +
-                                "_L" + std::to_string(LAYER) + ".cc").c_str();
-            runtime<ratio>(k_head[h]) = 0.9;
+            source(k_pre[h]) = ("kernels/cross_head" + std::to_string(h) +
+                                "_pre_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_pre[h]) = 0.9;
+            source(k_post_h[h]) = ("kernels/cross_head" + std::to_string(h) +
+                                "_post_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_post_h[h]) = 0.9;
         }
 
-        k_post = kernel::create(attn_post);
-        source(k_post) = ("kernels/cross_post_L" + std::to_string(LAYER) + ".cc").c_str();
-        runtime<ratio>(k_post) = 0.9;
+        if constexpr (LAYER == 0) {
+            k_post_ac = kernel::create(cross_post_a_concat_L0);
+            k_post_ap = kernel::create(cross_post_a_proj_L0);
+            k_post_b1 = kernel::create(cross_post_b1_L0);
+            k_post_b2 = kernel::create(cross_post_b2_L0);
+            k_post_c  = kernel::create(cross_post_c_L0);
+        } else {
+            k_post_ac = kernel::create(cross_post_a_concat_L1);
+            k_post_ap = kernel::create(cross_post_a_proj_L1);
+            k_post_b1 = kernel::create(cross_post_b1_L1);
+            k_post_b2 = kernel::create(cross_post_b2_L1);
+            k_post_c  = kernel::create(cross_post_c_L1);
+        }
+        source(k_post_ac) = ("kernels/cross_post_ac_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_ac) = 0.9;
+        source(k_post_ap) = ("kernels/cross_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_ap) = 0.9;
+        source(k_post_b1) = ("kernels/cross_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_b1) = 0.9;
+        source(k_post_b2) = ("kernels/cross_post_b2_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_b2) = 0.9;
+        source(k_post_c) = ("kernels/cross_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_c) = 0.9;
 
-        // window sizes
-
-        constexpr int x_sz = N_MAX * E_DIM * sizeof(int16);
-        constexpr int c_sz = T_DIM * E_DIM * sizeof(int16);
-        constexpr int hout = N_MAX * D_HEAD * sizeof(int16);
+        constexpr int x_sz      = N_MAX * E_DIM * sizeof(int16);
+        constexpr int c_sz      = T_DIM * E_DIM * sizeof(int16);
+        constexpr int scores_sz = N_MAX * T_KV * sizeof(int16);
+        constexpr int v_sz      = T_KV * D_HEAD * sizeof(int16);
+        constexpr int hout      = N_MAX * D_HEAD * sizeof(int16);
+        constexpr int concat_sz = N_MAX * E_DIM * sizeof(int16);
+        constexpr int proj_sz   = N_MAX * E_DIM * sizeof(int16);
 
         for (int h = 0; h < N_HEADS; h++) {
-            connect<window<x_sz>>(plio_x_in.out[0], k_head[h].in[0]);
-            connect<window<c_sz>>(plio_c_in.out[0], k_head[h].in[1]);
+            connect<window<x_sz>>(plio_x_in.out[0], k_pre[h].in[0]);
+            connect<window<c_sz>>(plio_c_in.out[0], k_pre[h].in[1]);
+            connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
+            connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
+            connect<window<hout>>(k_post_h[h].out[0], k_post_ac.in[h]);
         }
+        connect<window<concat_sz>>(k_post_ac.out[0], k_post_ap.in[0]);
+        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[1]);
 
-        // heads -> post
-
-        connect<window<hout>> (k_head[0].out[0], k_post.in[0]);
-        connect<window<hout>> (k_head[1].out[0], k_post.in[1]);
-        connect<window<hout>> (k_head[2].out[0], k_post.in[2]);
-        connect<window<hout>> (k_head[3].out[0], k_post.in[3]);
-        connect<window<x_sz>> (plio_x_in.out[0], k_post.in[4]);
-
-        // post -> PLIO
-        connect<window<x_sz>> (k_post.out[0], plio_x_out.in[0]);
+        connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
+        connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
+        connect<window<proj_sz>>(k_post_b1.out[0], k_post_b2.in[0]);
+        connect<window<proj_sz>>(k_post_b2.out[0], k_post_c.in[0]);
+        connect<window<x_sz>>(k_post_c.out[0], plio_x_out.in[0]);
     }
 };
 

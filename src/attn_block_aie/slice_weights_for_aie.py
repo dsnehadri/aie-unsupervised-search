@@ -152,16 +152,31 @@ def process_attn_block(export_dir, out_dir, attn_type, layer):
     }
     prefix = prefix_map[attn_type]
 
+    # cand pipeline runs at Q6.9 (scale 512) because cand_build produces
+    # unnormalized sums up to ~|19| that overflow Q4.11. All cand weights,
+    # biases, and LN params are quantized at this wider scale; the kernel
+    # uses CAND_ACC_SHIFT / CAND_SCALE in its data flow.
+    frac_bits = 9 if attn_type == "cand" else DATA_FRAC_BITS
+    def to_q(arr): return to_fixed16(arr, frac_bits=frac_bits)
+
     print(f"\nProcessing {attn_type} attention, layer {layer}")
-    print(f"  Prefix: {prefix}")
+    print(f"  Prefix: {prefix}  frac_bits={frac_bits}")
 
-    # Load full projection weights
-    in_proj_w = load_npy(export_dir, prefix, "attn_in_proj_weight")  # [3E, E]
-    in_proj_b = load_npy(export_dir, prefix, "attn_in_proj_bias")    # [3E]
+    # phase3_export has Wq/Wk/Wv (and bq/bk/bv) saved separately under
+    # weights/mha_decomposed/. Stack them back into the (3E, E) layout that
+    # slice_per_head expects.
+    mha = "weights/mha_decomposed/"
+    Wq_f = load_npy(export_dir, mha + prefix, "Wq")  # [E, E]
+    Wk_f = load_npy(export_dir, mha + prefix, "Wk")
+    Wv_f = load_npy(export_dir, mha + prefix, "Wv")
+    bq_f = load_npy(export_dir, mha + prefix, "bq")  # [E]
+    bk_f = load_npy(export_dir, mha + prefix, "bk")
+    bv_f = load_npy(export_dir, mha + prefix, "bv")
+    in_proj_w = np.concatenate([Wq_f, Wk_f, Wv_f], axis=0)  # [3E, E]
+    in_proj_b = np.concatenate([bq_f, bk_f, bv_f], axis=0)  # [3E]
 
-    # Load bias_kv
-    bias_k_full = load_npy(export_dir, prefix, "attn_bias_k").squeeze()  # [E]
-    bias_v_full = load_npy(export_dir, prefix, "attn_bias_v").squeeze()  # [E]
+    bias_k_full = load_npy(export_dir, mha + prefix, "bias_k").squeeze()  # [E]
+    bias_v_full = load_npy(export_dir, mha + prefix, "bias_v").squeeze()  # [E]
 
     # Per-head weights
     for h in range(N_HEADS):
@@ -173,60 +188,59 @@ def process_attn_block(export_dir, out_dir, attn_type, layer):
         w_prefix = "" if attn_type == "obj" else f"{attn_type}_"
 
         weights = {
-            f"{w_prefix}Wq": to_fixed16(Wq_h),
-            f"{w_prefix}bq": to_fixed16(bq_h),
-            f"{w_prefix}Wk": to_fixed16(Wk_h),
-            f"{w_prefix}bk": to_fixed16(bk_h),
-            f"{w_prefix}Wv": to_fixed16(Wv_h),
-            f"{w_prefix}bv": to_fixed16(bv_h),
-            f"{w_prefix}bias_k_row": to_fixed16(bk_row_h),
-            f"{w_prefix}bias_v_row": to_fixed16(bv_row_h),
+            f"{w_prefix}Wq": to_q(Wq_h),
+            f"{w_prefix}bq": to_q(bq_h),
+            f"{w_prefix}Wk": to_q(Wk_h),
+            f"{w_prefix}bk": to_q(bk_h),
+            f"{w_prefix}Wv": to_q(Wv_h),
+            f"{w_prefix}bv": to_q(bv_h),
+            f"{w_prefix}bias_k_row": to_q(bk_row_h),
+            f"{w_prefix}bias_v_row": to_q(bv_row_h),
         }
 
         write_head_header(out_dir, attn_type, layer, h, weights)
 
     # Post-attention weights (shared across heads)
-    # Output projection
-    out_proj_w = load_npy(export_dir, prefix, "attn_out_proj_weight")  # [E, E]
-    out_proj_b = load_npy(export_dir, prefix, "attn_out_proj_bias")    # [E]
+    # Output projection (Wo, bo in phase3_export naming)
+    out_proj_w = load_npy(export_dir, "weights/mha_decomposed/" + prefix, "Wo")  # [E, E]
+    out_proj_b = load_npy(export_dir, "weights/mha_decomposed/" + prefix, "bo")  # [E]
 
-    # Post-attention LayerNorm
-    post_attn_ln_w = load_npy(export_dir, prefix, "post_attn_norm_weight")  # [E]
-    post_attn_ln_b = load_npy(export_dir, prefix, "post_attn_norm_bias")    # [E]
+    # Post-attention LayerNorm (in phase3_export/weights/)
+    post_attn_ln_w = load_npy(export_dir, "weights/" + prefix, "post_attn_norm_weight")  # [E]
+    post_attn_ln_b = load_npy(export_dir, "weights/" + prefix, "post_attn_norm_bias")    # [E]
 
     # FFN layers: Sequential with stride-of-3 (Linear, LayerNorm, ReLU)
     post_weights = {
-        "Wout": to_fixed16(out_proj_w.T),  # transpose for AIE (X @ W, not X @ W^T)
-        "bout": to_fixed16(out_proj_b),
-        "post_attn_ln_gamma": to_fixed16(post_attn_ln_w),
-        "post_attn_ln_beta":  to_fixed16(post_attn_ln_b),
+        "Wout": to_q(out_proj_w.T),  # transpose for AIE (X @ W, not X @ W^T)
+        "bout": to_q(out_proj_b),
+        "post_attn_ln_gamma": to_q(post_attn_ln_w),
+        "post_attn_ln_beta":  to_q(post_attn_ln_b),
     }
 
-    # FFN layers
+    # FFN layers (in phase3_export/weights/)
+    weights_prefix = "weights/" + prefix
     for ffn_idx in range(3):
         seq_idx = ffn_idx * 3  # Linear at 0, 3, 6
 
-        ffn_w = load_npy(export_dir, prefix, f"ffwd_{seq_idx}_weight")  # [out, in]
-        ffn_b = load_npy(export_dir, prefix, f"ffwd_{seq_idx}_bias")
+        ffn_w = load_npy(export_dir, weights_prefix, f"ffwd_{seq_idx}_weight")  # [out, in]
+        ffn_b = load_npy(export_dir, weights_prefix, f"ffwd_{seq_idx}_bias")
 
-        post_weights[f"ffn_W{ffn_idx}"] = to_fixed16(ffn_w.T)  # transpose
-        post_weights[f"ffn_b{ffn_idx}"] = to_fixed16(ffn_b)
+        post_weights[f"ffn_W{ffn_idx}"] = to_q(ffn_w.T)  # transpose
+        post_weights[f"ffn_b{ffn_idx}"] = to_q(ffn_b)
 
-        # LayerNorm at seq_idx+1 (if it exists)
-        ln_w_path = os.path.join(export_dir, f"{prefix}ffwd_{seq_idx+1}_weight.npy")
+        ln_w_path = os.path.join(export_dir, f"{weights_prefix}ffwd_{seq_idx+1}_weight.npy")
         if os.path.exists(ln_w_path):
             ln_w = np.load(ln_w_path)
-            ln_b = np.load(os.path.join(export_dir, f"{prefix}ffwd_{seq_idx+1}_bias.npy"))
-            post_weights[f"ffn_ln_gamma{ffn_idx}"] = to_fixed16(ln_w)
-            post_weights[f"ffn_ln_beta{ffn_idx}"]  = to_fixed16(ln_b)
+            ln_b = np.load(os.path.join(export_dir, f"{weights_prefix}ffwd_{seq_idx+1}_bias.npy"))
+            post_weights[f"ffn_ln_gamma{ffn_idx}"] = to_q(ln_w)
+            post_weights[f"ffn_ln_beta{ffn_idx}"]  = to_q(ln_b)
 
-    # Post-FFN LayerNorm
-    pffn_path = os.path.join(export_dir, f"{prefix}post_ffwd_norm_weight.npy")
+    pffn_path = os.path.join(export_dir, f"{weights_prefix}post_ffwd_norm_weight.npy")
     if os.path.exists(pffn_path):
         pffn_w = np.load(pffn_path)
-        pffn_b = np.load(os.path.join(export_dir, f"{prefix}post_ffwd_norm_bias.npy"))
-        post_weights["post_ffn_ln_gamma"] = to_fixed16(pffn_w)
-        post_weights["post_ffn_ln_beta"]  = to_fixed16(pffn_b)
+        pffn_b = np.load(os.path.join(export_dir, f"{weights_prefix}post_ffwd_norm_bias.npy"))
+        post_weights["post_ffn_ln_gamma"] = to_q(pffn_w)
+        post_weights["post_ffn_ln_beta"]  = to_q(pffn_b)
 
     write_post_header(out_dir, attn_type, layer, post_weights)
 
