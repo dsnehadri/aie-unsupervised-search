@@ -23,3 +23,10 @@
 *data
 *Work
 *.rpt
+*img
+src/aie_stream/tb/ISS_RPC_SERVER_PORT
+*.a
+*.db
+*.json
+*.dat
+*.txt
