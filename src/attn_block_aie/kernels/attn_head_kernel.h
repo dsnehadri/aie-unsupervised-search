@@ -1,46 +1,61 @@
-//single attention head kernel for aie
-
-// each head runs on its own aie kernel, computing
-// Q = X @ Wq + bq [12 x 16] * [16 x 4] = [12 x 4]
-// K = [X; bias_k] @ Wk + bk [13 x 16] * [16 x 4] = [13 x 4]
-// V = [X; bias_v] @ Wv + bv [13 x 16] * [16 x 4] = [13 x 4]
-// scores = Q @ K^T / sqrt(d) [12 x 4] x [4 x 13] = [12  x 13]
-// scores += wij_bias
-// attn_w = softmax(scores)
-// head_out = attn_w @ V [12 x 13] x [13 x 4] = [12  x 4]
-
-// weights are stored as ROM in tile-local data memory
-// input: X[N_MAX][E_DIM] as int16 window
-// output: head_out[N_MAX][D_HEAD] as int16 window
-
-// wij is streamed in from PL (computed by pairwise MLP on PL)
+// Attention head kernels for AIE, split into pre + post stages.
+// pre:  read inputs -> Q/K/V proj -> Q*K^T scaled -> emit scores+V
+// post: read scores+V (+wij for obj) -> softmax -> AV -> emit head_out
+//
+// The aiecompiler dedups generated tile wrappers by function-pointer
+// identity, so each (type, stage, head, layer) instance must declare a
+// distinct symbol. Generated via token-paste macros in attn_head_kernel.cc.
+// This header has to forward-declare all 24 variants (3 types * 4 heads * 2
+// stages) per layer.
 
 #ifndef ATTN_HEAD_KERNEL_H
 #define ATTN_HEAD_KERNEL_H
 
 #include "attn_aie_types.h"
 
-// kernel function declarations
+// pre signatures
+#define DECLARE_OBJ_PRE(h, l)   void obj_attn_head_pre_h##h##_L##l ( \
+    input_window_int16* __restrict x_in, \
+    output_window_int16* __restrict scores_out, \
+    output_window_int16* __restrict v_out)
+#define DECLARE_CAND_PRE(h, l)  void cand_attn_head_pre_h##h##_L##l ( \
+    input_window_int16* __restrict c_in, \
+    output_window_int16* __restrict scores_out, \
+    output_window_int16* __restrict v_out)
+#define DECLARE_CROSS_PRE(h, l) void cross_attn_head_pre_h##h##_L##l ( \
+    input_window_int16* __restrict x_in, \
+    input_window_int16* __restrict c_in, \
+    output_window_int16* __restrict scores_out, \
+    output_window_int16* __restrict v_out)
 
-// object self-attention head (Q=K=V=X, bias_kv)
-// x_in: [N_MAX x E_DIM] int16 - embedded jet features
-// wij_in: [N_MAX x N_KV] int16 - pairwise MLP bias for this head
-// x_out: [N_MAX x D_HEAD] int16 - per-head attention output
+// post signatures
+#define DECLARE_OBJ_POST(h, l)  void obj_attn_head_post_h##h##_L##l ( \
+    input_window_int16* __restrict scores_in, \
+    input_window_int16* __restrict v_in, \
+    input_window_int16* __restrict wij_in, \
+    output_window_int16* __restrict x_out)
+#define DECLARE_CAND_POST(h, l) void cand_attn_head_post_h##h##_L##l ( \
+    input_window_int16* __restrict scores_in, \
+    input_window_int16* __restrict v_in, \
+    output_window_int16* __restrict c_out)
+#define DECLARE_CROSS_POST(h, l) void cross_attn_head_post_h##h##_L##l ( \
+    input_window_int16* __restrict scores_in, \
+    input_window_int16* __restrict v_in, \
+    output_window_int16* __restrict x_out)
 
-void obj_attn_head(input_window_int16* __restrict x_in, input_window_int16* __restrict wij_in, output_window_int16* __restrict x_out);
+DECLARE_OBJ_PRE(0, 0);  DECLARE_OBJ_PRE(1, 0);  DECLARE_OBJ_PRE(2, 0);  DECLARE_OBJ_PRE(3, 0);
+DECLARE_OBJ_PRE(0, 1);  DECLARE_OBJ_PRE(1, 1);  DECLARE_OBJ_PRE(2, 1);  DECLARE_OBJ_PRE(3, 1);
+DECLARE_OBJ_POST(0, 0); DECLARE_OBJ_POST(1, 0); DECLARE_OBJ_POST(2, 0); DECLARE_OBJ_POST(3, 0);
+DECLARE_OBJ_POST(0, 1); DECLARE_OBJ_POST(1, 1); DECLARE_OBJ_POST(2, 1); DECLARE_OBJ_POST(3, 1);
 
-// candidate self-attention head (Q=K=V=C, no bias_kv for simplicity)
-// c_in: [T_DIM x E_DIM] int16
-// c_out: [T_DIM x D_HEAD] int16
-void cand_attn_head(input_window_int16* __restrict c_in, output_window_int16* __restrict c_out);
+DECLARE_CAND_PRE(0, 0);  DECLARE_CAND_PRE(1, 0);  DECLARE_CAND_PRE(2, 0);  DECLARE_CAND_PRE(3, 0);
+DECLARE_CAND_PRE(0, 1);  DECLARE_CAND_PRE(1, 1);  DECLARE_CAND_PRE(2, 1);  DECLARE_CAND_PRE(3, 1);
+DECLARE_CAND_POST(0, 0); DECLARE_CAND_POST(1, 0); DECLARE_CAND_POST(2, 0); DECLARE_CAND_POST(3, 0);
+DECLARE_CAND_POST(0, 1); DECLARE_CAND_POST(1, 1); DECLARE_CAND_POST(2, 1); DECLARE_CAND_POST(3, 1);
 
-// cross attention head (Q=X, K=V=C)
-// x_in: [N_MAX x E_DIM] int16 
-// c_in: [T_DIM x E_DIM] int16 
-// x_out: [N_MAX x D_HEAD] int16
-
-void cross_attn_head(input_window_int16* __restrict x_in, input_window_int16* __restrict c_in, output_window_int16* __restrict x_out);
-
-
+DECLARE_CROSS_PRE(0, 0);  DECLARE_CROSS_PRE(1, 0);  DECLARE_CROSS_PRE(2, 0);  DECLARE_CROSS_PRE(3, 0);
+DECLARE_CROSS_PRE(0, 1);  DECLARE_CROSS_PRE(1, 1);  DECLARE_CROSS_PRE(2, 1);  DECLARE_CROSS_PRE(3, 1);
+DECLARE_CROSS_POST(0, 0); DECLARE_CROSS_POST(1, 0); DECLARE_CROSS_POST(2, 0); DECLARE_CROSS_POST(3, 0);
+DECLARE_CROSS_POST(0, 1); DECLARE_CROSS_POST(1, 1); DECLARE_CROSS_POST(2, 1); DECLARE_CROSS_POST(3, 1);
 
 #endif

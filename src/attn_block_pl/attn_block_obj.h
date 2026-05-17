@@ -124,6 +124,19 @@ inline void attn_block_obj(
     }
     skip_and_norm<N_MAX>(x, residual, attn_ln_g, attn_ln_b);
 
+    // DEBUG: dump pre-FFN values to compare against stage3_layer0_post_attn_pre_ffn.npy
+    {
+        FILE *fp = fopen("obj_pre_ffn_dump.txt", "w");
+        if (fp) {
+            for (int i = 0; i < N_MAX; i++) {
+                for (int j = 0; j < E_DIM; j++)
+                    fprintf(fp, "%g ", (float)x[i][j]);
+                fprintf(fp, "\n");
+            }
+            fclose(fp);
+        }
+    }
+
     // do ffn
 
     ffn_block<N_MAX>(x, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b);
