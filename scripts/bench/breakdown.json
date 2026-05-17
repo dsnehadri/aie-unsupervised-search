@@ -1,0 +1,508 @@
+[
+  {
+    "kernel": "embed_ffn",
+    "period_ns": 3.624,
+    "top_cycles_min": 5197,
+    "top_cycles_max": 5197,
+    "instances": [
+      {
+        "instance": "grp_embed_ffn_Pipeline_LIN_I_LIN_J_fu_180",
+        "module": "embed_ffn_Pipeline_LIN_I_LIN_J",
+        "cycles_min": 579,
+        "cycles_max": 579
+      },
+      {
+        "instance": "grp_layernorm_12_16_s_fu_222",
+        "module": "layernorm_12_16_s",
+        "cycles_min": 553,
+        "cycles_max": 553
+      },
+      {
+        "instance": "grp_relu_2d_12_16_s_fu_248",
+        "module": "relu_2d_12_16_s",
+        "cycles_min": 14,
+        "cycles_max": 14
+      },
+      {
+        "instance": "grp_linear_12_16_16_s_fu_268",
+        "module": "linear_12_16_16_s",
+        "cycles_min": 1539,
+        "cycles_max": 1539
+      },
+      {
+        "instance": "grp_embed_ffn_Pipeline_VITIS_LOOP_64_2_VITIS_LOOP_65_3_fu_308",
+        "module": "embed_ffn_Pipeline_VITIS_LOOP_64_2_VITIS_LOOP_65_3",
+        "cycles_min": 194,
+        "cycles_max": 194
+      },
+      {
+        "instance": "grp_linear_12_16_16_1_fu_344",
+        "module": "linear_12_16_16_1",
+        "cycles_min": 1539,
+        "cycles_max": 1539
+      },
+      {
+        "instance": "grp_embed_ffn_Pipeline_VITIS_LOOP_29_1_VITIS_LOOP_30_2_fu_370",
+        "module": "embed_ffn_Pipeline_VITIS_LOOP_29_1_VITIS_LOOP_30_2",
+        "cycles_min": 194,
+        "cycles_max": 194
+      }
+    ],
+    "loops": []
+  },
+  {
+    "kernel": "pairwise_mlp",
+    "period_ns": 3.643,
+    "top_cycles_min": 89719,
+    "top_cycles_max": 89719,
+    "instances": [
+      {
+        "instance": "grp_pairwise_mlp_Pipeline_VITIS_LOOP_19_1_VITIS_LOOP_24_2_fu_239",
+        "module": "pairwise_mlp_Pipeline_VITIS_LOOP_19_1_VITIS_LOOP_24_2",
+        "cycles_min": 436,
+        "cycles_max": 436
+      },
+      {
+        "instance": "grp_pairwise_mlp_Pipeline_LIN_J_fu_251",
+        "module": "pairwise_mlp_Pipeline_LIN_J",
+        "cycles_min": 35,
+        "cycles_max": 35
+      },
+      {
+        "instance": "grp_layernorm_1_16_s_fu_263",
+        "module": "layernorm_1_16_s",
+        "cycles_min": 53,
+        "cycles_max": 53
+      },
+      {
+        "instance": "grp_relu_2d_1_16_s_fu_272",
+        "module": "relu_2d_1_16_s",
+        "cycles_min": 16,
+        "cycles_max": 16
+      },
+      {
+        "instance": "grp_linear_1_16_16_s_fu_277",
+        "module": "linear_1_16_16_s",
+        "cycles_min": 141,
+        "cycles_max": 141
+      },
+      {
+        "instance": "grp_linear_1_1_16_s_fu_288",
+        "module": "linear_1_1_16_s",
+        "cycles_min": 9,
+        "cycles_max": 9
+      },
+      {
+        "instance": "grp_layernorm_1_16_1_fu_297",
+        "module": "layernorm_1_16_1",
+        "cycles_min": 53,
+        "cycles_max": 53
+      }
+    ],
+    "loops": [
+      {
+        "name": "PAIR_I_PAIR_J",
+        "lat_min": 89280,
+        "lat_max": 89280,
+        "iter_latency": "620",
+        "trip_count": 144
+      },
+      {
+        "name": "VITIS_LOOP_56_1",
+        "lat_min": 498,
+        "lat_max": 498,
+        "iter_latency": "249",
+        "trip_count": 2
+      },
+      {
+        "name": "VITIS_LOOP_65_3",
+        "lat_min": 32,
+        "lat_max": 32,
+        "iter_latency": "2",
+        "trip_count": 16
+      }
+    ]
+  },
+  {
+    "kernel": "attn_obj",
+    "period_ns": 3.605,
+    "top_cycles_min": 20071,
+    "top_cycles_max": 20371,
+    "instances": [
+      {
+        "instance": "grp_attn_block_obj_Pipeline_VITIS_LOOP_50_1_fu_605",
+        "module": "attn_block_obj_Pipeline_VITIS_LOOP_50_1",
+        "cycles_min": 98,
+        "cycles_max": 98
+      },
+      {
+        "instance": "grp_linear_12_16_16_5_fu_643",
+        "module": "linear_12_16_16_5",
+        "cycles_min": 1539,
+        "cycles_max": 1539
+      },
+      {
+        "instance": "grp_reshape_and_append_bias_kv_12_12_s_fu_658",
+        "module": "reshape_and_append_bias_kv_12_12_s",
+        "cycles_min": 327,
+        "cycles_max": 327
+      },
+      {
+        "instance": "grp_attn_block_obj_Pipeline_QK_I_QJ_I_fu_687",
+        "module": "attn_block_obj_Pipeline_QK_I_QJ_I",
+        "cycles_min": 160,
+        "cycles_max": 160
+      },
+      {
+        "instance": "grp_attn_block_obj_Pipeline_CONCAT_fu_711",
+        "module": "attn_block_obj_Pipeline_CONCAT",
+        "cycles_min": 14,
+        "cycles_max": 14
+      },
+      {
+        "instance": "grp_attn_block_obj_Pipeline_VITIS_LOOP_92_4_fu_747",
+        "module": "attn_block_obj_Pipeline_VITIS_LOOP_92_4",
+        "cycles_min": 74,
+        "cycles_max": 74
+      },
+      {
+        "instance": "grp_attn_block_obj_Pipeline_VITIS_LOOP_101_6_fu_766",
+        "module": "attn_block_obj_Pipeline_VITIS_LOOP_101_6",
+        "cycles_min": 14,
+        "cycles_max": 14
+      },
+      {
+        "instance": "grp_softmax_and_context_12_13_s_fu_794",
+        "module": "softmax_and_context_12_13_s",
+        "cycles_min": 1015,
+        "cycles_max": 1015
+      },
+      {
+        "instance": "grp_linear_12_16_16_12_fu_882",
+        "module": "linear_12_16_16_12",
+        "cycles_min": 1539,
+        "cycles_max": 1539
+      },
+      {
+        "instance": "grp_attn_block_obj_Pipeline_VITIS_LOOP_119_8_fu_907",
+        "module": "attn_block_obj_Pipeline_VITIS_LOOP_119_8",
+        "cycles_min": 98,
+        "cycles_max": 98
+      },
+      {
+        "instance": "grp_skip_and_norm_12_s_fu_914",
+        "module": "skip_and_norm_12_s",
+        "cycles_min": 856,
+        "cycles_max": 856
+      },
+      {
+        "instance": "grp_ffn_block_12_s_fu_940",
+        "module": "ffn_block_12_s",
+        "cycles_min": 7618,
+        "cycles_max": 7618
+      },
+      {
+        "instance": "grp_attn_block_obj_Pipeline_VITIS_LOOP_133_10_fu_958",
+        "module": "attn_block_obj_Pipeline_VITIS_LOOP_133_10",
+        "cycles_min": 98,
+        "cycles_max": 98
+      }
+    ],
+    "loops": [
+      {
+        "name": "HEAD_LOOP",
+        "lat_min": 4784,
+        "lat_max": 5084,
+        "iter_latency": "1196 ~ 1271",
+        "trip_count": 4
+      }
+    ]
+  },
+  {
+    "kernel": "attn_cand",
+    "period_ns": 3.624,
+    "top_cycles_min": 4682,
+    "top_cycles_max": 4682,
+    "instances": [
+      {
+        "instance": "grp_attn_block_cand_Pipeline_VITIS_LOOP_43_1_fu_500",
+        "module": "attn_block_cand_Pipeline_VITIS_LOOP_43_1",
+        "cycles_min": 26,
+        "cycles_max": 26
+      },
+      {
+        "instance": "grp_linear_3_16_16_5_fu_554",
+        "module": "linear_3_16_16_5",
+        "cycles_min": 387,
+        "cycles_max": 387
+      },
+      {
+        "instance": "grp_reshape_and_append_bias_kv_3_3_s_fu_569",
+        "module": "reshape_and_append_bias_kv_3_3_s",
+        "cycles_min": 111,
+        "cycles_max": 111
+      },
+      {
+        "instance": "grp_attn_block_cand_Pipeline_QK_I_QJ_I_fu_589",
+        "module": "attn_block_cand_Pipeline_QK_I_QJ_I",
+        "cycles_min": 15,
+        "cycles_max": 15
+      },
+      {
+        "instance": "grp_attn_block_cand_Pipeline_CONCAT_fu_601",
+        "module": "attn_block_cand_Pipeline_CONCAT",
+        "cycles_min": 5,
+        "cycles_max": 5
+      },
+      {
+        "instance": "grp_softmax_row_4_s_fu_637",
+        "module": "softmax_row_4_s",
+        "cycles_min": 52,
+        "cycles_max": 52
+      },
+      {
+        "instance": "grp_attn_block_cand_Pipeline_AV_I_AV_D_fu_647",
+        "module": "attn_block_cand_Pipeline_AV_I_AV_D",
+        "cycles_min": 20,
+        "cycles_max": 20
+      },
+      {
+        "instance": "grp_linear_3_16_16_12_fu_674",
+        "module": "linear_3_16_16_12",
+        "cycles_min": 387,
+        "cycles_max": 387
+      },
+      {
+        "instance": "grp_attn_block_cand_Pipeline_VITIS_LOOP_84_3_fu_699",
+        "module": "attn_block_cand_Pipeline_VITIS_LOOP_84_3",
+        "cycles_min": 26,
+        "cycles_max": 26
+      },
+      {
+        "instance": "grp_skip_and_norm_3_s_fu_706",
+        "module": "skip_and_norm_3_s",
+        "cycles_min": 214,
+        "cycles_max": 214
+      },
+      {
+        "instance": "grp_ffn_block_3_s_fu_764",
+        "module": "ffn_block_3_s",
+        "cycles_min": 1928,
+        "cycles_max": 1928
+      }
+    ],
+    "loops": [
+      {
+        "name": "HEAD_LOOP",
+        "lat_min": 804,
+        "lat_max": 804,
+        "iter_latency": "201",
+        "trip_count": 4
+      },
+      {
+        "name": "SM_ROWS",
+        "lat_min": 162,
+        "lat_max": 162,
+        "iter_latency": "54",
+        "trip_count": 3
+      }
+    ]
+  },
+  {
+    "kernel": "attn_cross",
+    "period_ns": 3.589,
+    "top_cycles_min": 15167,
+    "top_cycles_max": 15167,
+    "instances": [
+      {
+        "instance": "grp_linear_12_16_16_6_fu_314",
+        "module": "linear_12_16_16_6",
+        "cycles_min": 1539,
+        "cycles_max": 1539
+      },
+      {
+        "instance": "grp_linear_3_16_16_5_fu_326",
+        "module": "linear_3_16_16_5",
+        "cycles_min": 387,
+        "cycles_max": 387
+      },
+      {
+        "instance": "grp_reshape_and_append_bias_kv_12_3_s_fu_340",
+        "module": "reshape_and_append_bias_kv_12_3_s",
+        "cycles_min": 255,
+        "cycles_max": 255
+      },
+      {
+        "instance": "grp_attn_block_cross_Pipeline_QK_I_QJ_I_fu_360",
+        "module": "attn_block_cross_Pipeline_QK_I_QJ_I",
+        "cycles_min": 52,
+        "cycles_max": 52
+      },
+      {
+        "instance": "grp_attn_block_cross_Pipeline_CONCAT_fu_372",
+        "module": "attn_block_cross_Pipeline_CONCAT",
+        "cycles_min": 14,
+        "cycles_max": 14
+      },
+      {
+        "instance": "grp_softmax_row_4_s_fu_408",
+        "module": "softmax_row_4_s",
+        "cycles_min": 52,
+        "cycles_max": 52
+      },
+      {
+        "instance": "grp_attn_block_cross_Pipeline_AV_I_AV_D_fu_418",
+        "module": "attn_block_cross_Pipeline_AV_I_AV_D",
+        "cycles_min": 56,
+        "cycles_max": 56
+      },
+      {
+        "instance": "grp_linear_12_16_16_12_fu_445",
+        "module": "linear_12_16_16_12",
+        "cycles_min": 1539,
+        "cycles_max": 1539
+      },
+      {
+        "instance": "grp_attn_block_cross_Pipeline_VITIS_LOOP_82_1_fu_470",
+        "module": "attn_block_cross_Pipeline_VITIS_LOOP_82_1",
+        "cycles_min": 98,
+        "cycles_max": 98
+      },
+      {
+        "instance": "grp_layernorm_12_16_s_fu_477",
+        "module": "layernorm_12_16_s",
+        "cycles_min": 661,
+        "cycles_max": 661
+      },
+      {
+        "instance": "grp_ffn_block_12_s_fu_487",
+        "module": "ffn_block_12_s",
+        "cycles_min": 7618,
+        "cycles_max": 7618
+      }
+    ],
+    "loops": [
+      {
+        "name": "HEAD_LOOP",
+        "lat_min": 3040,
+        "lat_max": 3040,
+        "iter_latency": "760",
+        "trip_count": 4
+      },
+      {
+        "name": "SM_ROWS",
+        "lat_min": 648,
+        "lat_max": 648,
+        "iter_latency": "54",
+        "trip_count": 12
+      }
+    ]
+  },
+  {
+    "kernel": "cand_build",
+    "period_ns": 2.395,
+    "top_cycles_min": 252,
+    "top_cycles_max": 252,
+    "instances": [
+      {
+        "instance": "grp_candidate_build_top_Pipeline_VITIS_LOOP_12_1_fu_30",
+        "module": "candidate_build_top_Pipeline_VITIS_LOOP_12_1",
+        "cycles_min": 14,
+        "cycles_max": 14
+      },
+      {
+        "instance": "grp_candidate_build_top_Pipeline_VITIS_LOOP_39_4_fu_36",
+        "module": "candidate_build_top_Pipeline_VITIS_LOOP_39_4",
+        "cycles_min": 26,
+        "cycles_max": 26
+      },
+      {
+        "instance": "grp_candidate_build_top_Pipeline_VITIS_LOOP_21_2_fu_42",
+        "module": "candidate_build_top_Pipeline_VITIS_LOOP_21_2",
+        "cycles_min": 26,
+        "cycles_max": 26
+      },
+      {
+        "instance": "grp_candidate_build_top_Pipeline_VITIS_LOOP_48_6_VITIS_LOOP_50_7_fu_50",
+        "module": "candidate_build_top_Pipeline_VITIS_LOOP_48_6_VITIS_LOOP_50_7",
+        "cycles_min": 195,
+        "cycles_max": 195
+      }
+    ],
+    "loops": []
+  },
+  {
+    "kernel": "cand_lorentz",
+    "period_ns": 3.644,
+    "top_cycles_min": 321,
+    "top_cycles_max": 321,
+    "instances": [
+      {
+        "instance": "grp_get_jet_choice_fu_154",
+        "module": "get_jet_choice",
+        "cycles_min": 33,
+        "cycles_max": 33
+      },
+      {
+        "instance": "grp_x_to_p4_hw_fu_170",
+        "module": "x_to_p4_hw",
+        "cycles_min": 50,
+        "cycles_max": 50
+      },
+      {
+        "instance": "grp_build_candidates_p4_fu_180",
+        "module": "build_candidates_p4",
+        "cycles_min": 177,
+        "cycles_max": 177
+      },
+      {
+        "instance": "grp_assemble_ae_input_fu_191",
+        "module": "assemble_ae_input",
+        "cycles_min": 23,
+        "cycles_max": 23
+      }
+    ],
+    "loops": [
+      {
+        "name": "VITIS_LOOP_139_1",
+        "lat_min": 30,
+        "lat_max": 30,
+        "iter_latency": "27",
+        "trip_count": 3
+      }
+    ]
+  },
+  {
+    "kernel": "autoencoder",
+    "period_ns": 3.649,
+    "top_cycles_min": 1041,
+    "top_cycles_max": 1041,
+    "instances": [
+      {
+        "instance": "grp_ae_encode_fu_112",
+        "module": "ae_encode",
+        "cycles_min": 337,
+        "cycles_max": 337
+      },
+      {
+        "instance": "grp_ae_decode_fu_150",
+        "module": "ae_decode",
+        "cycles_min": 336,
+        "cycles_max": 336
+      },
+      {
+        "instance": "grp_dual_autoencoder_Pipeline_VITIS_LOOP_157_1_fu_188",
+        "module": "dual_autoencoder_Pipeline_VITIS_LOOP_157_1",
+        "cycles_min": 21,
+        "cycles_max": 21
+      },
+      {
+        "instance": "grp_dual_autoencoder_Pipeline_VITIS_LOOP_182_2_fu_204",
+        "module": "dual_autoencoder_Pipeline_VITIS_LOOP_182_2",
+        "cycles_min": 9,
+        "cycles_max": 9
+      }
+    ],
+    "loops": []
+  }
+]
