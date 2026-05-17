@@ -1,10 +1,5 @@
 #include <ap_int.h>
 
-// minimal stub kernel for diagnosing platform/AXI issues
-// no dataflow, no streams, no weights - just a single m_axi write and return
-// if this hangs, the problem is platform-level (clock, AXI to DDR, XRT handshake)
-// if this works, the problem is in pl_stream_top kernel logic
-
 extern "C" void stub_top(
     ap_uint<32>* in_buf,
     ap_uint<32>* out_buf,
