@@ -18,3 +18,8 @@
 *.ipcache
 *_x
 *sd_card
+*.Xil
+*.tcl
+*data
+*Work
+*.rpt
