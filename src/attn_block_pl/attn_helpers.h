@@ -50,36 +50,35 @@ void layernorm(
     const ln_param_t beta[FEAT_DIM]
 
 ) {
+    // Compute mean/var/inv_std in FP32: variance scales as value^2 and can
+    // exceed the data_t range for high-magnitude rows (e.g. cand input).
+    // Casting through data_t wraps and rsqrt(negative) returns NaN. PyTorch
+    // LayerNorm also keeps stats in float32 for the same reason.
     LN_ROW:
     for (int i = 0; i < N_ROWS; i++) {
-        // mean
-        acc_t sum = 0;
+        float sum_f = 0.0f;
         LN_MEAN:
         for (int j = 0; j < FEAT_DIM; j++) {
             #pragma HLS UNROLL
-            sum += (acc_t)x[i][j];
+            sum_f += (float)x[i][j];
         }
+        float mean_f = sum_f / (float)FEAT_DIM;
 
-        data_t mean = (data_t)(sum / FEAT_DIM);
-
-        // variance
-        acc_t var_sum = 0;
+        float var_f = 0.0f;
         LN_VAR:
         for (int j = 0; j < FEAT_DIM; j++) {
             #pragma HLS UNROLL
-            acc_t diff = (acc_t)x[i][j] - (acc_t)mean;
-            var_sum += diff * diff;
+            float d = (float)x[i][j] - mean_f;
+            var_f += d * d;
         }
-        data_t inv_std = (data_t)hls::rsqrt((float)((data_t)(var_sum/FEAT_DIM)) + (float)LN_EPS);
-
-
-        // normalize and apply affine
+        var_f /= (float)FEAT_DIM;
+        float inv_std_f = hls::rsqrt(var_f + (float)LN_EPS);
 
         LN_NORM:
         for (int j=0; j < FEAT_DIM; j++) {
             #pragma HLS PIPELINE II=1
-            data_t x_norm = (data_t)(((acc_t)x[i][j] - (acc_t)mean)*(acc_t)inv_std);
-            x[i][j] = (data_t)((acc_t)gamma[j] * (acc_t)x_norm + (acc_t)beta[j]);
+            float y_f = ((float)x[i][j] - mean_f) * inv_std_f;
+            x[i][j] = (data_t)((float)gamma[j] * y_f + (float)beta[j]);
         }
     }
 }

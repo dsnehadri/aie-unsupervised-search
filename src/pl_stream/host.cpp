@@ -26,11 +26,17 @@ static const int WORDS_PER_EVENT_OUT = 3;
 
 // reinterpret uint32 bits as float
 
+// static float ap_fixed_16_5_to_float(uint32_t bits) {
+//     int16_t signed_val = static_cast<int16_t>(bits & 0xFFFF);  // sign-extend lower 16 bits
+//     return static_cast<float>(signed_val) / 2048.0f;           // 2^11, since frac_bits = 16-5 = 11
+// }
+
 static float bits_to_float(uint32_t bits) {
     float f;
-    std::memcpy(&f, &bits, sizeof(float));
+    std::memcpy(&f, &bits, sizeof(f));
     return f;
 }
+
 
 // load binary input_file: raw 32-bit words, WORDS_PER_EVENT_IN per event
 
@@ -75,13 +81,8 @@ int main(int argc, char* argv[]) {
     auto uuid = device.load_xclbin(xsa_path);
 
     std::cout << "creating kernel handle..." << std::endl;
-    auto kernel = xrt::kernel(device, uuid, "pl_stream_top",
+    auto kernel = xrt::kernel(device, uuid, "stub_top",
                           xrt::kernel::cu_access_mode::exclusive);
-
-    uint32_t dbg_lo = kernel.read_register(0x30);
-    uint32_t dbg_hi = kernel.read_register(0x34);
-    std::cout << "debug_stage pointer = 0x" << std::hex 
-            << dbg_hi << dbg_lo << std::dec << std::endl;
 
     // allocate device buffers
 
@@ -91,12 +92,6 @@ int main(int argc, char* argv[]) {
     std::cout << "allocating buffers: in = " << in_size << " bytes, out =" << out_size << " bytes" << std::endl;
 
     auto in_bo = xrt::bo(device, in_size, kernel.group_id(0));
-
-    auto verify = in_bo.map<uint32_t*>();
-    std::cout << "in_buf[0..3] after sync: " 
-            << verify[0] << " " << verify[1] << " " 
-            << verify[2] << " " << verify[3] << std::endl;
-
     auto out_bo = xrt::bo(device, out_size, kernel.group_id(1));
 
     // prepare input data
@@ -125,67 +120,32 @@ int main(int argc, char* argv[]) {
     std::cout << "transferring input to device" << std::endl;
     in_bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
+    std::cout << "in_buf[0..3] after sync: "       
+      << in_map[0] << " " << in_map[1] << " "
+      << in_map[2] << " " << in_map[3] << std::endl;
+
     // run kernel
 
     std::cout << "running kernel (" << n_events << "events)..." << std::endl;
     auto t_start = std::chrono::high_resolution_clock::now();
 
-    {
-        std::cout << "PRE-LAUNCH: ";
-        std::cout << "top=" << kernel.read_register(0x30);
-        std::cout << " rf=" << kernel.read_register(0x40);
-        std::cout << " em=" << kernel.read_register(0x50);
-        std::cout << " a1=" << kernel.read_register(0x80);
-        std::cout << std::endl;
-    }
+    auto run = kernel(in_bo, out_bo, (uint32_t)n_events);
 
-
-
-    auto run = kernel(in_bo, out_bo, n_events);
-
-    for (int i = 0; i < 30; i++) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+    for (int i = 0; i < 3000; i++) {  // 30s timeout at 10ms resolution
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         auto st = run.state();
-        uint32_t top  = kernel.read_register(0x30);
-        uint32_t rf   = kernel.read_register(0x40);
-        uint32_t em   = kernel.read_register(0x50);
-        uint32_t pw   = kernel.read_register(0x60);
-        uint32_t a0   = kernel.read_register(0x70);
-        uint32_t a1   = kernel.read_register(0x80);
-        uint32_t cl   = kernel.read_register(0x90);
-        uint32_t ae   = kernel.read_register(0xA0);
-        std::cout << "t=" << i << "s state=" << st
-                << " top=" << top 
-                << " rf=" << rf
-                << " em=" << em
-                << " pw=" << pw
-                << " a0=" << a0
-                << " a1=" << a1
-                << " cl=" << cl
-                << " ae=" << ae << std::endl;
-        std::cout.flush();
-        if (st == ERT_CMD_STATE_COMPLETED) break;
+        if (st == ERT_CMD_STATE_COMPLETED) {
+            std::cout << "kernel completed after " << (i * 10) << " ms" << std::endl;
+            break;
         }
-
+        if (i % 100 == 0) {  // status every 1s
+            std::cout << "t=" << i/100 << "s state=" << st << std::endl;
+        }
+    }
     run.wait();
+
     uint32_t ctrl = kernel.read_register(0x00);
     std::cout << "AP_CTRL register = 0x" << std::hex << ctrl << std::dec << std::endl;
-    
-
-    {
-        uint32_t top = kernel.read_register(0x30);
-        uint32_t rf  = kernel.read_register(0x40);
-        uint32_t em  = kernel.read_register(0x50);
-        uint32_t pw  = kernel.read_register(0x60);
-        uint32_t a0  = kernel.read_register(0x70);
-        uint32_t a1  = kernel.read_register(0x80);
-        uint32_t cl  = kernel.read_register(0x90);
-        uint32_t ae  = kernel.read_register(0xA0);
-        std::cout << "FINAL: top=" << top 
-                << " rf=" << rf << " em=" << em << " pw=" << pw
-                << " a0=" << a0 << " a1=" << a1 
-                << " cl=" << cl << " ae=" << ae << std::endl;
-    }
 
     auto t_end = std::chrono::high_resolution_clock::now();
     double elapsed_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
@@ -209,12 +169,16 @@ int main(int argc, char* argv[]) {
 
     for (int ev = 0; ev < n_events; ev++) {
         int offset = ev * WORDS_PER_EVENT_OUT;
-        float mse = bits_to_float(out_map[offset + 0]);
+
+        printf("raw out[%d]: 0x%08x 0x%08x 0x%08x\n",
+           ev, out_map[offset+0], out_map[offset+1], out_map[offset+2]);
+
+        float mse     = bits_to_float(out_map[offset + 0]);
         float crossed = bits_to_float(out_map[offset + 1]);
-        float latent = bits_to_float(out_map[offset + 2]);
+        float latent  = bits_to_float(out_map[offset + 2]);
 
         printf("%-8d %12.6f %12.6f %12.6f\n", ev, mse, crossed, latent);
-    }
+    }    
 
     {
         std::string out_path = "output.bin";

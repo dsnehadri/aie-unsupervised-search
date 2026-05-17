@@ -8,9 +8,9 @@
 #include <string>
 #include "../cnpy/cnpy.h"
 
-#include "../attn_block_pl/attn_block_types.h"
-#include "../dnn_block/dnn_block.h"
-#include "../autoencoder/autoencoder.h"
+#include "../src/attn_block_pl/attn_block_types.h"
+#include "../src/dnn_block/dnn_block.h"
+#include "../src/autoencoder/autoencoder.h"
 
 // helpers to load npy files
 

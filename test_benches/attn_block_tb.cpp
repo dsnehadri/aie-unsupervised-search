@@ -85,7 +85,7 @@ int main() {
         load_2d<data_t, T_DIM, E_DIM>(dir + tests_suffix + "stage3_layer0_post_cand_selfattn.npy", golden, event_idx);
 
 
-        attn_block_cand(c, 
+        attn_block_cand(c,
             w.Wq, w.bq, w.Wk, w.bk, w.Wv, w.bv,
             w.bias_k, w.bias_v, w.Wo, w.bo,
             w.attn_ln_g, w.attn_ln_b,

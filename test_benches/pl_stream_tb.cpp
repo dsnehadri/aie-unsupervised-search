@@ -12,17 +12,17 @@
 
 // forward declaration of DUT
 
-void pl_stream_top(
+extern "C" void pl_stream_top(
     ap_uint<32>* in_buf,
     ap_uint<32>* out_buf,
-    int n_events,
-    volatile ap_uint<32>* debug_stage,   // top-level progress
-    volatile ap_uint<32>* debug_embed,
-    volatile ap_uint<32>* debug_pairwise,
-    volatile ap_uint<32>* debug_abc0,
-    volatile ap_uint<32>* debug_abc1,
-    volatile ap_uint<32>* debug_cand_lorentz,
-    volatile ap_uint<32>* debug_ae
+    int n_events
+    // volatile ap_uint<32>* debug_stage,   // top-level progress
+    // volatile ap_uint<32>* debug_embed,
+    // volatile ap_uint<32>* debug_pairwise,
+    // volatile ap_uint<32>* debug_abc0,
+    // volatile ap_uint<32>* debug_abc1,
+    // volatile ap_uint<32>* debug_cand_lorentz,
+    // volatile ap_uint<32>* debug_ae
 );
 
 int main() {

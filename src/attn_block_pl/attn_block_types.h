@@ -68,9 +68,9 @@ static const int FFN_DIM = E_DIM;
 // typedef ap_fixed<64, 20> acc_t;
 // typedef ap_fixed<64, 20> exp_t;
 
-typedef ap_fixed<16, 5> data_t;
+typedef ap_fixed<16, 7> data_t;
 typedef ap_fixed<16, 4> weight_t;
-typedef ap_fixed<16, 6> score_t;
+typedef ap_fixed<16, 11> score_t;   // widened integer bits: cand Q*K^T can reach ~320; ±32 was saturating
 typedef ap_fixed<16, 2> prob_t;
 typedef ap_fixed<16, 4> ln_param_t;
 typedef ap_fixed<32, 10> acc_t;
@@ -82,7 +82,10 @@ static const score_t SCALE = 0.5;
 
 // large negative values for masked positions (saturates softmax to ~0)
 
-static const score_t NEG_INF = -64.0;
+// score_t = ap_fixed<16, 6> has range [-32, 32). Using -64 wraps to 0!
+// Use the smallest representable score_t value so exp(NEG_INF - max) underflows
+// for all reasonable max scores.
+static const score_t NEG_INF = -31.0;
 
 // layer norm epsilon
 
