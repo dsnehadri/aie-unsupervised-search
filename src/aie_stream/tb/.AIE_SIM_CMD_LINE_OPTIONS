@@ -1,0 +1,6 @@
+aiesimulator
+--pkg-dir Work
+--aiearch-version aie
+--simulation-cycle-timeout=5000000
+--hang-detect-time=100000
+--profile
