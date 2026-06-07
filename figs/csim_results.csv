@@ -1,7 +1,4 @@
 component,test,max_err,rmse,tolerance,kind,pass
-attn_block,obj_blocks,0.026574,0.009827,0.1,vector,PASS
-attn_block,cand_blocks,9e-06,3e-06,0.1,vector,PASS
-attn_block,cross_blocks,0.058258,0.014694,0.1,vector,PASS
 autoencoder,c0_latent,4e-06,,,array,PASS
 autoencoder,c1_latent,2e-06,,,array,PASS
 autoencoder,c0_decoded,7e-06,,,array,PASS
