@@ -14,26 +14,46 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as _fm
 import numpy as np
+import seaborn as sns
 
 REPO = Path(__file__).resolve().parents[2]
 DATA = json.loads((REPO / "scripts/bench/breakdown.json").read_text())
 OUT_DIR = REPO / "figs"
 OUT_DIR.mkdir(exist_ok=True)
 
+# Match the aie_vs_pl_steady style: seaborn paper theme + Montserrat.
+sns.set_theme(context="paper", style="whitegrid", palette="deep", font_scale=1.1)
+if any("ontserrat" in (f or "").lower() for f in _fm.findSystemFonts()):
+    plt.rcParams["font.family"] = "Montserrat"
+mpl.rcParams.update({
+    "figure.dpi": 110,
+    "savefig.dpi": 220,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.titleweight": "bold",
+    "patch.linewidth": 0.0,
+})
+
+PL_COLOR  = "#1f77b4"
+AIE_COLOR = "#d62728"
+NEUTRAL   = "#7f7f7f"
+
 
 # -- categorization ----------------------------------------------------
 CATEGORIES = [
-    ("Linear",        "#1f77b4"),
-    ("Attention",     "#d62728"),
-    ("Norm/Residual", "#2ca02c"),
-    ("FFN",           "#9467bd"),
-    ("Activation",    "#ff7f0e"),
-    ("AE enc/dec",    "#17becf"),
-    ("Candidate ops", "#8c564b"),
-    ("Reshape/glue",  "#7f7f7f"),
-    ("Loop overhead", "#cccccc"),
+    ("Linear",        "#3a6fb0"),   # blue
+    ("Attention",     "#c0392b"),   # red
+    ("Norm/Residual", "#2e8b57"),   # sea green
+    ("FFN",           "#8e44ad"),   # purple
+    ("Activation",    "#e67e22"),   # orange
+    ("AE enc/dec",    "#17becf"),   # cyan
+    ("Candidate ops", "#8c564b"),   # brown
+    ("Reshape/glue",  "#7f8c8d"),   # gray
+    ("Loop overhead", "#bdc3c7"),   # light gray
 ]
 CAT_COLOR = dict(CATEGORIES)
 
@@ -148,23 +168,27 @@ def plot_totals():
     us_min = [us_min[i] for i in order]
     us_max = [us_max[i] for i in order]
 
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    fig, ax = plt.subplots(figsize=(9.0, 4.8))
     y = np.arange(len(kernels))
-    ax.barh(y, us_min, color="#4477aa", edgecolor="black")
+    ax.barh(y, us_min, color=PL_COLOR, edgecolor="none")
     for i, (lo, hi) in enumerate(zip(us_min, us_max)):
         label = f"{lo:.1f} µs" if lo == hi else f"{lo:.1f}–{hi:.1f} µs"
-        ax.text(lo * 1.05, i, label, va="center", fontsize=9)
+        ax.text(lo * 1.05, i, label, va="center",
+                fontsize=9.5, weight="bold")
 
     ax.set_yticks(y)
     ax.set_yticklabels(kernels)
     ax.set_xscale("log")
-    ax.set_xlabel("Latency per invocation (µs, log scale)")
-    ax.set_title("PL kernel latency — HLS csynth estimates (xcvc1902, target 5 ns)")
-    ax.grid(True, axis="x", which="both", linestyle=":", alpha=0.5)
+    ax.set_xlabel("latency per invocation  [μs, log scale]")
+    ax.set_ylabel("")
+    ax.set_title("PL kernel latency — HLS csynth estimates "
+                 "(xcvc1902, target 5 ns)",
+                 fontsize=12, weight="bold", pad=10)
+    ax.grid(True, axis="x", which="both", linestyle=":", alpha=0.4)
     ax.set_axisbelow(True)
-    fig.tight_layout()
     out = OUT_DIR / "kernel_total_latency.png"
-    fig.savefig(out, dpi=140)
+    fig.savefig(out, bbox_inches="tight")
+    fig.savefig(OUT_DIR / "kernel_total_latency.pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {out}")
 
@@ -177,7 +201,8 @@ def plot_breakdown():
     totals = [cycles_to_us(d["top_cycles_min"], d["period_ns"]) for d in order]
     aggregates = [aggregate(d)[0] for d in order]
 
-    fig, ax = plt.subplots(figsize=(11, 5.5))
+    # ---- absolute µs version ---------------------------------------------
+    fig, ax = plt.subplots(figsize=(11.5, 5.8))
     y = np.arange(len(kernels))
 
     left = np.zeros(len(kernels))
@@ -188,34 +213,36 @@ def plot_breakdown():
         for i, w in enumerate(widths):
             if w / totals[i] > 0.05 and w > 0.5:
                 ax.text(left[i] + w / 2, i, f"{w:.1f}",
-                        va="center", ha="center", fontsize=8,
-                        color="white" if cat != "Loop overhead" else "black",
-                        fontweight="bold")
+                        va="center", ha="center", fontsize=8.5,
+                        color="white" if cat != "Loop overhead" else "#333",
+                        weight="bold")
         left += widths
 
-    # annotate total at end of bar
     for i, t in enumerate(totals):
-        ax.text(t * 1.005, i, f"{t:.1f} µs",
-                va="center", ha="left", fontsize=9)
+        ax.text(t * 1.008, i, f"{t:.1f} μs",
+                va="center", ha="left",
+                fontsize=10, weight="bold")
 
     ax.set_yticks(y)
     ax.set_yticklabels(kernels)
-    ax.set_xlabel("Wall-clock time per invocation (µs)")
-    ax.set_title("PL kernel per-stage breakdown — HLS csynth, scaled to event total")
-    ax.set_xlim(0, max(totals) * 1.12)
-    ax.grid(True, axis="x", linestyle=":", alpha=0.5)
+    ax.set_xlabel("wall-clock time per invocation  [μs]")
+    ax.set_ylabel("")
+    ax.set_title("PL kernel per-stage breakdown — csynth, scaled to event total",
+                 fontsize=12, weight="bold", pad=10)
+    ax.set_xlim(0, max(totals) * 1.14)
+    ax.grid(True, axis="x", linestyle=":", alpha=0.4)
     ax.set_axisbelow(True)
-    ax.legend(loc="lower right", fontsize=8, ncol=3, framealpha=0.9)
-    fig.tight_layout()
+    ax.legend(loc="lower right", fontsize=9, ncol=3, framealpha=0.95,
+              frameon=True, edgecolor="#ccc")
     out = OUT_DIR / "kernel_stage_breakdown.png"
-    fig.savefig(out, dpi=140)
+    fig.savefig(out, bbox_inches="tight")
+    fig.savefig(OUT_DIR / "kernel_stage_breakdown.pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {out}")
 
-    # also a log-x version for easier comparison of small kernels
-    fig, ax = plt.subplots(figsize=(11, 5.5))
+    # ---- normalized 0..100% version --------------------------------------
+    fig, ax = plt.subplots(figsize=(11.5, 5.8))
     left = np.zeros(len(kernels))
-    # log scale + stacked is messy; show normalized 0..100% instead
     for cat, color in CATEGORIES:
         widths = np.array([a[cat] / totals[i] * 100.0 for i, a in enumerate(aggregates)])
         ax.barh(y, widths, left=left, color=color, edgecolor="white",
@@ -223,23 +250,27 @@ def plot_breakdown():
         for i, w in enumerate(widths):
             if w > 6:
                 ax.text(left[i] + w / 2, i, f"{w:.0f}%",
-                        va="center", ha="center", fontsize=8,
-                        color="white" if cat != "Loop overhead" else "black",
-                        fontweight="bold")
+                        va="center", ha="center", fontsize=8.5,
+                        color="white" if cat != "Loop overhead" else "#333",
+                        weight="bold")
         left += widths
     for i, t in enumerate(totals):
-        ax.text(101, i, f"{t:.1f} µs", va="center", ha="left", fontsize=9)
+        ax.text(101, i, f"{t:.1f} μs", va="center", ha="left",
+                fontsize=10, weight="bold")
     ax.set_yticks(y)
     ax.set_yticklabels(kernels)
-    ax.set_xlabel("Share of kernel time (%)")
-    ax.set_title("PL kernel per-stage breakdown — normalized (csynth estimates)")
-    ax.set_xlim(0, 115)
-    ax.grid(True, axis="x", linestyle=":", alpha=0.5)
+    ax.set_xlabel("share of kernel time  [%]")
+    ax.set_ylabel("")
+    ax.set_title("PL kernel per-stage breakdown — normalized (csynth estimates)",
+                 fontsize=12, weight="bold", pad=10)
+    ax.set_xlim(0, 118)
+    ax.grid(True, axis="x", linestyle=":", alpha=0.4)
     ax.set_axisbelow(True)
-    ax.legend(loc="lower right", fontsize=8, ncol=3, framealpha=0.9)
-    fig.tight_layout()
+    ax.legend(loc="lower right", fontsize=9, ncol=3, framealpha=0.95,
+              frameon=True, edgecolor="#ccc")
     out2 = OUT_DIR / "kernel_stage_breakdown_pct.png"
-    fig.savefig(out2, dpi=140)
+    fig.savefig(out2, bbox_inches="tight")
+    fig.savefig(OUT_DIR / "kernel_stage_breakdown_pct.pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {out2}")
 

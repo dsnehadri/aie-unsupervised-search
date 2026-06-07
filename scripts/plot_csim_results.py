@@ -21,8 +21,41 @@ def darken(color, amount=0.25):
     l = max(0.0, l * (1.0 - amount))
     return colorsys.hls_to_rgb(h, l, s)
 
-sns.set_theme(context="paper", style="whitegrid", palette="bright",
-               font="Montserrat", font_scale=1.15)
+sns.set_theme(context="paper", style="whitegrid", palette="deep",
+               font_scale=1.1)
+import matplotlib.font_manager as _fm
+if any("ontserrat" in (f or "").lower() for f in _fm.findSystemFonts()):
+    plt.rcParams["font.family"] = "Montserrat"
+
+PL_COLOR    = "#1f77b4"   # blue — matches steady chart
+AIE_COLOR   = "#d62728"   # red
+NEUTRAL     = "#7f7f7f"
+RATIO_GOOD  = "#1a8a2e"
+RATIO_BAD   = "#a31515"
+
+# Worst-case AIE error across (obj, cand, cross) — from check_attn_outputs
+# runs. AIE only exists for the attention block; everything else is PL-only.
+AIE_BY_COMPONENT = {
+    "attn_block": max(0.027615, 0.010963, 0.056194),  # = 0.056194
+}
+
+# Fallback PL accuracy (worst-case across blocks) for components whose csim
+# log isn't present on disk. From check_attn_outputs.py runs.
+FALLBACK_PL_ERR = {
+    "attn_block": max(0.029297, 0.013672, 0.060547),  # 0.060547
+}
+
+# Per-component tolerance for the pass/fail line.
+COMPONENT_TOL = {
+    "attn_block":   0.1,
+    "autoencoder":  0.01,
+    "cand_build":   0.01,
+    "cand_lorentz": 0.1,
+    "embed_ffn":    0.01,
+    "pairwise_mlp": 0.01,
+    "passwd_top":   0.5,
+    "pl_stream":    0.5,
+}
 
 # group components into a few categories for a less-noisy palette
 GROUP_OF = {
@@ -216,30 +249,64 @@ def plot(rows, out_png):
         if c not in per_comp or r["max_err"] > per_comp[c]:
             per_comp[c] = r["max_err"]
 
-    comps = [c for c in comp_order if c in per_comp]
-    labels = [COMPONENT_LABEL.get(c, c) for c in comps]
-    max_errs = [max(per_comp[c], FLOOR) for c in comps]
-    face = "#A6C8FF"            # pastel blue for every bar
-    edge = darken(face, 0.32)
+    # Use fallback PL data where csim log is missing so the row still appears.
+    for c, v in FALLBACK_PL_ERR.items():
+        per_comp.setdefault(c, v)
 
-    fig, ax = plt.subplots(figsize=(7.5, max(3.5, 0.5 * len(labels))))
+    comps   = [c for c in comp_order if c in per_comp]
+    labels  = [COMPONENT_LABEL.get(c, c) for c in comps]
+    pl_err  = [max(per_comp[c], FLOOR) for c in comps]
+    aie_err = [AIE_BY_COMPONENT.get(c) for c in comps]
+    tols    = [COMPONENT_TOL.get(c) for c in comps]
 
+    fig, ax = plt.subplots(figsize=(10.0, max(3.8, 0.6 * len(labels))))
     y = np.arange(len(labels))
-    bars = ax.barh(y, max_errs, color=face, edgecolor=edge,
-                   linewidth=1.4, height=0.72)
+    h = 0.36   # height for each side of the AIE/PL pair
+
+    # PL bars (always present)
+    pl_bars = ax.barh(y + h/2, pl_err, height=h, color=PL_COLOR,
+                      edgecolor="none", label="PL  (HLS csim)")
+    # AIE bars only for components that have AIE data (avoid 0 on log axis)
+    aie_idx = [i for i, v in enumerate(aie_err) if v is not None and v > 0]
+    aie_y   = [y[i] - h/2 for i in aie_idx]
+    aie_val = [aie_err[i] for i in aie_idx]
+    if aie_val:
+        ax.barh(aie_y, aie_val, height=h, color=AIE_COLOR,
+                edgecolor="none", label="AIE (aiesim)")
+
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
     ax.invert_yaxis()
-
     ax.set_xscale("log")
-    ax.set_xlabel(r"max $\,|\,$HLS $-$ PyTorch$\,|\,$  (log scale)")
+    # explicit xlim — leave a decade on the right for labels
+    all_vals = pl_err + [v for v in aie_err if v is not None and v > 0]
+    ax.set_xlim(FLOOR / 3, max(all_vals) * 25)
+    ax.set_xlabel(r"max $\,|\,$impl $-$ PyTorch$\,|\,$  (log scale)")
     ax.set_ylabel("")
 
+    # Bold value labels at the right end of each bar
+    for i, v in enumerate(pl_err):
+        ax.text(v * 1.10, y[i] + h/2, f"{v:.2e}",
+                va="center", ha="left",
+                fontsize=8.5, weight="bold", color=PL_COLOR)
+    for i, v in enumerate(aie_err):
+        if v is None or v == 0:
+            continue  # no AIE bar for this component
+        ax.text(v * 1.10, y[i] - h/2, f"{v:.2e}",
+                va="center", ha="left",
+                fontsize=8.5, weight="bold", color=AIE_COLOR)
+
+    ax.legend(loc="upper right", bbox_to_anchor=(1.0, 1.10),
+              ncol=2, fontsize=9.5, framealpha=0.95,
+              frameon=True, edgecolor="#ccc")
+
+    ax.set_title("Numerical accuracy per algorithm component  —  HLS csim & AIE aiesim",
+                 fontsize=12, weight="bold", pad=28, loc="left")
     sns.despine(ax=ax, left=True)
     ax.grid(axis="x", linestyle=":", alpha=0.45)
     ax.grid(axis="y", visible=False)
-    fig.tight_layout()
-    fig.savefig(out_png, dpi=300, bbox_inches="tight")
+
+    fig.savefig(out_png, bbox_inches="tight", dpi=180)
     fig.savefig(out_png.with_suffix(".pdf"), bbox_inches="tight")
     print(f"wrote {out_png}")
     print(f"wrote {out_png.with_suffix('.pdf')}")
