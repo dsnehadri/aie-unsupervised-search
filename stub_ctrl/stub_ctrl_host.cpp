@@ -24,7 +24,11 @@ int main(int argc, char* argv[]) {
     std::cout << "[2] OK" << std::endl; std::cout.flush();
 
     std::cout << "[3] creating kernel handle..." << std::endl; std::cout.flush();
-    auto kernel = xrt::kernel(device, uuid, "stub_ctrl");
+    // exclusive access is required for kernel.read_register() below;
+    // opening shared makes read_register throw "Cannot read or write
+    // kernel with shared access" (matches stub_top host).
+    auto kernel = xrt::kernel(device, uuid, "stub_ctrl",
+                              xrt::kernel::cu_access_mode::exclusive);
     std::cout << "[3] OK" << std::endl; std::cout.flush();
 
     std::cout << "[3a] sleeping before launch..." << std::endl;

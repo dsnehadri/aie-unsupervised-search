@@ -12,12 +12,16 @@ public:
 
 AttnTestGraph g;
 
+#ifndef AIE_NUM_EVENTS
+#define AIE_NUM_EVENTS 100
+#endif
+
 #if defined(__AIESIM__) || defined(__X86SIM__)
 int main(int /*argc*/, char** /*argv*/) {
     g.init();
     // one iteration = one event. plio text files contain
-    // one events data. gen_attn_inputs.py picks event 0
-    g.run(1);
+    // AIE_NUM_EVENTS events' data, concatenated by gen_attn_inputs.py.
+    g.run(AIE_NUM_EVENTS);
     g.end();
     return 0;
 }

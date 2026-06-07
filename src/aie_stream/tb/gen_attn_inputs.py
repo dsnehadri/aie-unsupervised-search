@@ -93,7 +93,9 @@ def main():
                     help="Phase-3 export directory "
                          "(e.g. /home/snehadri/repos/unsupervised-search/phase3_export)")
     ap.add_argument("--event", type=int, default=0,
-                    help="Event index to test (default: 0)")
+                    help="Event index to start at (default: 0)")
+    ap.add_argument("--num-events", type=int, default=1,
+                    help="Number of events to concatenate into each PLIO file (default: 1)")
     ap.add_argument("--data-dir", default="./data",
                     help="Where to write PLIO text files (default: ./data)")
     args = ap.parse_args()
@@ -102,74 +104,86 @@ def main():
     if not os.path.isdir(tv):
         sys.exit(f"test_vectors directory not found: {tv}")
 
-    ev = args.event
-    print(f"generating PLIO inputs for event {ev}")
+    ev0 = args.event
+    nev = args.num_events
+    print(f"generating PLIO inputs for events [{ev0}..{ev0+nev-1}]  (N={nev})")
     print(f"  test_vectors: {tv}")
     print(f"  output dir:   {args.data_dir}")
 
-    def load_event(name, expected_shape):
-        path = os.path.join(tv, name)
-        arr = np.load(path)
-        if arr.shape[0] <= ev:
-            sys.exit(f"{name}: only {arr.shape[0]} events, requested ev={ev}")
-        out = arr[ev]
-        if out.shape != expected_shape:
-            sys.exit(f"{name}: expected shape {expected_shape}, got {out.shape}")
+    # Lazily-loaded full arrays
+    arrays = {}
+    def full(name):
+        if name not in arrays:
+            arrays[name] = np.load(os.path.join(tv, name))
+        return arrays[name]
+
+    def event_slice(name, expected_shape):
+        """Return shape (nev,)+expected_shape slice for the requested event range."""
+        arr = full(name)
+        if arr.shape[0] < ev0 + nev:
+            sys.exit(f"{name}: only {arr.shape[0]} events, "
+                     f"requested [{ev0}..{ev0+nev-1}]")
+        out = arr[ev0:ev0+nev]
+        if out.shape[1:] != expected_shape:
+            sys.exit(f"{name}: expected shape (N,)+{expected_shape}, got {out.shape}")
         return out
 
-    # padding mask for this event (True = padded jet, ignore)
-    mask_arr = np.load(os.path.join(tv, "stage0_padding_mask.npy"))
-    pad_mask = mask_arr[ev].astype(bool)
-    if pad_mask.shape != (N_MAX,):
-        sys.exit(f"padding_mask: expected shape ({N_MAX},), got {pad_mask.shape}")
+    pad_masks = full("stage0_padding_mask.npy")[ev0:ev0+nev].astype(bool)  # (nev, N_MAX)
+    if pad_masks.shape != (nev, N_MAX):
+        sys.exit(f"padding_mask: expected shape ({nev},{N_MAX}), got {pad_masks.shape}")
+
+    # Helper: concatenate int16 arrays from N events into one flat array.
+    def concat_events(per_event_int16):
+        # per_event_int16: list of length nev, each a flat int16 array
+        return np.concatenate([a.reshape(-1) for a in per_event_int16])
+
+    NEG_BIAS = -15.0  # for masked-out keys in wij
+    CAND_SCALE = 1 << 9   # cand Q6.9
 
     # ---- obj0 inputs --------------------------------------------------------
     print("\n[obj0]")
-    x_obj = load_event("stage1_post_embedding.npy", (N_MAX, E_DIM))
-    write_plio_text(os.path.join(args.data_dir, "obj_x_in_L0.txt"), to_int16(x_obj))
+    x_obj_per = event_slice("stage1_post_embedding.npy", (N_MAX, E_DIM))     # (nev,12,16)
+    x_obj_q   = [to_int16(x_obj_per[i]) for i in range(nev)]
+    write_plio_text(os.path.join(args.data_dir, "obj_x_in_L0.txt"),
+                    concat_events(x_obj_q))
 
-    # wij from pairwise MLP: shape (N_MAX, N_MAX); pad to (N_MAX, N_KV) with
-    # zero in the bias_kv slot (col N_MAX). Same data feeds all 4 heads.
-    #
-    # IMPORTANT: PL passes padding_mask separately to attn_block_obj, but the
-    # AIE kernel only consumes wij — so the deployed pipeline pre-bakes the
-    # padding mask into wij upstream (large negative at padded key positions,
-    # so softmax -> 0). We replicate that here to test the kernel in isolation.
-    NEG_BIAS = -15.0  # safely inside Q4.11 range; exp(-15) ~ 3e-7 after softmax
-    wij_raw = load_event("stage2_wij_post_mlp.npy", (N_MAX, N_MAX))
-    wij_full = np.zeros((N_MAX, N_KV), dtype=np.float32)
-    wij_full[:, :N_MAX] = wij_raw
-    for j in range(N_MAX):
-        if pad_mask[j]:
-            wij_full[:, j] = NEG_BIAS
-    wij_q = to_int16(wij_full)
+    wij_raw_per = event_slice("stage2_wij_post_mlp.npy", (N_MAX, N_MAX))     # (nev,12,12)
+    wij_q_per = []
+    for i in range(nev):
+        wij_full = np.zeros((N_MAX, N_KV), dtype=np.float32)
+        wij_full[:, :N_MAX] = wij_raw_per[i]
+        for j in range(N_MAX):
+            if pad_masks[i, j]:
+                wij_full[:, j] = NEG_BIAS
+        wij_q_per.append(to_int16(wij_full))
     for h in range(N_HEADS):
-        write_plio_text(os.path.join(args.data_dir, f"obj_wij_h{h}_L0.txt"), wij_q)
+        write_plio_text(os.path.join(args.data_dir, f"obj_wij_h{h}_L0.txt"),
+                        concat_events(wij_q_per))
 
     # ---- cand0 inputs -------------------------------------------------------
-    # Cand pipeline runs at Q6.9 (scale 512) so unnormalized cand_build sums
-    # up to ~|19| fit. The cand kernel uses CAND_SCALE/CAND_ACC_SHIFT and the
-    # cand weight headers are regenerated at the matching scale.
-    CAND_SCALE = 1 << 9   # 512
     print("\n[cand0]")
-    c_cand = load_event("stage3_layer0_candidates_embedded.npy", (T_DIM, E_DIM))
-    c_cand_int = np.clip(np.round(c_cand * CAND_SCALE), -32768, 32767).astype(np.int16)
-    write_plio_text(os.path.join(args.data_dir, "cand_c_in_L0.txt"), c_cand_int)
+    c_cand_per = event_slice("stage3_layer0_candidates_embedded.npy", (T_DIM, E_DIM))
+    c_cand_int_per = [np.clip(np.round(c_cand_per[i] * CAND_SCALE),
+                              -32768, 32767).astype(np.int16) for i in range(nev)]
+    write_plio_text(os.path.join(args.data_dir, "cand_c_in_L0.txt"),
+                    concat_events(c_cand_int_per))
 
     # ---- cross0 inputs ------------------------------------------------------
-    # Cross attention takes Q from post-obj-selfattn output and K=V from
-    # post-cand-selfattn output (both at layer 0).
     print("\n[cross0]")
-    x_cross = load_event("stage3_layer0_post_obj_selfattn.npy", (N_MAX, E_DIM))
-    c_cross = load_event("stage3_layer0_post_cand_selfattn.npy", (T_DIM, E_DIM))
-    write_plio_text(os.path.join(args.data_dir, "cross_x_in_L0.txt"), to_int16(x_cross))
-    write_plio_text(os.path.join(args.data_dir, "cross_c_in_L0.txt"), to_int16(c_cross))
+    x_cross_per = event_slice("stage3_layer0_post_obj_selfattn.npy", (N_MAX, E_DIM))
+    c_cross_per = event_slice("stage3_layer0_post_cand_selfattn.npy", (T_DIM, E_DIM))
+    write_plio_text(os.path.join(args.data_dir, "cross_x_in_L0.txt"),
+                    concat_events([to_int16(x_cross_per[i]) for i in range(nev)]))
+    write_plio_text(os.path.join(args.data_dir, "cross_c_in_L0.txt"),
+                    concat_events([to_int16(c_cross_per[i]) for i in range(nev)]))
 
-    # Save padding mask for the output checker so it can skip masked rows
-    # the same way the PL compare<> helper does.
-    np.save(os.path.join(args.data_dir, "padding_mask_event.npy"), pad_mask)
+    # Save padding masks for all events so the output checker can skip masked rows
+    np.save(os.path.join(args.data_dir, "padding_mask_event.npy"), pad_masks)
+    # Save event range so checker knows what range to validate
+    with open(os.path.join(args.data_dir, "event_range.txt"), "w") as f:
+        f.write(f"{ev0} {nev}\n")
 
-    print("\ndone.")
+    print(f"\ndone. wrote PLIO files for {nev} events.")
 
 
 if __name__ == "__main__":
