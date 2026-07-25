@@ -14,8 +14,13 @@ import argparse
 import numpy as np
 import struct
 
-def float_to_ap_fixed_16_5(val):
-    frac_bits = 11
+def float_to_ap_fixed(val):
+    # MUST match data_t in src/attn_block_pl/attn_block_types.h.
+    # data_t = ap_fixed<16,7> -> 16-7 = 9 fractional bits.
+    # (Was 11 for ap_fixed<16,5>; the scale-retune widened the integer part to 7
+    #  but pack_input was never updated, so every feature was read 4x too large,
+    #  overflowing exp(logE) and giving nan candidate masses.)
+    frac_bits = 9
     scale = 2.0 ** frac_bits
 
     # clamp to representative range
@@ -51,7 +56,7 @@ def main():
     for ev in range(n_events):
         for i in range(12):
             for j in range(5):
-                words.append(float_to_ap_fixed_16_5(jets[ev, i, j]))
+                words.append(float_to_ap_fixed(jets[ev, i, j]))
 
         for i in range(12):
             words.append(1 if mask[ev, i] else 0)
