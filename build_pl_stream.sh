@@ -7,10 +7,10 @@ HLS=/home/snehadri/Vitis_HLS/2022.2/bin/vitis_hls
 VPP=/home/snehadri/Vitis/2022.2/bin/v++
 XPFM=/home/snehadri/Vitis/2022.2/base_platforms/xilinx_vck190_base_202220_1/xilinx_vck190_base_202220_1.xpfm
 
-echo "===== [1/3] HLS csynth + export .xo  $(date) ====="
-$HLS -f run_synth_export.tcl
-cp -f pl_stream_rebuild/solution1/impl/export.xo pl_stream_top.xo 2>/dev/null || \
-  cp -f pl_stream_top.xo pl_stream_top.xo  # export_design already wrote it to cwd
+if [ "${SKIP_HLS:-0}" != "1" ]; then
+  echo "===== [1/3] HLS csynth + export .xo  $(date) ====="
+  $HLS -f run_synth_export.tcl   # export_design writes pl_stream_top.xo to cwd
+fi
 ls -la pl_stream_top.xo
 
 echo "===== [2/3] v++ link -> xsa/xclbin  $(date) ====="
