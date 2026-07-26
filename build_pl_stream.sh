@@ -18,7 +18,7 @@ echo "===== [2/3] v++ link -> xsa/xclbin  $(date) ====="
 # paths; design closes ~163 MHz, so target 150 MHz for margin (functionally identical,
 # just slower -- irrelevant for the loss demonstration).
 $VPP --link --target hw --platform "$XPFM" \
-  --kernel_frequency 150 \
+  --clock.defaultFreqHz 150000000 \
   --save-temps --temp_dir _x_rebuild \
   -o pl_stream.xsa pl_stream_top.xo
 
