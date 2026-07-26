@@ -14,7 +14,11 @@ fi
 ls -la pl_stream_top.xo
 
 echo "===== [2/3] v++ link -> xsa/xclbin  $(date) ====="
+# data_t widened to ap_fixed<16,7> (needed for the retrained mass feature) lengthened
+# paths; design closes ~163 MHz, so target 150 MHz for margin (functionally identical,
+# just slower -- irrelevant for the loss demonstration).
 $VPP --link --target hw --platform "$XPFM" \
+  --kernel_frequency 150 \
   --save-temps --temp_dir _x_rebuild \
   -o pl_stream.xsa pl_stream_top.xo
 
