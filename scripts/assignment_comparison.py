@@ -119,6 +119,20 @@ bhem=hemisphere(bp4,bpt); shem=hemisphere(sp4,spt)
 fd=np.load("/tmp/usearch/figdata.npz")
 b_abc=fd["qcd_background__mlast"]; s_abc=fd[SIG+"__mlast"]
 
+# save per-event masses + aligned HT for the turn-on study
+def fullHT(f):                       # HT aligned with figdata masses (njet>=6, file order)
+    with h5py.File(f"{IN}/{f}.h5") as h:
+        pt=np.nan_to_num(np.array(h['source']['pt']))/1000.
+    return pt[(pt>0).sum(1)>=6].sum(1)
+HTb_abc=fullHT("qcd_background"); HTs_abc=fullHT(SIG)
+assert len(HTb_abc)==len(b_abc) and len(HTs_abc)==len(s_abc), (len(HTb_abc),len(b_abc),len(HTs_abc),len(s_abc))
+np.savez("/tmp/assign_masses.npz",
+         HTb=bpt.sum(1), HTs=spt.sum(1),         # subsample HT (heuristics)
+         HTb_abc=HTb_abc, HTs_abc=HTs_abc,        # full-sample HT (Passwd-ABC)
+         b_abc=b_abc, s_abc=s_abc,
+         b_asym=bb["asym"], s_asym=ss["asym"], b_diff=bb["diff"], s_diff=ss["diff"],
+         b_dr=bb["dr"], s_dr=ss["dr"], b_hem=bhem, s_hem=shem)
+
 METH=[("Passwd-ABC (learned)", b_abc, s_abc, "#d62728"),
       ("min mass asymmetry",   bb["asym"], ss["asym"], "#1f77b4"),
       ("min mass difference",  bb["diff"], ss["diff"], "#2ca02c"),
