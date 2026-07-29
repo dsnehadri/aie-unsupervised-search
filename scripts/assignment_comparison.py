@@ -17,7 +17,7 @@ from matplotlib.ticker import AutoMinorLocator
 
 IN="/home/snehadri/repos/unsupervised-search/inputs"
 SIG="gluino_rpv_6j"; SIGLAB=r"$\tilde g\tilde g\to 2\times j(jj)$ (gluino 6j, 1500 GeV)"
-NBKG=12000
+NBKG=int(os.environ.get("NBKG","60000"))
 rng=np.random.default_rng(0)
 
 def load(f,n=None):
