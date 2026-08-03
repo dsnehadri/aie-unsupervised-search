@@ -69,3 +69,35 @@ and (b) our required rate was low enough that PL fit losslessly. So this project
 **confirmation** of LARE (AIE wins the compute-density/throughput argument, and the tile
 underutilization is real) and a **case for extending it** with an accuracy axis and a binding-resource
 (not DSP-only) normalization when the workload is attention rather than dense GEMM.
+
+## Improving the AIE's LARE efficiency (measured)
+
+The low efficiency indicator above is **not** the AIE being weak — it's us running **one event at a
+time**, so the tiles idle waiting for the PL bridge. Our own profiling proves it:
+- Per-tile busy%: the `obj` attention tiles run **99%** busy but the `cand` tiles only **~37%**
+  (load imbalance), and the standalone AIE attention subgraphs sustain **obj 4738 / cand 14808 ev/s**
+  — far above the 551 ev/s the single-event pipeline delivers. *"AIE attention is faster than the
+  pipeline can feed it; tiles sit idle."*
+- **Cross-event pipelining (N=100), measured: 7549 ev/s on the same 78 tiles — 13.7×, no extra tiles.**
+
+Recomputing the LARE efficiency (throughput per DSP-equivalent):
+
+| config | throughput | perf / DSP-eq | vs PL |
+|---|---|---|---|
+| all-PL | 478 | 0.45 | — |
+| all-AIE, 1 event live | 551 | 0.11–0.21 | **below PL** |
+| **all-AIE + pipelining** | **7549** | **1.56–2.93** | **3.4–6.5× above PL** |
+
+So keeping the AIE fed **flips the LARE verdict**: the AIE goes from *worse* than PL per DSP-equivalent
+to **3–6× better**, at **15.8× the PL throughput** — and the all-AIE build also **frees the fabric**
+(DSP 1055→314, −70%; LUT 204,895→70,607, −66%). Concrete levers, by measured impact:
+1. **Cross-event pipelining** (many events in flight) — the 13.7× above; the single biggest fix.
+2. **Load rebalancing** — the `cand` tiles at 37% busy are over-provisioned; folding that work onto
+   fewer tiles lowers the DSP-equivalent and raises efficiency further.
+3. **Clock/bridge** — the AIE can run ~1 GHz vs our 100 MHz PL feed; widening the PL↔AIE PLIO and
+   deepening the bridge pipeline recovers the rest.
+
+**Caveat unchanged:** this is the LARE (latency/resource) axis only. The all-AIE path still carries the
+int16 attention quantization (the AUC cost), which is why the *shipped* golden design is all-PL. The
+improvement here is the right move when throughput/resource is the binding constraint and the AUC hit
+is acceptable (or the attention is quantized more carefully).
