@@ -101,3 +101,36 @@ to **3–6× better**, at **15.8× the PL throughput** — and the all-AIE build
 int16 attention quantization (the AUC cost), which is why the *shipped* golden design is all-PL. The
 improvement here is the right move when throughput/resource is the binding constraint and the AUC hit
 is acceptable (or the attention is quantized more carefully).
+
+## Cheap probe (no rebuild): where the AIE ceiling actually is
+
+Instead of rebuilding an AIE kernel, test the utilization hypothesis against data we already have —
+the per-tile profiler dump + the two measured batch points (551 ev/s at B=1, 7549 at B=100).
+Figure: `figs/aie_probe.png`; script `scripts/aie_probe.py`.
+
+**(a) Batching is nearly maxed.** Fitting the two points to `throughput(B) = 1/(t_comp + t_over/B)`:
+`t_over ≈ 1.70 ms/invocation`, `t_comp ≈ 0.116 ms/event`. So single-event is **93.6% fixed overhead**
+(PL↔AIE bridge, dispatch, pipeline fill); the **compute-bound ceiling is ≈ 8660 ev/s**, and **B=100
+already reaches 87%** of it. The batching lever is almost exhausted — more events in flight buy <15%.
+
+**(b) The ceiling is set by *scalar* work, not GEMM.** In the profiler top-funcs, the explicitly
+vectorized `aie::mmul` (`gemm_tile`) is **~0%** of tile time; the `attn_head_post` tiles run
+**software-emulated float32 softmax** (`f32_mul`, `softfloat_subMagsF32/roundPackToF32` — 55%+ of those
+tiles), plus `layernorm_row` and `f32↔i32` conversions. **The AIE's vector MAC unit is essentially
+idle.** This is deeper than Rule-5 GEMM sizing: the attention (especially softmax) is implemented in
+scalar software-float, so the vector unit never engages. Load imbalance too: obj/cross tiles at
+**98–100%** busy, cand at **36%** (over-provisioned → reclaim ~⅓ per Rules 4/5).
+
+**Refined fix ranking (from the probe):**
+1. **Batching** (throughput) — done, at 87% of ceiling; little left.
+2. **Kill the software-float softmax** — the ceiling-setter. Use native bf16 / fixed-point exp+reciprocal
+   and route projections through `aie::mmul` (Rules 1–2) so the vector unit actually runs. This is the
+   only way past ~8660 ev/s (it lowers `t_comp`).
+3. **Rebalance cand vs obj/cross tiles** (Rules 4/5) — frees ~⅓ of the cand tiles, raising LARE efficiency.
+4. **Bigger embed dim** — at embed 16 the GEMM is trivial so scalar softmax dominates; a larger model
+   makes the vectorizable GEMM matter *and* recovers the quant AUC. The AIE target wants a bigger model,
+   not a smaller one.
+
+*Caveat: the "other/glue (main)" bucket (~83%) is the profiler showing only top-3 functions per tile,
+so it isn't fully attributable — but the load-bearing facts (0% vector GEMM, 93.6% single-event overhead,
+8660 ev/s ceiling, 87% at B=100, obj/cross 98–100% vs cand 36%) are direct from the data.*
