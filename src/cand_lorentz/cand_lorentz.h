@@ -68,7 +68,9 @@ inline void x_to_p4_hw(
     float p4[N_MAX][P4_DIM]
 ) {
     for (int i = 0; i < N_MAX; i++) {
-        // #pragma HLS PIPELINE II=1
+        // II=4 lets HLS share one float-exp core across the 3 calls below
+        // instead of instantiating 3 (all-PL is DSP-tight)
+        #pragma HLS PIPELINE II=4
 
         if (mask[i]) {
             p4[i][0] = 0.0f;
@@ -87,9 +89,10 @@ inline void x_to_p4_hw(
             float e = expf(log_e);
             if(e == 1.0f) e = 0.0f; // same as above
 
-            // sinh_eta = (exp(eta) - exp(-eta))/2
+            // sinh_eta = (exp(eta) - exp(-eta))/2; exp(-eta) = 1/exp(eta)
+            // saves a whole float-exp core for one reciprocal
             float exp_pos = expf(eta);
-            float exp_neg = expf(-eta);
+            float exp_neg = 1.0f / exp_pos;
             float sinh_eta = (exp_pos - exp_neg) * 0.5f;
 
             p4[i][0] = e;
