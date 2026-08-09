@@ -25,12 +25,16 @@ void linear(
     data_t out[N_ROWS][OUT_DIM]
 ) {
 
-    // Partition along k so the unrolled LIN_K MAC can actually read IN_DIM
-    // operands per cycle. Without this, W/in sit in 2-port BRAM and the
-    // written II=1 silently degrades to ~IN_DIM/2 (same port-contention
-    // failure diagnosed in pairwise_mlp.h — the fix was never applied here).
-    #pragma HLS ARRAY_PARTITION variable=W dim=2 complete
-    #pragma HLS ARRAY_PARTITION variable=in dim=2 complete
+    // Partition along k so the unrolled LIN_K MAC can read operands in
+    // parallel. Without this, W/in sit in 2-port BRAM and the written II=1
+    // silently degrades to ~IN_DIM/2 (same port-contention failure diagnosed
+    // in pairwise_mlp.h — the fix was never applied here). factor=8 (II=2,
+    // 8 MACs/cycle) rather than complete (II=1, 16 MACs): complete costs
+    // ~16 DSP per linear x 42 linears and blew the csynth DSP estimate to
+    // 107% of the device; factor=8 keeps ~4x the old throughput at half
+    // the multipliers.
+    #pragma HLS ARRAY_PARTITION variable=W dim=2 cyclic factor=8
+    #pragma HLS ARRAY_PARTITION variable=in dim=2 cyclic factor=8
     LIN_I:
     for (int i = 0; i < N_ROWS; i++) {
         LIN_J:
