@@ -91,35 +91,21 @@ void layernorm(
     }
 }
 
-// for exponential table lookup
-static exp_t exp_lut[EXP_LUT_SIZE + 1];
-static bool exp_lut_initialized = false;
-
-static void init_exp_lut() {
-    for (int i = 0; i <= EXP_LUT_SIZE; i++) {
-        float x_val = EXP_MIN * (1.0f - (float)i / EXP_LUT_SIZE);
-        exp_lut[i] = (exp_t)expf(x_val);
-    }
-    exp_lut_initialized = true;
-}
-
-// static exp_t exp_fixed(score_t x) {
-//     #pragma HLS INLINE
-//     if (x>=(score_t)0) return (exp_t)1.0;
-//     if (x<=(score_t)EXP_MIN) return (exp_t)0.0;
-
-//     float x_f = (float)x;
-//     float frac = (x_f - EXP_MIN) / (-EXP_MIN);
-//     int idx = (int)(frac * EXP_LUT_SIZE);
-//     if (idx < 0) idx = 0;
-//     if (idx >= EXP_LUT_SIZE) idx = EXP_LUT_SIZE -1;
-
-//     return exp_lut[idx];
-// }
+// exp() via compile-time ROM (see gen_exp_lut.cpp). score_t has 5 fractional
+// bits, so (x - EXP_MIN)*32 is an exact integer and the 257-entry table covers
+// EVERY representable input in [-8, 0] exactly -- this is not an approximation
+// relative to the datapath, it is (exp_t)expf(x) precomputed. Replaces a full
+// float expf core per softmax element (the previous LUT was dead code: built,
+// runtime-initialized, and never read).
+#include "exp_lut_rom.h"
 
 static exp_t exp_fixed(score_t x) {
     #pragma HLS INLINE
-    return (exp_t)expf((float)x);
+    if (x >= (score_t)0) return (exp_t)1.0;
+    if (x <= (score_t)EXP_MIN) return (exp_t)0.0; // exp(<=-8) < 1 prob_t LSB
+    score_t d = x - (score_t)EXP_MIN;                       // (0, 8)
+    int idx = (int)(d * (score_t)(EXP_LUT_SIZE / 8));       // *32: exact shift
+    return exp_lut_rom[idx];
 }
 
 // converts into probabilities with partition fn over a row of length LEN
@@ -129,8 +115,6 @@ void softmax_row(
     score_t row[LEN],
     prob_t out[LEN]
 ) {
-    if (!exp_lut_initialized) init_exp_lut();
-
     // find max
     score_t max_val = row[0];
     SM_MAX:
