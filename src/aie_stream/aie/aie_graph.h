@@ -18,29 +18,34 @@ using namespace adf;
 
 // obj attn subgraph
 
-template <int LAYER>
+template <int LAYER, int INST = 0>
 class ObjAttnGraphL : public graph {
 public:
     input_plio  plio_x_in;
+    // wij PLIOs exist only for layer 0 (layer 1 has no wij bias; the old
+    // graph streamed 624 zeros/event through 4 dummy PLIOs)
     input_plio  plio_wij_h0, plio_wij_h1, plio_wij_h2, plio_wij_h3;
     output_plio plio_x_out;
-private:
+public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
-    kernel k_post_ac, k_post_ap, k_post_b1, k_post_b2, k_post_c;
+    kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
 public:
     ObjAttnGraphL() {
-        const std::string suffix = "_L" + std::to_string(LAYER);
+        const std::string suffix = "_L" + std::to_string(LAYER) +
+            (INST > 0 ? ("_i" + std::to_string(INST)) : std::string(""));
         plio_x_in = input_plio::create("obj_x_in" + suffix, plio_64_bits,
                                         "data/obj_x_in" + suffix + ".txt");
-        plio_wij_h0 = input_plio::create("obj_wij_h0" + suffix, plio_64_bits,
-                                        "data/obj_wij_h0" + suffix + ".txt");
-        plio_wij_h1 = input_plio::create("obj_wij_h1" + suffix, plio_64_bits,
-                                        "data/obj_wij_h1" + suffix + ".txt");
-        plio_wij_h2 = input_plio::create("obj_wij_h2" + suffix, plio_64_bits,
-                                        "data/obj_wij_h2" + suffix + ".txt");
-        plio_wij_h3 = input_plio::create("obj_wij_h3" + suffix, plio_64_bits,
-                                        "data/obj_wij_h3" + suffix + ".txt");
+        if constexpr (LAYER == 0) {
+            plio_wij_h0 = input_plio::create("obj_wij_h0" + suffix, plio_64_bits,
+                                            "data/obj_wij_h0" + suffix + ".txt");
+            plio_wij_h1 = input_plio::create("obj_wij_h1" + suffix, plio_64_bits,
+                                            "data/obj_wij_h1" + suffix + ".txt");
+            plio_wij_h2 = input_plio::create("obj_wij_h2" + suffix, plio_64_bits,
+                                            "data/obj_wij_h2" + suffix + ".txt");
+            plio_wij_h3 = input_plio::create("obj_wij_h3" + suffix, plio_64_bits,
+                                            "data/obj_wij_h3" + suffix + ".txt");
+        }
         plio_x_out = output_plio::create("obj_x_out" + suffix, plio_64_bits,
                                         "data/obj_x_out" + suffix + ".txt");
 
@@ -73,20 +78,16 @@ public:
         }
 
         if constexpr (LAYER == 0) {
-            k_post_ac = kernel::create(obj_post_a_concat_L0);
             k_post_ap = kernel::create(obj_post_a_proj_L0);
             k_post_b1 = kernel::create(obj_post_b1_L0);
             k_post_b2 = kernel::create(obj_post_b2_L0);
             k_post_c  = kernel::create(obj_post_c_L0);
         } else {
-            k_post_ac = kernel::create(obj_post_a_concat_L1);
             k_post_ap = kernel::create(obj_post_a_proj_L1);
             k_post_b1 = kernel::create(obj_post_b1_L1);
             k_post_b2 = kernel::create(obj_post_b2_L1);
             k_post_c  = kernel::create(obj_post_c_L1);
         }
-        source(k_post_ac) = ("kernels/obj_post_ac_L" + std::to_string(LAYER) + ".cc").c_str();
-        runtime<ratio>(k_post_ac) = 0.9;
         source(k_post_ap) = ("kernels/obj_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
         source(k_post_b1) = ("kernels/obj_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
@@ -116,20 +117,20 @@ public:
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
         }
 
-        // wij PLIOs -> post_h
-        connect<window<wij_sz>>(plio_wij_h0.out[0], k_post_h[0].in[2]);
-        connect<window<wij_sz>>(plio_wij_h1.out[0], k_post_h[1].in[2]);
-        connect<window<wij_sz>>(plio_wij_h2.out[0], k_post_h[2].in[2]);
-        connect<window<wij_sz>>(plio_wij_h3.out[0], k_post_h[3].in[2]);
-
-        // head_post -> post_a_concat (4 heads)
-        for (int h = 0; h < N_HEADS; h++) {
-            connect<window<hout>>(k_post_h[h].out[0], k_post_ac.in[h]);
+        // wij PLIOs -> post_h (layer 0 only; L1 kernels have no wij port)
+        if constexpr (LAYER == 0) {
+            connect<window<wij_sz>>(plio_wij_h0.out[0], k_post_h[0].in[2]);
+            connect<window<wij_sz>>(plio_wij_h1.out[0], k_post_h[1].in[2]);
+            connect<window<wij_sz>>(plio_wij_h2.out[0], k_post_h[2].in[2]);
+            connect<window<wij_sz>>(plio_wij_h3.out[0], k_post_h[3].in[2]);
         }
 
-        // post_a_concat -> post_a_proj, residual X -> post_a_proj
-        connect<window<concat_sz>>(k_post_ac.out[0], k_post_ap.in[0]);
-        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[1]);
+        // head_post -> post_a_proj directly (the concat tile is gone),
+        // residual X -> post_a_proj
+        for (int h = 0; h < N_HEADS; h++) {
+            connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
+        }
+        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[N_HEADS]);
 
         // post_a_proj -> post_b1 (ffn0) and post_a_proj -> post_c (FFN-residual broadcast)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
@@ -149,10 +150,10 @@ class CandAttnGraphL : public graph {
 public:
     input_plio  plio_c_in;
     output_plio plio_c_out;
-private:
+public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
-    kernel k_post_ac, k_post_ap, k_post_b1, k_post_b2, k_post_c;
+    kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
 public:
     CandAttnGraphL() {
         const std::string suffix = "_L" + std::to_string(LAYER);
@@ -190,20 +191,16 @@ public:
         }
 
         if constexpr (LAYER == 0) {
-            k_post_ac = kernel::create(cand_post_a_concat_L0);
             k_post_ap = kernel::create(cand_post_a_proj_L0);
             k_post_b1 = kernel::create(cand_post_b1_L0);
             k_post_b2 = kernel::create(cand_post_b2_L0);
             k_post_c  = kernel::create(cand_post_c_L0);
         } else {
-            k_post_ac = kernel::create(cand_post_a_concat_L1);
             k_post_ap = kernel::create(cand_post_a_proj_L1);
             k_post_b1 = kernel::create(cand_post_b1_L1);
             k_post_b2 = kernel::create(cand_post_b2_L1);
             k_post_c  = kernel::create(cand_post_c_L1);
         }
-        source(k_post_ac) = ("kernels/cand_post_ac_L" + std::to_string(LAYER) + ".cc").c_str();
-        runtime<ratio>(k_post_ac) = 0.9;
         source(k_post_ap) = ("kernels/cand_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
         source(k_post_b1) = ("kernels/cand_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
@@ -224,10 +221,9 @@ public:
             connect<window<c_sz>>(plio_c_in.out[0], k_pre[h].in[0]);
             connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
-            connect<window<hout>>(k_post_h[h].out[0], k_post_ac.in[h]);
+            connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
         }
-        connect<window<concat_sz>>(k_post_ac.out[0], k_post_ap.in[0]);
-        connect<window<c_sz>>(plio_c_in.out[0], k_post_ap.in[1]);
+        connect<window<c_sz>>(plio_c_in.out[0], k_post_ap.in[N_HEADS]);
 
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
@@ -245,10 +241,10 @@ public:
     input_plio  plio_x_in;
     input_plio  plio_c_in;
     output_plio plio_x_out;
-private:
+public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
-    kernel k_post_ac, k_post_ap, k_post_b1, k_post_b2, k_post_c;
+    kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
 public:
     CrossAttnGraphL() {
         const std::string suffix = "_L" + std::to_string(LAYER);
@@ -288,20 +284,16 @@ public:
         }
 
         if constexpr (LAYER == 0) {
-            k_post_ac = kernel::create(cross_post_a_concat_L0);
             k_post_ap = kernel::create(cross_post_a_proj_L0);
             k_post_b1 = kernel::create(cross_post_b1_L0);
             k_post_b2 = kernel::create(cross_post_b2_L0);
             k_post_c  = kernel::create(cross_post_c_L0);
         } else {
-            k_post_ac = kernel::create(cross_post_a_concat_L1);
             k_post_ap = kernel::create(cross_post_a_proj_L1);
             k_post_b1 = kernel::create(cross_post_b1_L1);
             k_post_b2 = kernel::create(cross_post_b2_L1);
             k_post_c  = kernel::create(cross_post_c_L1);
         }
-        source(k_post_ac) = ("kernels/cross_post_ac_L" + std::to_string(LAYER) + ".cc").c_str();
-        runtime<ratio>(k_post_ac) = 0.9;
         source(k_post_ap) = ("kernels/cross_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
         source(k_post_b1) = ("kernels/cross_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
@@ -324,10 +316,9 @@ public:
             connect<window<c_sz>>(plio_c_in.out[0], k_pre[h].in[1]);
             connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
-            connect<window<hout>>(k_post_h[h].out[0], k_post_ac.in[h]);
+            connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
         }
-        connect<window<concat_sz>>(k_post_ac.out[0], k_post_ap.in[0]);
-        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[1]);
+        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[N_HEADS]);
 
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);

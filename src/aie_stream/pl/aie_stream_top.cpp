@@ -3,13 +3,13 @@
 
 // port count
 // ddr: 2 (m_axi in_buf out_buf)
-// obj_attn L0: 5 AXI streams, 1 in (X + 4 wij + X_in from AIE)
+// obj_attn L0: 5 AXI streams out, 1 in (X + 4 wij + X_in from AIE)
 // cand_attn L0: 1 out + 1 in
 // cross_attn L0: 2 out + in
-// obj_attn L1: 5 out + 1 in
+// obj_attn L1: 1 out + 1 in (no wij -- L1 has no wij bias)
 // cand_attn L1: 1 out + 1 in
 // cross_attn L1: 2 out + 1 in
-// total AXI stream: 22 ports
+// total AXI stream: 18 ports
 
 #include "aie_stream.h"
 #include "../../pl_stream/weights_rom.h"
@@ -41,10 +41,8 @@ extern "C" void aie_stream_top(
     hls::stream<pkt64_t>& cross0_x_out, hls::stream<pkt64_t>& cross0_c_out,
     hls::stream<pkt64_t>& cross0_x_in,  
 
-    // obj_attn layer 1
-    hls::stream<pkt64_t>& obj1_x_out, hls::stream<pkt64_t>& obj1_w0_out,
-    hls::stream<pkt64_t>& obj1_w1_out, hls::stream<pkt64_t>& obj1_w2_out,
-    hls::stream<pkt64_t>& obj1_w3_out, hls::stream<pkt64_t>& obj1_x_in,
+    // obj_attn layer 1 (no wij ports)
+    hls::stream<pkt64_t>& obj1_x_out, hls::stream<pkt64_t>& obj1_x_in,
 
     // cand_attn layer 1
 
@@ -60,7 +58,7 @@ extern "C" void aie_stream_top(
     #pragma HLS INTERFACE m_axi port=in_buf offset=slave bundle = gmem0 depth = 720
     #pragma HLS INTERFACE m_axi port=out_buf offset=slave bundle = gmem1 depth = 30
 
-    // all 22 axi stream ports
+    // all 18 axi stream ports
     #pragma HLS INTERFACE axis port = obj0_x_out
     #pragma HLS INTERFACE axis port = obj0_w0_out
     #pragma HLS INTERFACE axis port = obj0_w1_out
@@ -76,10 +74,6 @@ extern "C" void aie_stream_top(
     #pragma HLS INTERFACE axis port = cross0_x_in
 
     #pragma HLS INTERFACE axis port = obj1_x_out
-    #pragma HLS INTERFACE axis port = obj1_w0_out
-    #pragma HLS INTERFACE axis port = obj1_w1_out
-    #pragma HLS INTERFACE axis port = obj1_w2_out
-    #pragma HLS INTERFACE axis port = obj1_w3_out
     #pragma HLS INTERFACE axis port = obj1_x_in
 
     #pragma HLS INTERFACE axis port = cand1_c_out
@@ -109,7 +103,7 @@ extern "C" void aie_stream_top(
             obj0_x_out, obj0_w0_out, obj0_w1_out, obj0_w2_out, obj0_w3_out, obj0_x_in,
             cand0_c_out, cand0_c_in,
             cross0_x_out, cross0_c_out, cross0_x_in,
-            obj1_x_out, obj1_w0_out, obj1_w1_out, obj1_w2_out, obj1_w3_out, obj1_x_in,
+            obj1_x_out, obj1_x_in,
             cand1_c_out, cand1_c_in,
             cross1_x_out, cross1_c_out, cross1_x_in,
             embed_w, mlp_w, ae_enc_w, ae_dec_w);

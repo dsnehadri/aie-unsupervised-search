@@ -8,6 +8,9 @@ public:
     ObjAttnGraphL<0> obj0;
     CandAttnGraphL<0> cand0;
     CrossAttnGraphL<0> cross0;
+    // L1 obj included to cover the no-wij variant (fed a copy of the L0
+    // input; its output is not golden-checked, it exercises compile+run)
+    ObjAttnGraphL<1> obj1;
 };
 
 AttnTestGraph g;

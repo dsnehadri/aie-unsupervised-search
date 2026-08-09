@@ -87,7 +87,7 @@ static void unpack_axi_to_stream(hls::stream<pkt64_t>&in, hls::stream<data_t>&ou
 }
 
 
-static const int RAW_DIM = 5;
+#include "../../cand_lorentz/cand_lorentz.h"  // RAW_DIM (canonical)
 
 inline void read_and_fork_aie   (
     hls::stream<ap_uint<32>> &in_s,
@@ -152,17 +152,21 @@ inline void read_and_fork_aie   (
     }
 }
 
-// layer 1 obj_attn doesn't use a wij bias (only layer 0 does),
-// but the bridge signature still requires a wij to consume
-// this stage feeds N_HEADS * N_MAX * N_KV = 624 zero score_t values
-// that the AIE kernel will receive and then be ignored by the
-// layer-1 kernel
-inline void emit_zero_wij(hls::stream<score_t>& out) {
-    EMIT_ZERO: for (int i = 0; i <N_HEADS * N_MAX * N_KV; i++) {
+// (emit_zero_wij is gone: layer-1 obj attention no longer has wij PLIOs,
+// so nothing streams 624 zeros per event through the NoC any more)
+
+// layer-1 obj send: x only, no wij
+inline void obj_attn_send_nowij(
+    hls::stream<data_t>& x_in_pl,
+    hls::stream<pkt64_t>& x_out_aie
+) {
+    const int X_SZ = N_MAX * E_DIM;
+    data_t x_buf[X_SZ];
+    for (int i = 0; i < X_SZ; i++) {
         #pragma HLS PIPELINE II=1
-        score_t zero = 0;
-        out.write(zero);
+        x_buf[i] = x_in_pl.read();
     }
+    pack_buf_to_axi<X_SZ>(x_buf, x_out_aie);
 }
 
 
@@ -170,125 +174,113 @@ inline void emit_zero_wij(hls::stream<score_t>& out) {
 
 
 
-// object attention bridge
+// (The old combined send-all-then-recv *_attn_bridge functions were removed:
+// they deadlock on hardware -- see the note below -- and were dead code kept
+// only as documentation. The concurrent split bridges below are the real ones.)
 
-// consumes x[12][16] from PL, Wij[4*12][13] from PL
-// produces x[12][16] back to PL after AIE obj_attn
-inline void obj_attn_bridge(
+// ====================================================================
+// Concurrent split bridges: send (PL->AIE) and recv (AIE->PL) run as
+// SEPARATE top-level dataflow processes so the AIE output FIFO is drained
+// while input is still being pushed. The combined *_attn_bridge functions
+// above are sequential (send-all-then-recv) and DEADLOCK on hardware -- the
+// exact failure that hung bridge_solo, fixed there by concurrent send||recv.
+// ====================================================================
+
+inline void obj_attn_send(
     hls::stream<data_t>& x_in_pl,
     hls::stream<score_t>& wij_in_pl,
-    // to AIE
     hls::stream<pkt64_t>& x_out_aie,
     hls::stream<pkt64_t>& wij_h0_out_aie,
     hls::stream<pkt64_t>& wij_h1_out_aie,
     hls::stream<pkt64_t>& wij_h2_out_aie,
-    hls::stream<pkt64_t>& wij_h3_out_aie,
-    // from AIE
-    hls::stream<pkt64_t>& x_in_aie,
-    // to next PL stage
-    hls::stream<data_t>& x_out_pl
+    hls::stream<pkt64_t>& wij_h3_out_aie
 ) {
-    const int X_SZ = N_MAX * E_DIM; //192
-    const int WIJ_SZ = N_MAX * N_KV; // 156 per head
-
-    // read x from pl
+    const int X_SZ = N_MAX * E_DIM;
+    const int WIJ_SZ = N_MAX * N_KV;
     data_t x_buf[X_SZ];
     for (int i = 0; i < X_SZ; i++) {
         #pragma HLS PIPELINE II=1
         x_buf[i] = x_in_pl.read();
     }
-
-    // read wij[4*12][13] from PL
-    data_t wij_buf[N_HEADS * WIJ_SZ];
-    for (int i = 0; i < N_HEADS * WIJ_SZ; i++) {
+    // pairwise_stage streams the 144 unique wij values (no head
+    // replication on the PL stream any more); expand per head here.
+    // Column N_MAX (bias_kv) is zero, all heads share the same slice.
+    data_t wij_buf[N_MAX * N_MAX];
+    for (int i = 0; i < N_MAX * N_MAX; i++) {
         #pragma HLS PIPELINE II=1
         score_t s = wij_in_pl.read();
         data_t v;
         v.range(15, 0) = s.range(15, 0);
         wij_buf[i] = v;
     }
-
-    // send x to aie
     pack_buf_to_axi<X_SZ>(x_buf, x_out_aie);
-
-    // send per head wij slices
     data_t slice[WIJ_SZ];
-
-    for (int i = 0; i < WIJ_SZ; i++) slice[i] = wij_buf[0 * WIJ_SZ + i];
+    for (int i = 0; i < N_MAX; i++)
+        for (int j = 0; j < N_KV; j++)
+            slice[i * N_KV + j] = (j < N_MAX) ? wij_buf[i * N_MAX + j] : (data_t)0;
     pack_buf_to_axi<WIJ_SZ>(slice, wij_h0_out_aie);
-
-    for (int i = 0; i < WIJ_SZ; i++) slice[i] = wij_buf[1 * WIJ_SZ + i];
     pack_buf_to_axi<WIJ_SZ>(slice, wij_h1_out_aie);
-
-    for (int i = 0; i < WIJ_SZ; i++) slice[i] = wij_buf[2 * WIJ_SZ + i];
     pack_buf_to_axi<WIJ_SZ>(slice, wij_h2_out_aie);
-
-    for (int i = 0; i < WIJ_SZ; i++) slice[i] = wij_buf[3 * WIJ_SZ + i];
     pack_buf_to_axi<WIJ_SZ>(slice, wij_h3_out_aie);
+}
 
-    // receive result from aie, forward to next PL stage
+inline void obj_attn_recv(hls::stream<pkt64_t>& x_in_aie, hls::stream<data_t>& x_out_pl) {
+    const int X_SZ = N_MAX * E_DIM;
     unpack_axi_to_stream<X_SZ>(x_in_aie, x_out_pl);
 }
 
-// candidate attention bridge
-// consumes c[3][16] from PL
-// produces c[3][16] back to PL after AIE cand_attn
-
-inline void cand_attn_bridge(
-    hls::stream<data_t>& c_in_pl,
-    hls::stream<pkt64_t>& c_out_aie,
-    hls::stream<pkt64_t>& c_in_aie,
-    hls::stream<data_t>& c_out_pl
-) {
-    const int C_SZ = T_DIM * E_DIM; // 48
-
-    // read c from pl
+inline void cand_attn_send(hls::stream<data_t>& c_in_pl, hls::stream<pkt64_t>& c_out_aie) {
+    const int C_SZ = T_DIM * E_DIM;
     data_t c_buf[C_SZ];
     for (int i = 0; i < C_SZ; i++) {
         #pragma HLS PIPELINE II=1
         c_buf[i] = c_in_pl.read();
     }
-    // send c to aie
     pack_buf_to_axi<C_SZ>(c_buf, c_out_aie);
+}
 
-    // receive result from aie, forward to next PL stage
+inline void cand_attn_recv(hls::stream<pkt64_t>& c_in_aie, hls::stream<data_t>& c_out_pl) {
+    const int C_SZ = T_DIM * E_DIM;
     unpack_axi_to_stream<C_SZ>(c_in_aie, c_out_pl);
 }
 
-// cross attention bridge
-// consumes x[12][16] and c[3][16] from PL
-// produces x[12][16] back to PL after AIE cross_attn
-
-inline void cross_attn_bridge(
+inline void cross_attn_send(
     hls::stream<data_t>& x_in_pl,
     hls::stream<data_t>& c_in_pl,
     hls::stream<pkt64_t>& x_out_aie,
-    hls::stream<pkt64_t>& c_out_aie,
-    hls::stream<pkt64_t>& x_in_aie,
-    hls::stream<data_t>& x_out_pl
+    hls::stream<pkt64_t>& c_out_aie
 ) {
-    const int X_SZ = N_MAX * E_DIM; // 192
-    const int C_SZ = T_DIM * E_DIM; // 48
-
-    // read x from pl
+    const int X_SZ = N_MAX * E_DIM;
+    const int C_SZ = T_DIM * E_DIM;
     data_t x_buf[X_SZ];
     for (int i = 0; i < X_SZ; i++) {
         #pragma HLS PIPELINE II=1
         x_buf[i] = x_in_pl.read();
     }
-
-    // read c from pl
     data_t c_buf[C_SZ];
     for (int i = 0; i < C_SZ; i++) {
         #pragma HLS PIPELINE II=1
         c_buf[i] = c_in_pl.read();
     }
-
     pack_buf_to_axi<X_SZ>(x_buf, x_out_aie);
     pack_buf_to_axi<C_SZ>(c_buf, c_out_aie);
+}
 
-    // receive result from aie, forward to next PL stage
+inline void cross_attn_recv(hls::stream<pkt64_t>& x_in_aie, hls::stream<data_t>& x_out_pl) {
+    const int X_SZ = N_MAX * E_DIM;
     unpack_axi_to_stream<X_SZ>(x_in_aie, x_out_pl);
+}
+
+// duplicate a data_t stream to two consumers (HLS dataflow streams are
+// point-to-point; a stream read by two processes starves one -> hang).
+template<int COUNT>
+inline void dup_stream(hls::stream<data_t>& in, hls::stream<data_t>& a, hls::stream<data_t>& b) {
+    for (int i = 0; i < COUNT; i++) {
+        #pragma HLS PIPELINE II=1
+        data_t v = in.read();
+        a.write(v);
+        b.write(v);
+    }
 }
 
 #endif

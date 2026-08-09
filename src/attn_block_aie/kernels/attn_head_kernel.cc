@@ -266,12 +266,21 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
 }
 #endif // HEAD_STAGE_PRE
 
-// stage 2: + wij + softmax + attn*V
+// stage 2: + wij (layer 0 only) + softmax + attn*V
+// Layer 1 has no wij bias: previously the bridge streamed 624 ZEROS per
+// event through the NoC just so this kernel could read-and-ignore them.
+// The L1 variant now simply has no wij port.
 #if defined(HEAD_STAGE_POST)
+#if ATTN_LAYER == 0
 void HEAD_POST_FN(input_window_int16* __restrict scores_in,
                         input_window_int16* __restrict v_in,
                         input_window_int16* __restrict wij_in,
                         output_window_int16* __restrict x_out)
+#else
+void HEAD_POST_FN(input_window_int16* __restrict scores_in,
+                        input_window_int16* __restrict v_in,
+                        output_window_int16* __restrict x_out)
+#endif
 {
     alignas(16) int16 scores[N_MAX * N_KV_PAD];
     for (int i = 0; i < N_MAX * N_KV_PAD; i++) scores[i] = window_readincr(scores_in);
@@ -279,6 +288,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     alignas(16) int16 V[N_KV_PAD * D_HEAD];
     for (int i = 0; i < N_KV_PAD * D_HEAD; i++) V[i] = window_readincr(v_in);
 
+#if ATTN_LAYER == 0
     // add wij row-by-row (no full wij array on stack)
     for (int r = 0; r < N_MAX; r++) {
         for (int c = 0; c < N_KV; c++) {
@@ -289,6 +299,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
             scores[r * N_KV_PAD + c] = (int16)sum;
         }
     }
+#endif
 
     // integer softmax, emitted directly in packed layout for the AV gemm
     alignas(16) int16 attn_p[N_MAX * N_KV_PAD];

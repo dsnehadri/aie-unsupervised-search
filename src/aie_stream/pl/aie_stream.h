@@ -94,10 +94,8 @@ inline void aie_stream(
     hls::stream<pkt64_t>& cross0_x_out, hls::stream<pkt64_t>& cross0_c_out,
     hls::stream<pkt64_t>& cross0_x_in,  
 
-    // obj_attn layer 1
-    hls::stream<pkt64_t>& obj1_x_out, hls::stream<pkt64_t>& obj1_w0_out,
-    hls::stream<pkt64_t>& obj1_w1_out, hls::stream<pkt64_t>& obj1_w2_out,
-    hls::stream<pkt64_t>& obj1_w3_out, hls::stream<pkt64_t>& obj1_x_in,
+    // obj_attn layer 1 (no wij ports: L1 has no wij bias)
+    hls::stream<pkt64_t>& obj1_x_out, hls::stream<pkt64_t>& obj1_x_in,
 
     // cand_attn layer 1
 
@@ -130,15 +128,21 @@ inline void aie_stream(
     hls::stream<data_t> s_jets_embed, s_jets_pairwise, s_jets_cand;
     hls::stream<bool> s_mask_embed, s_mask_cb0, s_mask_cb1, s_mask_cand;
     hls::stream<bool> s_mask_remask0, s_mask_remask1;
+    // Depth = MARGIN above buffered-element-count for every stream forked up front but
+    // consumed DOWNSTREAM of an AIE round-trip. Default/exact-fit depths deadlock on HW: the
+    // fork blocks once the FIFO fills (consumer is downstream-blocked) and starves obj_attn_send,
+    // so the AIE never gets input. csim can't see it (unbounded FIFOs). See pl-stream memory
+    // 2026-06-24. s_jets_cand + s_mask_* are all consumed late (cand_lorentz / candidate_build /
+    // remask, some after BOTH layers), so they must hold their full element count with slack.
     #pragma HLS STREAM variable=s_jets_embed depth = 60
     #pragma HLS STREAM variable=s_jets_pairwise depth = 60
-    #pragma HLS STREAM variable=s_jets_cand depth = 60
-    #pragma HLS STREAM variable=s_mask_embed depth= 12
-    #pragma HLS STREAM variable=s_mask_cb0 depth = 12
-    #pragma HLS STREAM variable=s_mask_cb1 depth = 12
-    #pragma HLS STREAM variable=s_mask_cand depth = 12
-    #pragma HLS STREAM variable=s_mask_remask0 depth = 12
-    #pragma HLS STREAM variable=s_mask_remask1 depth = 12
+    #pragma HLS STREAM variable=s_jets_cand depth = 128
+    #pragma HLS STREAM variable=s_mask_embed depth= 64
+    #pragma HLS STREAM variable=s_mask_cb0 depth = 64
+    #pragma HLS STREAM variable=s_mask_cb1 depth = 64
+    #pragma HLS STREAM variable=s_mask_cand depth = 64
+    #pragma HLS STREAM variable=s_mask_remask0 depth = 64
+    #pragma HLS STREAM variable=s_mask_remask1 depth = 64
 
     // adapt read_and_fork to produce additional mask consumers
     read_and_fork_aie(in_stream,
@@ -150,7 +154,7 @@ inline void aie_stream(
     hls::stream<data_t> s_embed;
     hls::stream<score_t> s_wij0; 
     #pragma HLS STREAM variable=s_embed depth = 192
-    #pragma HLS STREAM variable=s_wij0 depth = 624
+    #pragma HLS STREAM variable=s_wij0 depth = 144
 
     embed_stage(s_jets_embed, s_mask_embed, embed_w, s_embed);
     pairwise_stage(s_jets_pairwise, mlp_w, s_wij0);
@@ -160,9 +164,9 @@ inline void aie_stream(
     // obj_attn L0 bridge
     hls::stream<data_t> s_x0_after_obj;
     #pragma HLS STREAM variable=s_x0_after_obj depth = 192
-    obj_attn_bridge(s_embed, s_wij0,
-        obj0_x_out, obj0_w0_out, obj0_w1_out, obj0_w2_out, obj0_w3_out,
-        obj0_x_in, s_x0_after_obj);
+    obj_attn_send(s_embed, s_wij0,
+        obj0_x_out, obj0_w0_out, obj0_w1_out, obj0_w2_out, obj0_w3_out);
+    obj_attn_recv(obj0_x_in, s_x0_after_obj);
 
     // remask after obj_attn
 
@@ -172,7 +176,9 @@ inline void aie_stream(
 
     //build candidates
     hls::stream<data_t> s_x0_for_cross, s_c0_for_cand;
-    #pragma HLS STREAM variable=s_x0_for_cross depth = 192
+    // s_x0_for_cross forked here but consumed by cross_attn_send AFTER the cand0 round-trip:
+    // give margin so the fork never blocks waiting on the downstream cross stage.
+    #pragma HLS STREAM variable=s_x0_for_cross depth = 256
     #pragma HLS STREAM variable=s_c0_for_cand depth = 48
     candidate_build_stage(s_x0_remasked, s_mask_cb0,
         s_x0_for_cross, s_c0_for_cand);
@@ -180,24 +186,21 @@ inline void aie_stream(
     // cand_attn L0 bridge
     hls::stream<data_t> s_c0_after_cand;
     #pragma HLS STREAM variable=s_c0_after_cand depth = 48
-    cand_attn_bridge(s_c0_for_cand, cand0_c_out, cand0_c_in, s_c0_after_cand);
+    cand_attn_send(s_c0_for_cand, cand0_c_out);
+    cand_attn_recv(cand0_c_in, s_c0_after_cand);
 
     hls::stream<data_t> s_x0_after_cross;
     #pragma HLS STREAM variable = s_x0_after_cross depth = 192
-    cross_attn_bridge(s_x0_for_cross, s_c0_after_cand,
-        cross0_x_out, cross0_c_out, cross0_x_in, s_x0_after_cross);
+    cross_attn_send(s_x0_for_cross, s_c0_after_cand, cross0_x_out, cross0_c_out);
+    cross_attn_recv(cross0_x_in, s_x0_after_cross);
 
-    // abc layer 1
-
-    hls::stream<score_t> s_wij1_dummy;
-    #pragma HLS STREAM variable=s_wij1_dummy depth=624
-    emit_zero_wij(s_wij1_dummy);
+    // abc layer 1 (no wij: the L1 kernels have no wij port any more, so no
+    // zero-stream, no dummy FIFO, no 4 dead PLIOs)
 
     hls::stream<data_t> s_x1_after_obj;
     #pragma HLS STREAM variable=s_x1_after_obj depth = 192
-    obj_attn_bridge(s_x0_after_cross, s_wij1_dummy,
-        obj1_x_out, obj1_w0_out, obj1_w1_out, obj1_w2_out, obj1_w3_out,
-        obj1_x_in, s_x1_after_obj);
+    obj_attn_send_nowij(s_x0_after_cross, obj1_x_out);
+    obj_attn_recv(obj1_x_in, s_x1_after_obj);
 
     hls::stream<data_t> s_x1_remasked;
     #pragma HLS STREAM variable=s_x1_remasked depth=192
@@ -205,19 +208,25 @@ inline void aie_stream(
 
     //build candidates
     hls::stream<data_t> s_x1_for_cross, s_c1_for_cand;
-    #pragma HLS STREAM variable=s_x1_for_cross depth = 192
+    // s_x1_for_cross forked here but consumed by cross_attn_send AFTER the cand1 round-trip.
+    #pragma HLS STREAM variable=s_x1_for_cross depth = 256
     #pragma HLS STREAM variable=s_c1_for_cand depth = 48
     candidate_build_stage(s_x1_remasked, s_mask_cb1,
         s_x1_for_cross, s_c1_for_cand);
 
-    hls::stream<data_t> s_c1_after_cand;
+    hls::stream<data_t> s_c1_after_cand, s_c1_cross, s_c1_lorentz;
     #pragma HLS STREAM variable=s_c1_after_cand depth = 48
-    cand_attn_bridge(s_c1_for_cand, cand1_c_out, cand1_c_in, s_c1_after_cand);
+    #pragma HLS STREAM variable=s_c1_cross depth = 48
+    #pragma HLS STREAM variable=s_c1_lorentz depth = 48
+    cand_attn_send(s_c1_for_cand, cand1_c_out);
+    cand_attn_recv(cand1_c_in, s_c1_after_cand);
+    // fork: s_c1_after_cand feeds BOTH cross_attn (L1) and cand_lorentz
+    dup_stream<T_DIM*E_DIM>(s_c1_after_cand, s_c1_cross, s_c1_lorentz);
 
     hls::stream<data_t> s_x1_after_cross;
     #pragma HLS STREAM variable = s_x1_after_cross depth = 192
-    cross_attn_bridge(s_x1_for_cross, s_c1_after_cand,
-        cross1_x_out, cross1_c_out, cross1_x_in, s_x1_after_cross);
+    cross_attn_send(s_x1_for_cross, s_c1_cross, cross1_x_out, cross1_c_out);
+    cross_attn_recv(cross1_x_in, s_x1_after_cross);
 
     // cand lorentz and dual autoencoder
 
@@ -228,7 +237,7 @@ inline void aie_stream(
 
     // cand_lorentz needs raw_jets, final x, final c, mask
 
-    cand_lorentz_stage(s_jets_cand, s_x1_after_cross, s_c1_after_cand,
+    cand_lorentz_stage(s_jets_cand, s_x1_after_cross, s_c1_lorentz,
         s_mask_cand, s_ae);
 
     ae_loss_stage(s_ae, ae_enc_w, ae_dec_w, s_losses);

@@ -1,7 +1,7 @@
-// post-attention split into 3 tiles:
-//   post_a: concat heads + output projection + (skip) + LN
-//   post_b: FFN layer 0 -> FFN layer 1 (ping-pong buffer)
-//   post_c: FFN layer 2 + skip with broadcast proj_out + LN
+// post-attention tiles:
+//   post_a_proj: 4 head outputs interleaved + output projection + (skip) + LN
+//   post_b1/b2:  FFN layers 0 and 1
+//   post_c:      FFN layer 2 + skip with broadcast proj_out + LN
 //
 // proj_out from post_a fans out to both post_b (ffn input) and post_c
 // (residual for the FFN skip).
@@ -17,7 +17,6 @@
 // Make each (type, stage, layer) post function unique.
 #define _POST_FN_3(t, s, l) t##_post_##s##_L##l
 #define _POST_FN_2(t, s, l) _POST_FN_3(t, s, l)
-#define POST_A_CONCAT_FN _POST_FN_2(ATTN_TYPE_TAG, a_concat, ATTN_LAYER)
 #define POST_A_PROJ_FN   _POST_FN_2(ATTN_TYPE_TAG, a_proj,   ATTN_LAYER)
 #define POST_B1_FN       _POST_FN_2(ATTN_TYPE_TAG, b1,       ATTN_LAYER)
 #define POST_B2_FN       _POST_FN_2(ATTN_TYPE_TAG, b2,       ATTN_LAYER)
@@ -142,36 +141,25 @@ static void add_bias_sat(int16* __restrict mat, const int16* __restrict bias, in
 // post_a: concat 4 heads -> output projection (+skip, +LN)
 // residual streamed in row-by-row so we don't buffer it on stack.
 // =====================================================================
-// post_a is split across TWO tiles:
-//   post_a_concat: read 4 head outputs and interleave -> concat window
-//   post_a_proj:   read concat + residual -> gemm + skip + LN -> proj_out
-
-#if defined(POST_STAGE_A_CONCAT)
-void POST_A_CONCAT_FN(input_window_int16* __restrict head0_in,
-                        input_window_int16* __restrict head1_in,
-                        input_window_int16* __restrict head2_in,
-                        input_window_int16* __restrict head3_in,
-                        output_window_int16* __restrict concat_out)
-{
-    for (int r = 0; r < POST_N_ROWS; r++) {
-        for (int c = 0; c < D_HEAD; c++) window_writeincr(concat_out, window_readincr(head0_in));
-        for (int c = 0; c < D_HEAD; c++) window_writeincr(concat_out, window_readincr(head1_in));
-        for (int c = 0; c < D_HEAD; c++) window_writeincr(concat_out, window_readincr(head2_in));
-        for (int c = 0; c < D_HEAD; c++) window_writeincr(concat_out, window_readincr(head3_in));
-    }
-}
-#endif // POST_STAGE_A_CONCAT
+// The head windows are read and interleaved directly here; the former
+// post_a_concat tile was pure data movement (one tile per subgraph, 6
+// tiles across the design, doing scalar copies) and is gone.
 
 #if defined(POST_STAGE_A_PROJ)
-void POST_A_PROJ_FN(input_window_int16* __restrict concat_in,
+void POST_A_PROJ_FN(input_window_int16* __restrict head0_in,
+                      input_window_int16* __restrict head1_in,
+                      input_window_int16* __restrict head2_in,
+                      input_window_int16* __restrict head3_in,
                       input_window_int16* __restrict residual_in,
                       output_window_int16* __restrict proj_out)
 {
-    // read straight into packed layout for the gemm (gemm_utils.h)
+    // interleave the 4 head outputs straight into packed layout (gemm_utils.h)
     alignas(16) int16 concat[POST_N_ROWS_PAD * E_DIM] = {0};
+    input_window_int16* __restrict heads[N_HEADS] = {head0_in, head1_in, head2_in, head3_in};
     for (int r = 0; r < POST_N_ROWS; r++)
-        for (int c = 0; c < E_DIM; c++)
-            concat[pk_idx<E_DIM>(r, c)] = window_readincr(concat_in);
+        for (int h = 0; h < N_HEADS; h++)
+            for (int d = 0; d < D_HEAD; d++)
+                concat[pk_idx<E_DIM>(r, h * D_HEAD + d)] = window_readincr(heads[h]);
 
     alignas(16) int16 proj[POST_N_ROWS_PAD * E_DIM];
     gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>( concat, Wout, proj, PIPE_ACC_SHIFT);
