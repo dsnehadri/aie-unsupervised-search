@@ -25,6 +25,12 @@ void linear(
     data_t out[N_ROWS][OUT_DIM]
 ) {
 
+    // Partition along k so the unrolled LIN_K MAC can actually read IN_DIM
+    // operands per cycle. Without this, W/in sit in 2-port BRAM and the
+    // written II=1 silently degrades to ~IN_DIM/2 (same port-contention
+    // failure diagnosed in pairwise_mlp.h — the fix was never applied here).
+    #pragma HLS ARRAY_PARTITION variable=W dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=in dim=2 complete
     LIN_I:
     for (int i = 0; i < N_ROWS; i++) {
         LIN_J:
@@ -50,6 +56,8 @@ void layernorm(
     const ln_param_t beta[FEAT_DIM]
 
 ) {
+    // feed the unrolled LN_MEAN/LN_VAR reductions (FEAT_DIM reads/cycle)
+    #pragma HLS ARRAY_PARTITION variable=x dim=2 complete
     // Compute mean/var/inv_std in FP32: variance scales as value^2 and can
     // exceed the data_t range for high-magnitude rows (e.g. cand input).
     // Casting through data_t wraps and rsqrt(negative) returns NaN. PyTorch
@@ -251,6 +259,9 @@ void compute_scores(
     const data_t K[N_KEY_TOT][D_HEAD],
     score_t scores[N_Q][N_KEY_TOT]
 ) {
+    // feed the unrolled QK_D dot product (D_HEAD reads/cycle from Q and K)
+    #pragma HLS ARRAY_PARTITION variable=Q dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=K dim=2 complete
     QK_I:
     for (int i = 0; i < N_Q; i++) {
         QJ_I:
@@ -275,7 +286,10 @@ void softmax_and_context(
     const data_t V[N_KEY_TOT][D_HEAD],
     data_t context[N_Q][D_HEAD]
 ) {
+    // feed the unrolled AV_J reduction (N_KEY_TOT reads/cycle)
+    #pragma HLS ARRAY_PARTITION variable=V dim=1 complete
     prob_t attn_w[N_Q][N_KEY_TOT];
+    #pragma HLS ARRAY_PARTITION variable=attn_w dim=2 complete
     SM_ROWS:
     for (int i = 0; i < N_Q; i++) {
         softmax_row<N_KEY_TOT>(scores[i], attn_w[i]);
@@ -354,19 +368,14 @@ inline void expand_wij(
     const data_t wij[N_MAX][N_MAX],
     score_t wij_bias[N_HEADS * N_MAX][N_KV]
 ) {
-    //zero-init (column N_MAX) stays zero for the bias_kv token
-    EXPAND_ZERO: for (int i = 0; i < N_HEADS * N_MAX; i++) {
-        for (int j = 0; j < N_KV; j++) {
-            wij_bias[i][j] = (score_t)0;
-        }
-    }
-
-    EXPAND_COPY: for (int h = 0; h < N_HEADS; h ++) {
+    // single pass: copy per head, column N_MAX (bias_kv token) stays zero
+    EXPAND: for (int h = 0; h < N_HEADS; h++) {
         for (int i = 0; i < N_MAX; i++) {
-            for (int j = 0; j < N_MAX; j ++) {
-                wij_bias[h * N_MAX + i][j] = (score_t)wij[i][j];
+            #pragma HLS PIPELINE II=1
+            for (int j = 0; j < N_KV; j++) {
+                wij_bias[h * N_MAX + i][j] = (j < N_MAX) ? (score_t)wij[i][j] : (score_t)0;
             }
-        } 
+        }
     }
 }
 

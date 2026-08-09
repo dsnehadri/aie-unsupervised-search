@@ -195,15 +195,12 @@ inline void pairwise_stage(
     data_t wij[N_MAX][N_MAX];
     pairwise_mlp(w_ang, mlp_w, wij);
 
-    // expand wij to attention bias format [N_HEADS*N_MAX][N_KV]
-    score_t wij_bias[N_MAX*N_HEADS][N_KV];
-    expand_wij(wij, wij_bias);
-
-    // serialize
-    WRITE_WIJ: for (int i = 0; i < N_MAX * N_HEADS; i++) {
-        for (int j = 0; j < N_KV; j++) {
+    // serialize the 144 unique values; the consumer replicates across heads
+    // (streaming the expanded [48][13] form cost 4.3x the FIFO + stream traffic)
+    WRITE_WIJ: for (int i = 0; i < N_MAX; i++) {
+        for (int j = 0; j < N_MAX; j++) {
             #pragma HLS PIPELINE II=1
-            out_wij_bias.write(wij_bias[i][j]);
+            out_wij_bias.write((score_t)wij[i][j]);
         }
     }
     // debug_buf[dbg_idx] = 2;
@@ -228,13 +225,15 @@ inline void abc_layer_0_stage(
     stream_to_array2d<N_MAX,E_DIM>(in_embed, x);
     // debug_buf[dbg_idx] = 2;
 
-    score_t wij_bias[N_MAX*N_HEADS][N_KV];
-    READ_WIJ: for(int i = 0; i < N_MAX * N_HEADS; i++) {
-        for (int j = 0; j < N_KV; j++) {
+    data_t wij[N_MAX][N_MAX];
+    READ_WIJ: for(int i = 0; i < N_MAX; i++) {
+        for (int j = 0; j < N_MAX; j++) {
             #pragma HLS PIPELINE II=1
-            wij_bias[i][j] = in_wij_bias.read();
+            wij[i][j] = (data_t)in_wij_bias.read();
         }
     }
+    score_t wij_bias[N_MAX*N_HEADS][N_KV];
+    expand_wij(wij, wij_bias);
 
     // debug_buf[dbg_idx] = 3;
 
@@ -313,8 +312,8 @@ inline void abc_layer_1_stage(
 
     // object self-attention (without wij bias)
     // need a dummy wij since the function signature requires it
-    score_t dummy_wij[N_MAX * N_HEADS][N_KV];
-    // #pragma HLS ARRAY_PARTITION variable=dummy_wij complete dim=0
+    // (use_wij=false means it is never read; zero-init keeps csim defined)
+    score_t dummy_wij[N_MAX * N_HEADS][N_KV] = {{0}};
     attn_block_obj(x, mask, dummy_wij, /*use_wij =*/ false, 
         obj_w.Wq, obj_w.bq, obj_w.Wk, obj_w.bk, obj_w.Wv, obj_w.bv,
         obj_w.bias_k, obj_w.bias_v, obj_w.Wo, obj_w.bo,
@@ -543,7 +542,7 @@ inline void passwd_dataflow(
     hls::stream<float> s_losses("losses");
 
     #pragma HLS STREAM variable =  s_embed depth = 192
-    #pragma HLS STREAM variable =  s_wij depth = 624
+    #pragma HLS STREAM variable =  s_wij depth = 144
     #pragma HLS STREAM variable =  s_x0 depth = 192
     #pragma HLS STREAM variable =  s_x1 depth = 192
     #pragma HLS STREAM variable =  s_c1 depth = 48

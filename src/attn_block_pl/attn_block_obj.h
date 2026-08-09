@@ -41,10 +41,6 @@ inline void attn_block_obj(
 ) {
 
 
-    // TODO: add interface pragmas when i do system integration
-    #pragma HLS INTERFACE ap_memory port = x
-    #pragma HLS INTERFACE ap_memory port = Wq
-
     // save residual for skip connection
     data_t residual[N_MAX][E_DIM];
     for (int i = 0; i < N_MAX; i++) {
@@ -59,13 +55,6 @@ inline void attn_block_obj(
 
     data_t Q_full[N_MAX][E_DIM]; data_t K_full[N_MAX][E_DIM]; data_t V_full[N_MAX][E_DIM];
     linear<N_MAX>(x, Wq, bq, Q_full);
-
-    // DEBUG: manually compute Q[0][0] to verify linear()
-    acc_t manual_sum = (acc_t)bq[0];
-    for (int k = 0; k < E_DIM; k++) {
-        manual_sum += (acc_t)x[0][k] * (acc_t)Wq[0][k];
-    }
-
     linear<N_MAX>(x, Wk, bk, K_full);
     linear<N_MAX>(x, Wv, bv, V_full);
     
