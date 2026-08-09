@@ -176,19 +176,34 @@ static void scale_scores(int16* __restrict scores, int n_rows, int n_cols_pad, f
 
 // per-row in-place softmax. Reads at PIPE_SCORE_SCALE (potentially wider for
 // cand) and writes attention weights at PIPE_SCALE (data scale used for AV).
+// Fast scalar exp approximation (Schraudolph). Avoids pulling the full
+// softfloat expf() implementation into AIE program memory (overflows the 16KB
+// tile limit on hardware; x86 sim doesn't enforce this). Accurate to ~2-3%,
+// within the 0.5 quantized tolerance. Range here is (x - row_max) <= 0.
+static inline float fast_expf(float x)
+{
+    if (x < -87.0f) x = -87.0f;
+    union { float f; int i; } u;
+    u.i = (int)(12102203.0f * x + 1064866805.0f);
+    return u.f;
+}
+
 static void softmax_row_inplace(int16* __restrict scores, int n_rows, int n_cols, int n_cols_pad)
 {
+    // PIPE_SCORE_SCALE is a power of two: reciprocal multiply is bit-exact
+    // and avoids a softfloat divide per element (AIE1 emulates all fp32).
+    const float inv_score_scale = 1.0f / PIPE_SCORE_SCALE;
     float row_f[64]; // upper bound: max(N_KV_PAD, T_KV) <= 16, padded
     for (int r = 0; r < n_rows; r++) {
         float row_max = -1e30f;
         for (int c = 0; c < n_cols; c++) {
-            float val = (float)scores[r * n_cols_pad + c] / PIPE_SCORE_SCALE;
+            float val = (float)scores[r * n_cols_pad + c] * inv_score_scale;
             row_f[c] = val;
             if (val > row_max) row_max = val;
         }
         float sum = 0.0f;
         for (int c = 0; c < n_cols; c++) {
-            float e = expf(row_f[c] - row_max);
+            float e = fast_expf(row_f[c] - row_max);
             row_f[c] = e;
             sum += e;
         }

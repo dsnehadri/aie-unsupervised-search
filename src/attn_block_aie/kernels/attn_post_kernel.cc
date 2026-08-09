@@ -97,25 +97,34 @@ static void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
                           const int16* __restrict beta)
 {
     const float eps = 1e-5f;
+    // AIE1 has no fp32 hardware: every float divide is a softfloat call.
+    // PIPE_SCALE and n_cols(=E_DIM) are powers of two, so multiplying by the
+    // reciprocal is bit-exact; this removes ~50 emulated divides per row.
+    const float inv_ps = 1.0f / PIPE_SCALE;      // compile-time constant
+    const float inv_n  = 1.0f / n_cols;          // one divide per call
+    // gamma/beta are per-column constants; convert once, not once per row
+    float g_f[16], b_f[16];
+    for (int c = 0; c < n_cols; c++) {
+        g_f[c] = (float)gamma[c] * inv_ps;
+        b_f[c] = (float)beta[c] * inv_ps;
+    }
     for (int r = 0; r < n_rows; r++) {
         float row_f[16];
         float sum = 0.0f;
         for (int c = 0; c < n_cols; c++) {
-            row_f[c] = (float)x[r * n_cols + c] / PIPE_SCALE;
+            row_f[c] = (float)x[r * n_cols + c] * inv_ps;
             sum += row_f[c];
         }
-        float mean = sum / n_cols;
+        float mean = sum * inv_n;
         float var = 0.0f;
         for (int c = 0; c < n_cols; c++) {
             float d = row_f[c] - mean;
             var += d * d;
         }
-        var /= n_cols;
+        var *= inv_n;
         float inv_std = 1.0f / sqrtf(var + eps);
         for (int c = 0; c < n_cols; c++) {
-            float g = (float)gamma[c] / PIPE_SCALE;
-            float b = (float)beta[c] / PIPE_SCALE;
-            float y = g * (row_f[c] - mean) * inv_std + b;
+            float y = g_f[c] * (row_f[c] - mean) * inv_std + b_f[c];
             int32 y_fixed = (int32)(y*PIPE_SCALE);
             if (y_fixed > 32767) y_fixed = 32767;
             if (y_fixed < -32768) y_fixed = -32768;
