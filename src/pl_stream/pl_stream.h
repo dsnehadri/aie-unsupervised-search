@@ -87,10 +87,12 @@ inline void read_and_fork(
     hls::stream<data_t> &out_jets_pairwise,
     hls::stream<data_t> &out_jets_cand,
 
-    // mask -> 4 consumers (embed, abc_layer_0, abc_layer_1, cand_lorentz)
+    // mask -> 6 consumers (embed, obj0, cross0, obj1, cross1, cand_lorentz)
     hls::stream<bool> &out_mask_embed,
-    hls::stream<bool> &out_mask_abc0,
-    hls::stream<bool> &out_mask_abc1,
+    hls::stream<bool> &out_mask_obj0,
+    hls::stream<bool> &out_mask_cross0,
+    hls::stream<bool> &out_mask_obj1,
+    hls::stream<bool> &out_mask_cross1,
     hls::stream<bool> &out_mask_cand
     // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
@@ -128,14 +130,16 @@ inline void read_and_fork(
         }
     }
 
-    // fork mas into 4 output streams
+    // fork mask into 6 output streams
 
     FORK_MASK: for (int i = 0; i < N_MAX;i++) {
         #pragma HLS PIPELINE II=1
         bool val = mask[i];
         out_mask_embed.write(val);
-        out_mask_abc0.write(val);
-        out_mask_abc1.write(val);
+        out_mask_obj0.write(val);
+        out_mask_cross0.write(val);
+        out_mask_obj1.write(val);
+        out_mask_cross1.write(val);
         out_mask_cand.write(val);
     }
     // debug_buf[dbg_idx] = 2;
@@ -206,24 +210,25 @@ inline void pairwise_stage(
     // debug_buf[dbg_idx] = 2;
 }
 
-// abc layer 0 stage
-// runs obj_attn(with wij) -> build_candidates -> cand_attn -> cross_attn
+// The ABC layers are split into obj / cand / cross DATAFLOW processes.
+// Previously each layer ran all three attention blocks sequentially inside
+// ONE process, so the pipeline II was ~3 attention blocks; split, the
+// steady-state II is the slowest single block. Per-event math is unchanged
+// (same op order within an event); only cross-event overlap improves.
 
-inline void abc_layer_0_stage(
+// obj stage: obj_attn (+wij for layer 0) -> remask -> build_candidates
+// emits the updated x (to cross) and the raw candidates c (to cand)
+
+inline void obj0_stage(
     hls::stream<data_t> &in_embed,
     hls::stream<score_t> &in_wij_bias,
     hls::stream<bool> &in_mask,
     const AttnWeights &obj_w,
-    const AttnWeights &cand_w,
-    const AttnWeights &cross_w,
-    hls::stream<data_t> &out_x
-    // volatile ap_uint<32>* debug_buf, int dbg_idx
+    hls::stream<data_t> &out_x,
+    hls::stream<data_t> &out_c
 ) {
-    // debug_buf[dbg_idx] = 1;
-    // deserialize
     data_t x[N_MAX][E_DIM];
     stream_to_array2d<N_MAX,E_DIM>(in_embed, x);
-    // debug_buf[dbg_idx] = 2;
 
     data_t wij[N_MAX][N_MAX];
     READ_WIJ: for(int i = 0; i < N_MAX; i++) {
@@ -235,13 +240,10 @@ inline void abc_layer_0_stage(
     score_t wij_bias[N_MAX*N_HEADS][N_KV];
     expand_wij(wij, wij_bias);
 
-    // debug_buf[dbg_idx] = 3;
-
     bool mask[N_MAX];
     stream_to_array1d<N_MAX>(in_mask, mask);
 
-    // object self-attention (with wij bias)
-    attn_block_obj(x, mask, wij_bias, /*use_wij =*/ true, 
+    attn_block_obj(x, mask, wij_bias, /*use_wij =*/ true,
         obj_w.Wq, obj_w.bq, obj_w.Wk, obj_w.bk, obj_w.Wv, obj_w.bv,
         obj_w.bias_k, obj_w.bias_v, obj_w.Wo, obj_w.bo,
         obj_w.attn_ln_g, obj_w.attn_ln_b,
@@ -249,72 +251,29 @@ inline void abc_layer_0_stage(
         obj_w.post_ffn_g, obj_w.post_ffn_b);
     remask(x, mask);
 
-    // debug_buf[dbg_idx] = 4;
-
-    // build embedded candidates
     data_t c[T_DIM][E_DIM];
     int jet_assign_tmp[N_MAX];
     build_candidates<N_MAX>(x, c, jet_assign_tmp);
 
-    // candidate self attention
-
-    // debug_buf[dbg_idx] = 5;
-
-    attn_block_cand(c, 
-        cand_w.Wq, cand_w.bq, cand_w.Wk, cand_w.bk, cand_w.Wv, cand_w.bv,
-        cand_w.bias_k, cand_w.bias_v, cand_w.Wo, cand_w.bo,
-        cand_w.attn_ln_g, cand_w.attn_ln_b,
-        cand_w.ffn_w, cand_w.ffn_b, cand_w.ffn_ln_g, cand_w.ffn_ln_b,
-        cand_w.post_ffn_g, cand_w.post_ffn_b);
-
-    // debug_buf[dbg_idx] = 6;
-
-    attn_block_cross(x, c, 
-        cross_w.Wq, cross_w.bq, cross_w.Wk, cross_w.bk, cross_w.Wv, cross_w.bv,
-        cross_w.bias_k, cross_w.bias_v, cross_w.Wo, cross_w.bo,
-        cross_w.attn_ln_g, cross_w.attn_ln_b,
-        cross_w.ffn_w, cross_w.ffn_b, cross_w.ffn_ln_g, cross_w.ffn_ln_b,
-        cross_w.post_ffn_g, cross_w.post_ffn_b);
-    remask(x, mask);
-
-    // debug_buf[dbg_idx] = 7;
-
-    // serialize
     array2d_to_stream<N_MAX, E_DIM>(x, out_x);
-
-    // debug_buf[dbg_idx] = 8;
+    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
 }
 
-
-// abc layer 1
-// same as layer 0, with no wij bias
-// outputs both x and c
-
-inline void abc_layer_1_stage(
+inline void obj1_stage(
     hls::stream<data_t> &in_x,
     hls::stream<bool> &in_mask,
     const AttnWeights &obj_w,
-    const AttnWeights &cand_w,
-    const AttnWeights &cross_w,
     hls::stream<data_t> &out_x,
     hls::stream<data_t> &out_c
-    // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
-
-    // debug_buf[dbg_idx] = 1;
-    // deserialize
     data_t x[N_MAX][E_DIM];
     stream_to_array2d<N_MAX,E_DIM>(in_x, x);
     bool mask[N_MAX];
     stream_to_array1d<N_MAX>(in_mask, mask);
 
-    // debug_buf[dbg_idx] = 2;
-
-    // object self-attention (without wij bias)
-    // need a dummy wij since the function signature requires it
-    // (use_wij=false means it is never read; zero-init keeps csim defined)
+    // no wij bias in layer 1; the dummy is never read (use_wij=false)
     score_t dummy_wij[N_MAX * N_HEADS][N_KV] = {{0}};
-    attn_block_obj(x, mask, dummy_wij, /*use_wij =*/ false, 
+    attn_block_obj(x, mask, dummy_wij, /*use_wij =*/ false,
         obj_w.Wq, obj_w.bq, obj_w.Wk, obj_w.bk, obj_w.Wv, obj_w.bv,
         obj_w.bias_k, obj_w.bias_v, obj_w.Wo, obj_w.bo,
         obj_w.attn_ln_g, obj_w.attn_ln_b,
@@ -322,27 +281,67 @@ inline void abc_layer_1_stage(
         obj_w.post_ffn_g, obj_w.post_ffn_b);
     remask(x, mask);
 
-    // debug_buf[dbg_idx] = 3;
-
-    // build embedded candidates
     data_t c[T_DIM][E_DIM];
     int jet_assign_tmp[N_MAX];
     build_candidates<N_MAX>(x, c, jet_assign_tmp);
 
-    // debug_buf[dbg_idx] = 4;
+    array2d_to_stream<N_MAX, E_DIM>(x, out_x);
+    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+}
 
-    // candidate self attention
+// cand stage: candidate self-attention. layer 1 also feeds cand_lorentz.
 
-    attn_block_cand(c, 
+inline void cand_stage(
+    hls::stream<data_t> &in_c,
+    const AttnWeights &cand_w,
+    hls::stream<data_t> &out_c
+) {
+    data_t c[T_DIM][E_DIM];
+    stream_to_array2d<T_DIM,E_DIM>(in_c, c);
+    attn_block_cand(c,
         cand_w.Wq, cand_w.bq, cand_w.Wk, cand_w.bk, cand_w.Wv, cand_w.bv,
         cand_w.bias_k, cand_w.bias_v, cand_w.Wo, cand_w.bo,
         cand_w.attn_ln_g, cand_w.attn_ln_b,
         cand_w.ffn_w, cand_w.ffn_b, cand_w.ffn_ln_g, cand_w.ffn_ln_b,
         cand_w.post_ffn_g, cand_w.post_ffn_b);
+    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+}
 
-    // debug_buf[dbg_idx] = 5;
+inline void cand_stage2(
+    hls::stream<data_t> &in_c,
+    const AttnWeights &cand_w,
+    hls::stream<data_t> &out_c_cross,
+    hls::stream<data_t> &out_c_lorentz
+) {
+    data_t c[T_DIM][E_DIM];
+    stream_to_array2d<T_DIM,E_DIM>(in_c, c);
+    attn_block_cand(c,
+        cand_w.Wq, cand_w.bq, cand_w.Wk, cand_w.bk, cand_w.Wv, cand_w.bv,
+        cand_w.bias_k, cand_w.bias_v, cand_w.Wo, cand_w.bo,
+        cand_w.attn_ln_g, cand_w.attn_ln_b,
+        cand_w.ffn_w, cand_w.ffn_b, cand_w.ffn_ln_g, cand_w.ffn_ln_b,
+        cand_w.post_ffn_g, cand_w.post_ffn_b);
+    array2d_to_stream<T_DIM, E_DIM>(c, out_c_cross);
+    array2d_to_stream<T_DIM, E_DIM>(c, out_c_lorentz);
+}
 
-    attn_block_cross(x, c, 
+// cross stage: cross-attention (x attends to c) + remask
+
+inline void cross_stage(
+    hls::stream<data_t> &in_x,
+    hls::stream<data_t> &in_c,
+    hls::stream<bool> &in_mask,
+    const AttnWeights &cross_w,
+    hls::stream<data_t> &out_x
+) {
+    data_t x[N_MAX][E_DIM];
+    stream_to_array2d<N_MAX,E_DIM>(in_x, x);
+    data_t c[T_DIM][E_DIM];
+    stream_to_array2d<T_DIM,E_DIM>(in_c, c);
+    bool mask[N_MAX];
+    stream_to_array1d<N_MAX>(in_mask, mask);
+
+    attn_block_cross(x, c,
         cross_w.Wq, cross_w.bq, cross_w.Wk, cross_w.bk, cross_w.Wv, cross_w.bv,
         cross_w.bias_k, cross_w.bias_v, cross_w.Wo, cross_w.bo,
         cross_w.attn_ln_g, cross_w.attn_ln_b,
@@ -350,13 +349,7 @@ inline void abc_layer_1_stage(
         cross_w.post_ffn_g, cross_w.post_ffn_b);
     remask(x, mask);
 
-    // debug_buf[dbg_idx] = 6;
-
-    // serialize to both x and c
     array2d_to_stream<N_MAX, E_DIM>(x, out_x);
-    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
-
-    // debug_buf[dbg_idx] = 7;
 }
 
 // cand lorentz stage
@@ -522,20 +515,28 @@ inline void passwd_dataflow(
     #pragma HLS STREAM variable = s_jets_pairwise depth = 60
     #pragma HLS STREAM variable = s_jets_cand depth = 60
 
-    // fork outputs for masks (4 consumers)
+    // fork outputs for masks (6 consumers)
     hls::stream<bool> s_mask_embed("mask_embed");
-    hls::stream<bool> s_mask_abc0("mask_abc0");
-    hls::stream<bool> s_mask_abc1("mask_abc1");
+    hls::stream<bool> s_mask_obj0("mask_obj0");
+    hls::stream<bool> s_mask_cross0("mask_cross0");
+    hls::stream<bool> s_mask_obj1("mask_obj1");
+    hls::stream<bool> s_mask_cross1("mask_cross1");
     hls::stream<bool> s_mask_cand("mask_cand");
     #pragma HLS STREAM variable = s_mask_embed depth = 12
-    #pragma HLS STREAM variable = s_mask_abc0 depth = 12
-    #pragma HLS STREAM variable = s_mask_abc1 depth = 12
+    #pragma HLS STREAM variable = s_mask_obj0 depth = 12
+    #pragma HLS STREAM variable = s_mask_cross0 depth = 12
+    #pragma HLS STREAM variable = s_mask_obj1 depth = 12
+    #pragma HLS STREAM variable = s_mask_cross1 depth = 12
     #pragma HLS STREAM variable = s_mask_cand depth = 12
 
     // inter stage data streams
+    // depths cover one full event payload so a producer can always finish
+    // its event without consumer progress (deadlock-safe by construction)
     hls::stream<data_t> s_embed("embed");
     hls::stream<score_t> s_wij("wij");
+    hls::stream<data_t> s_x0a("x_obj0"), s_c0a("c_obj0"), s_c0b("c_cand0");
     hls::stream<data_t> s_x0("x_layer0");
+    hls::stream<data_t> s_x1a("x_obj1"), s_c1a("c_obj1"), s_c1b("c_cand1");
     hls::stream<data_t> s_x1("x_layer1");
     hls::stream<data_t> s_c1("c_layer1");
     hls::stream<data_t> s_ae("ae_input");
@@ -543,7 +544,13 @@ inline void passwd_dataflow(
 
     #pragma HLS STREAM variable =  s_embed depth = 192
     #pragma HLS STREAM variable =  s_wij depth = 144
+    #pragma HLS STREAM variable =  s_x0a depth = 192
+    #pragma HLS STREAM variable =  s_c0a depth = 48
+    #pragma HLS STREAM variable =  s_c0b depth = 48
     #pragma HLS STREAM variable =  s_x0 depth = 192
+    #pragma HLS STREAM variable =  s_x1a depth = 192
+    #pragma HLS STREAM variable =  s_c1a depth = 48
+    #pragma HLS STREAM variable =  s_c1b depth = 48
     #pragma HLS STREAM variable =  s_x1 depth = 192
     #pragma HLS STREAM variable =  s_c1 depth = 48
     #pragma HLS STREAM variable =  s_ae depth = 28
@@ -553,19 +560,22 @@ inline void passwd_dataflow(
 
     read_and_fork(in_stream,
         s_jets_embed, s_jets_pairwise, s_jets_cand,
-        s_mask_embed, s_mask_abc0, s_mask_abc1, s_mask_cand);
+        s_mask_embed, s_mask_obj0, s_mask_cross0,
+        s_mask_obj1, s_mask_cross1, s_mask_cand);
 
     embed_stage(s_jets_embed, s_mask_embed, embed_w, s_embed);
 
     pairwise_stage(s_jets_pairwise, mlp_w, s_wij);
 
-    abc_layer_0_stage(s_embed, s_wij, s_mask_abc0,
-        obj0_w, cand0_w, cross0_w,
-        s_x0);
+    // layer 0: obj -> {cand, cross}
+    obj0_stage(s_embed, s_wij, s_mask_obj0, obj0_w, s_x0a, s_c0a);
+    cand_stage(s_c0a, cand0_w, s_c0b);
+    cross_stage(s_x0a, s_c0b, s_mask_cross0, cross0_w, s_x0);
 
-    abc_layer_1_stage(s_x0, s_mask_abc1,
-        obj1_w, cand1_w, cross1_w,
-        s_x1, s_c1);
+    // layer 1: obj -> {cand, cross}; cand also feeds cand_lorentz
+    obj1_stage(s_x0, s_mask_obj1, obj1_w, s_x1a, s_c1a);
+    cand_stage2(s_c1a, cand1_w, s_c1b, s_c1);
+    cross_stage(s_x1a, s_c1b, s_mask_cross1, cross1_w, s_x1);
 
     cand_lorentz_stage(s_jets_cand, s_x1, s_c1, s_mask_cand, s_ae);
 
