@@ -66,31 +66,8 @@
     #error "define ATTN_TYPE_OBJ, ATTN_TYPE_CAND or ATTN_TYPE_CROSS"
 #endif
 
-// tiled gemm C[M][N] = A[M][K] x B[K][N]
-template <int M, int K, int N>
-static void gemm_tile(const int16* __restrict A, const int16* __restrict B, int16* __restrict C, int shift)
-{
-    for (int m = 0; m < M; m += 4) {
-        for (int n = 0; n < N; n+= 4) {
-            aie::mmul<4, 4, 4, int16, int16> acc;
-            for (int k = 0; k < K; k += 4) {
-                aie::vector<int16, 16> va;
-                for (int i = 0; i < 4; i++)
-                    for (int j = 0; j < 4; j++)
-                        va[i * 4 + j] = A[(m+i) * K + (k+j)];
-                aie::vector<int16, 16> vb;
-                for (int i = 0; i < 4; i++)
-                    for (int j = 0; j < 4; j++)
-                        vb[i * 4 + j] = B[(k+i) * N + (n+j)];   // row-major
-                if (k == 0) acc.mul(va, vb); else acc.mac(va, vb);
-            }
-            aie::vector<int16, 16> res = acc.to_vector<int16>(shift);
-            for (int i = 0; i < 4; i++)
-                for (int j = 0; j < 4; j++)
-                    C[(m+i) * N + (n+j)] =  res[i*4 + j];
-        }
-    }
-}
+// vectorized tiled gemm: A packed 4x4-block-major, B row-major (gemm_utils.h)
+#include "gemm_utils.h"
 
 static void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
                           const int16* __restrict gamma,
@@ -190,11 +167,14 @@ void POST_A_PROJ_FN(input_window_int16* __restrict concat_in,
                       input_window_int16* __restrict residual_in,
                       output_window_int16* __restrict proj_out)
 {
+    // read straight into packed layout for the gemm (gemm_utils.h)
     alignas(16) int16 concat[POST_N_ROWS_PAD * E_DIM] = {0};
-    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) concat[i] = window_readincr(concat_in);
+    for (int r = 0; r < POST_N_ROWS; r++)
+        for (int c = 0; c < E_DIM; c++)
+            concat[pk_idx<E_DIM>(r, c)] = window_readincr(concat_in);
 
     alignas(16) int16 proj[POST_N_ROWS_PAD * E_DIM];
-    gemm_tile<POST_N_ROWS_PAD, E_DIM, E_DIM>( concat, Wout, proj, PIPE_ACC_SHIFT);
+    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>( concat, Wout, proj, PIPE_ACC_SHIFT);
     add_bias_sat(proj, bout, POST_N_ROWS, E_DIM);
 
     #if !defined(ATTN_TYPE_CROSS)
@@ -225,11 +205,13 @@ void POST_A_PROJ_FN(input_window_int16* __restrict concat_in,
 void POST_B1_FN(input_window_int16* __restrict proj_in,
                   output_window_int16* __restrict ffn0_out)
 {
-    alignas(16) int16 in[POST_N_ROWS_PAD * E_DIM];
-    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) in[i] = window_readincr(proj_in);
+    alignas(16) int16 in[POST_N_ROWS_PAD * E_DIM] = {0};
+    for (int r = 0; r < POST_N_ROWS; r++)
+        for (int c = 0; c < E_DIM; c++)
+            in[pk_idx<E_DIM>(r, c)] = window_readincr(proj_in);
 
     alignas(16) int16 out[POST_N_ROWS_PAD * E_DIM];
-    gemm_tile<POST_N_ROWS_PAD, E_DIM, E_DIM>( in, ffn_W0, out, PIPE_ACC_SHIFT);
+    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>( in, ffn_W0, out, PIPE_ACC_SHIFT);
     add_bias_sat(out, ffn_b0, POST_N_ROWS, E_DIM);
     layernorm_row(out, POST_N_ROWS, E_DIM, ffn_ln_gamma0, ffn_ln_beta0);
     relu_inplace(out, POST_N_ROWS * E_DIM);
@@ -242,11 +224,13 @@ void POST_B1_FN(input_window_int16* __restrict proj_in,
 void POST_B2_FN(input_window_int16* __restrict ffn0_in,
                   output_window_int16* __restrict ffn1_out)
 {
-    alignas(16) int16 in[POST_N_ROWS_PAD * E_DIM];
-    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) in[i] = window_readincr(ffn0_in);
+    alignas(16) int16 in[POST_N_ROWS_PAD * E_DIM] = {0};
+    for (int r = 0; r < POST_N_ROWS; r++)
+        for (int c = 0; c < E_DIM; c++)
+            in[pk_idx<E_DIM>(r, c)] = window_readincr(ffn0_in);
 
     alignas(16) int16 out[POST_N_ROWS_PAD * E_DIM];
-    gemm_tile<POST_N_ROWS_PAD, E_DIM, E_DIM>( in, ffn_W1, out, PIPE_ACC_SHIFT);
+    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>( in, ffn_W1, out, PIPE_ACC_SHIFT);
     add_bias_sat(out, ffn_b1, POST_N_ROWS, E_DIM);
     layernorm_row(out, POST_N_ROWS, E_DIM, ffn_ln_gamma1, ffn_ln_beta1);
     relu_inplace(out, POST_N_ROWS * E_DIM);
@@ -264,11 +248,13 @@ void POST_C_FN(input_window_int16* __restrict ffn_in,
                  input_window_int16* __restrict residual_b_in,
                  output_window_int16* __restrict x_out)
 {
-    alignas(16) int16 ffn1[POST_N_ROWS_PAD * E_DIM];
-    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) ffn1[i] = window_readincr(ffn_in);
+    alignas(16) int16 ffn1[POST_N_ROWS_PAD * E_DIM] = {0};
+    for (int r = 0; r < POST_N_ROWS; r++)
+        for (int c = 0; c < E_DIM; c++)
+            ffn1[pk_idx<E_DIM>(r, c)] = window_readincr(ffn_in);
 
     alignas(16) int16 ffn2[POST_N_ROWS_PAD * E_DIM];
-    gemm_tile<POST_N_ROWS_PAD, E_DIM, E_DIM>(ffn1, ffn_W2, ffn2, PIPE_ACC_SHIFT);
+    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>(ffn1, ffn_W2, ffn2, PIPE_ACC_SHIFT);
     add_bias_sat(ffn2, ffn_b2, POST_N_ROWS, E_DIM);
     layernorm_row(ffn2, POST_N_ROWS, E_DIM, ffn_ln_gamma2, ffn_ln_beta2);
     relu_inplace(ffn2, POST_N_ROWS * E_DIM);

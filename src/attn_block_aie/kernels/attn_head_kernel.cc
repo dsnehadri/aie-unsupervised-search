@@ -119,35 +119,8 @@
     #endif
 #endif
 
-// tiled gemm C[M][N] = A[M][K] x B[K][N]
-
-template <int M, int K, int N>
-static inline void gemm_tile(const int16* __restrict A, const int16* __restrict B, int16* __restrict C, int shift)
-{
-    for (int m = 0; m < M; m += 4) {
-        for (int n = 0; n < N; n+= 4) {
-            aie::mmul<4, 4, 4, int16, int16> acc;
-
-            for (int k = 0; k < K; k += 4) {
-                aie::vector<int16, 16> va;
-                for (int i = 0; i < 4; i++) {
-                    for (int j = 0; j < 4; j++) {
-                        va[i * 4 + j] = A[(m+i) * K + (k+j)];
-                    }
-                }
-                aie::vector<int16, 16> vb;
-                for (int i = 0; i < 4; i++)
-                    for (int j = 0; j < 4; j++)
-                        vb[i * 4 + j] = B[(k+i) * N + (n+j)];   // row-major (aie::mmul expects this)
-                if (k == 0) acc.mul(va, vb); else acc.mac(va, vb);
-            }
-            aie::vector<int16, 16> res = acc.to_vector<int16>(shift);
-            for (int i = 0; i < 4; i++)
-                for (int j = 0; j < 4; j++)
-                    C[(m+i) * N + (n+j)] =  res[i*4 + j];
-        }
-    }
-}
+// vectorized tiled gemm: A packed 4x4-block-major, B row-major (gemm_utils.h)
+#include "gemm_utils.h"
 
 // add bias to each row
 
@@ -227,23 +200,29 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
                        output_window_int16* __restrict scores_out,
                        output_window_int16* __restrict v_out)
 {
-    alignas(16) int16 X[N_MAX * E_DIM];
-    for (int i = 0; i < N_MAX * E_DIM; i++) X[i] = window_readincr(x_in);
+    // read X directly into packed layout (same scalar read cost; the gemms
+    // then run on pure vector loads)
+    alignas(16) int16 Xp[N_MAX * E_DIM];
+    for (int r = 0; r < N_MAX; r++)
+        for (int c = 0; c < E_DIM; c++)
+            Xp[pk_idx<E_DIM>(r, c)] = window_readincr(x_in);
 
     // V first - persists into the output stream
     alignas(16) int16 V[N_KV_PAD * D_HEAD] = {0};
-    gemm_tile<N_MAX, E_DIM, D_HEAD>(X, Wv, V, PIPE_ACC_SHIFT);
+    gemm_pk<N_MAX, E_DIM, D_HEAD>(Xp, Wv, V, PIPE_ACC_SHIFT);
     add_bias<N_MAX, D_HEAD>(V, bv);
     for (int j = 0; j < D_HEAD; j++) V[N_MAX * D_HEAD + j] = bias_v_row[j];
 
     alignas(16) int16 scores[N_MAX * N_KV_PAD];
     {
+        // Q is N_MAX x 4: for K==4 the packed layout equals row-major, so Q
+        // feeds the Q*Kt gemm below without repacking
         alignas(16) int16 Q[N_MAX * D_HEAD];
-        gemm_tile<N_MAX, E_DIM, D_HEAD>(X, Wq, Q, PIPE_ACC_SHIFT);
+        gemm_pk<N_MAX, E_DIM, D_HEAD>(Xp, Wq, Q, PIPE_ACC_SHIFT);
         add_bias<N_MAX, D_HEAD>(Q, bq);
 
         alignas(16) int16 K[N_KV_PAD * D_HEAD] = {0};
-        gemm_tile<N_MAX, E_DIM, D_HEAD>(X, Wk, K, PIPE_ACC_SHIFT);
+        gemm_pk<N_MAX, E_DIM, D_HEAD>(Xp, Wk, K, PIPE_ACC_SHIFT);
         add_bias<N_MAX, D_HEAD>(K, bk);
         for (int j = 0; j < D_HEAD; j++) K[N_MAX * D_HEAD + j] = bias_k_row[j];
 
@@ -252,7 +231,7 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
             for (int j = 0; j < D_HEAD; j++)
                 Kt[j * N_KV_PAD + i] = K[i * D_HEAD + j];
 
-        gemm_tile<N_MAX, D_HEAD, N_KV_PAD>(Q, Kt, scores, PIPE_QKT_SHIFT);
+        gemm_pk<N_MAX, D_HEAD, N_KV_PAD>(Q, Kt, scores, PIPE_QKT_SHIFT);
     }
 
     scale_scores(scores, N_MAX, N_KV_PAD, 0.5f);
@@ -289,8 +268,12 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     // softmax in-place: scores -> attn_w
     softmax_row_inplace(scores, N_MAX, N_KV, N_KV_PAD);
 
+    // AV gemm consumes A packed (K=16); pack the softmaxed weights
+    alignas(16) int16 scores_p[N_MAX * N_KV_PAD];
+    pack_a4<N_MAX, N_KV_PAD>(scores, scores_p);
+
     alignas(16) int16 head_out[N_MAX * D_HEAD];
-    gemm_tile<N_MAX, N_KV_PAD, D_HEAD>(scores, V, head_out, PIPE_ACC_SHIFT);
+    gemm_pk<N_MAX, N_KV_PAD, D_HEAD>(scores_p, V, head_out, PIPE_ACC_SHIFT);
 
     for (int i = 0; i < N_MAX * D_HEAD; i++) window_writeincr(x_out, head_out[i]);
 }
@@ -308,24 +291,24 @@ void HEAD_PRE_FN(input_window_int16* __restrict c_in,
                         output_window_int16* __restrict scores_out,
                         output_window_int16* __restrict v_out)
 {
-    alignas(16) int16 C[4 * E_DIM] = {0};
+    alignas(16) int16 Cp[4 * E_DIM] = {0};  // packed; padded row 3 stays zero
     for (int r = 0; r < T_DIM; r++)
         for (int c = 0; c < E_DIM; c++)
-            C[r * E_DIM + c] = window_readincr(c_in);
+            Cp[pk_idx<E_DIM>(r, c)] = window_readincr(c_in);
 
     alignas(16) int16 V[T_KV * D_HEAD] = {0};
-    gemm_tile<4, E_DIM, D_HEAD>(C, cand_Wv, V, PIPE_ACC_SHIFT);
+    gemm_pk<4, E_DIM, D_HEAD>(Cp, cand_Wv, V, PIPE_ACC_SHIFT);
     add_bias<T_DIM, D_HEAD>(V, cand_bv);
     for (int j = 0; j < D_HEAD; j++) V[T_DIM * D_HEAD + j] = cand_bias_v_row[j];
 
     alignas(16) int16 scores[4 * T_KV];
     {
         alignas(16) int16 Q[4 * D_HEAD];
-        gemm_tile<4, E_DIM, D_HEAD>(C, cand_Wq, Q, PIPE_ACC_SHIFT);
+        gemm_pk<4, E_DIM, D_HEAD>(Cp, cand_Wq, Q, PIPE_ACC_SHIFT);
         add_bias<T_DIM, D_HEAD>(Q, cand_bq);
 
         alignas(16) int16 K[T_KV * D_HEAD] = {0};
-        gemm_tile<4, E_DIM, D_HEAD>(C, cand_Wk, K, PIPE_ACC_SHIFT);
+        gemm_pk<4, E_DIM, D_HEAD>(Cp, cand_Wk, K, PIPE_ACC_SHIFT);
         add_bias<T_DIM, D_HEAD>(K, cand_bk);
         for (int j = 0; j < D_HEAD; j++) K[T_DIM * D_HEAD + j] = cand_bias_k_row[j];
 
@@ -334,7 +317,7 @@ void HEAD_PRE_FN(input_window_int16* __restrict c_in,
             for (int j = 0; j < D_HEAD; j++)
                 Kt[j * T_KV + i] = K[i * D_HEAD + j];
 
-        gemm_tile<4, D_HEAD, T_KV>(Q, Kt, scores, PIPE_QKT_SHIFT);
+        gemm_pk<4, D_HEAD, T_KV>(Q, Kt, scores, PIPE_QKT_SHIFT);
     }
 
     scale_scores(scores, T_DIM, T_KV, 0.5f);
@@ -357,8 +340,9 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 
     softmax_row_inplace(scores, T_DIM, T_KV, T_KV);
 
+    // K==4: row-major == packed, scores feed the AV gemm directly
     alignas(16) int16 out[4 * D_HEAD];
-    gemm_tile<4, T_KV, D_HEAD>(scores, V, out, PIPE_ACC_SHIFT);
+    gemm_pk<4, T_KV, D_HEAD>(scores, V, out, PIPE_ACC_SHIFT);
 
     for (int r = 0; r < T_DIM; r++)
         for (int c = 0; c < D_HEAD; c++)
@@ -379,27 +363,29 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
                          output_window_int16* __restrict scores_out,
                          output_window_int16* __restrict v_out)
 {
-    alignas(16) int16 X[N_MAX * E_DIM];
-    for (int i = 0; i < N_MAX * E_DIM; i++) X[i] = window_readincr(x_in);
+    alignas(16) int16 Xp[N_MAX * E_DIM];
+    for (int r = 0; r < N_MAX; r++)
+        for (int c = 0; c < E_DIM; c++)
+            Xp[pk_idx<E_DIM>(r, c)] = window_readincr(x_in);
 
-    alignas(16) int16 C[4 * E_DIM] = {0};
+    alignas(16) int16 Cp[4 * E_DIM] = {0};  // packed; padded row 3 stays zero
     for (int r = 0; r < T_DIM; r++)
         for (int c = 0; c < E_DIM; c++)
-            C[r * E_DIM + c] = window_readincr(c_in);
+            Cp[pk_idx<E_DIM>(r, c)] = window_readincr(c_in);
 
     alignas(16) int16 V[T_KV * D_HEAD] = {0};
-    gemm_tile<4, E_DIM, D_HEAD>(C, cross_Wv, V, PIPE_ACC_SHIFT);
+    gemm_pk<4, E_DIM, D_HEAD>(Cp, cross_Wv, V, PIPE_ACC_SHIFT);
     add_bias<T_DIM, D_HEAD>(V, cross_bv);
     for (int j = 0; j < D_HEAD; j++) V[T_DIM * D_HEAD + j] = cross_bias_v_row[j];
 
     alignas(16) int16 scores[N_MAX * T_KV];
     {
         alignas(16) int16 Q[N_MAX * D_HEAD];
-        gemm_tile<N_MAX, E_DIM, D_HEAD>(X, cross_Wq, Q, PIPE_ACC_SHIFT);
+        gemm_pk<N_MAX, E_DIM, D_HEAD>(Xp, cross_Wq, Q, PIPE_ACC_SHIFT);
         add_bias<N_MAX, D_HEAD>(Q, cross_bq);
 
         alignas(16) int16 K[T_KV * D_HEAD] = {0};
-        gemm_tile<4, E_DIM, D_HEAD>(C, cross_Wk, K, PIPE_ACC_SHIFT);
+        gemm_pk<4, E_DIM, D_HEAD>(Cp, cross_Wk, K, PIPE_ACC_SHIFT);
         add_bias<T_DIM, D_HEAD>(K, cross_bk);
         for (int j = 0; j < D_HEAD; j++) K[T_DIM * D_HEAD + j] = cross_bias_k_row[j];
 
@@ -408,7 +394,7 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
             for (int j = 0; j < D_HEAD; j++)
                 Kt[j * T_KV + i] = K[i * D_HEAD + j];
 
-        gemm_tile<N_MAX, D_HEAD, T_KV>(Q, Kt, scores, PIPE_QKT_SHIFT);
+        gemm_pk<N_MAX, D_HEAD, T_KV>(Q, Kt, scores, PIPE_QKT_SHIFT);
     }
 
     scale_scores(scores, N_MAX, T_KV, 0.5f);
@@ -431,8 +417,9 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 
     softmax_row_inplace(scores, N_MAX, T_KV, T_KV);
 
+    // K==4: row-major == packed, scores feed the AV gemm directly
     alignas(16) int16 out[N_MAX * D_HEAD];
-    gemm_tile<N_MAX, T_KV, D_HEAD>(scores, V, out, PIPE_ACC_SHIFT);
+    gemm_pk<N_MAX, T_KV, D_HEAD>(scores, V, out, PIPE_ACC_SHIFT);
 
     for (int i = 0; i < N_MAX * D_HEAD; i++) window_writeincr(x_out, out[i]);
 }
