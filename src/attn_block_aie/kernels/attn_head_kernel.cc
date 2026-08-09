@@ -147,45 +147,70 @@ static void scale_scores(int16* __restrict scores, int n_rows, int n_cols_pad, f
     }
 }
 
-// per-row in-place softmax. Reads at PIPE_SCORE_SCALE (potentially wider for
-// cand) and writes attention weights at PIPE_SCALE (data scale used for AV).
-// Fast scalar exp approximation (Schraudolph). Avoids pulling the full
-// softfloat expf() implementation into AIE program memory (overflows the 16KB
-// tile limit on hardware; x86 sim doesn't enforce this). Accurate to ~2-3%,
-// within the 0.5 quantized tolerance. Range here is (x - row_max) <= 0.
-static inline float fast_expf(float x)
-{
-    if (x < -87.0f) x = -87.0f;
-    union { float f; int i; } u;
-    u.i = (int)(12102203.0f * x + 1064866805.0f);
-    return u.f;
-}
+// Integer softmax -- no float anywhere (AIE1 emulates all fp32 in software;
+// the softfloat_* calls were the measured tile-time wall). Replaces the
+// previous Schraudolph-exp-in-float version:
+//   exp(x - max) = 2^(-(max - x) * log2 e)
+// with the exponent in Q20 integer arithmetic, a 64-entry 2^-frac LUT (Q15)
+// plus a right shift for the integer part, and ONE integer divide per row
+// for the normalization. LUT step 2^(1/64) -> ~0.5% max relative error,
+// better than the ~2-3% of the Schraudolph float trick it replaces.
+//
+// Reads scores (row-major, at PIPE_SCORE_SCALE); writes attention weights at
+// PIPE_SCALE into OUT in 4x4-block-packed layout (pk_idx) so the AV gemm
+// consumes them with pure vector loads. Padded rows/cols are written zero.
+#include "exp2_lut.h"
 
-static void softmax_row_inplace(int16* __restrict scores, int n_rows, int n_cols, int n_cols_pad)
+#if defined(ATTN_TYPE_CAND)
+#define PIPE_SCALE_BITS CAND_FRAC_BITS
+#else
+#define PIPE_SCALE_BITS DATA_FRAC_BITS
+#endif
+
+template <int N_ROWS, int N_COLS, int N_PAD>
+static void int_softmax_packed(const int16* __restrict scores, int16* __restrict out)
 {
-    // PIPE_SCORE_SCALE is a power of two: reciprocal multiply is bit-exact
-    // and avoids a softfloat divide per element (AIE1 emulates all fp32).
-    const float inv_score_scale = 1.0f / PIPE_SCORE_SCALE;
-    float row_f[64]; // upper bound: max(N_KV_PAD, T_KV) <= 16, padded
-    for (int r = 0; r < n_rows; r++) {
-        float row_max = -1e30f;
-        for (int c = 0; c < n_cols; c++) {
-            float val = (float)scores[r * n_cols_pad + c] * inv_score_scale;
-            row_f[c] = val;
-            if (val > row_max) row_max = val;
+    // exponent coefficient: t = d * LOG2E_Q is the base-2 exponent in Q20
+    constexpr int32 LOG2E_Q = (int32)(1.4426950408889634 / (double)PIPE_SCORE_SCALE * 1048576.0 + 0.5);
+    constexpr int32 D_MAX   = (int32)((31u << 20) / (unsigned)LOG2E_Q); // beyond: 2^-31, call it 0
+    constexpr int   W_SHIFT = 30 - PIPE_SCALE_BITS;
+
+    for (int r = 0; r < N_ROWS; r++) {
+        const int16* row = &scores[r * N_PAD];
+
+        int32 imax = row[0];
+        for (int c = 1; c < N_COLS; c++)
+            if (row[c] > imax) imax = row[c];
+
+        int32 e[N_PAD];
+        int32 sum = 0;
+        for (int c = 0; c < N_COLS; c++) {
+            int32 d = imax - (int32)row[c];            // >= 0
+            int32 v;
+            if (d >= D_MAX) {
+                v = 0;
+            } else {
+                int32 t = d * LOG2E_Q;                 // Q20, no overflow (d < D_MAX)
+                int   k = t >> 20;                     // integer part
+                int   f = (t >> 14) & 63;              // top 6 fraction bits
+                v = EXP2_NEG_FRAC_LUT[f] >> k;         // Q15
+            }
+            e[c] = v;
+            sum += v;
         }
-        float sum = 0.0f;
-        for (int c = 0; c < n_cols; c++) {
-            float e = fast_expf(row_f[c] - row_max);
-            row_f[c] = e;
-            sum += e;
-        }
-        float inv_sum = 1.0f / sum;
-        for (int c = 0; c < n_cols_pad; c++) {
-            float val = (c < n_cols) ? row_f[c] * inv_sum : 0.0f;
-            scores[r * n_cols_pad + c] = (int16)(val * PIPE_SCALE);
+
+        int32 inv = ((int32)1 << 30) / sum;            // sum >= 2^15 -> inv <= 2^15
+        for (int c = 0; c < N_PAD; c++) {
+            int32 w = 0;
+            if (c < N_COLS)
+                w = (e[c] * inv + ((int32)1 << (W_SHIFT - 1))) >> W_SHIFT; // e*inv <= 2^30
+            out[pk_idx<N_PAD>(r, c)] = (int16)w;
         }
     }
+    // zero padded rows so the packed AV operand is fully defined
+    for (int r = N_ROWS; r < ((N_ROWS + 3) / 4) * 4; r++)
+        for (int c = 0; c < N_PAD; c++)
+            out[pk_idx<N_PAD>(r, c)] = 0;
 }
 
 // =====================================================================
@@ -265,15 +290,12 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
         }
     }
 
-    // softmax in-place: scores -> attn_w
-    softmax_row_inplace(scores, N_MAX, N_KV, N_KV_PAD);
-
-    // AV gemm consumes A packed (K=16); pack the softmaxed weights
-    alignas(16) int16 scores_p[N_MAX * N_KV_PAD];
-    pack_a4<N_MAX, N_KV_PAD>(scores, scores_p);
+    // integer softmax, emitted directly in packed layout for the AV gemm
+    alignas(16) int16 attn_p[N_MAX * N_KV_PAD];
+    int_softmax_packed<N_MAX, N_KV, N_KV_PAD>(scores, attn_p);
 
     alignas(16) int16 head_out[N_MAX * D_HEAD];
-    gemm_pk<N_MAX, N_KV_PAD, D_HEAD>(scores_p, V, head_out, PIPE_ACC_SHIFT);
+    gemm_pk<N_MAX, N_KV_PAD, D_HEAD>(attn_p, V, head_out, PIPE_ACC_SHIFT);
 
     for (int i = 0; i < N_MAX * D_HEAD; i++) window_writeincr(x_out, head_out[i]);
 }
@@ -338,11 +360,12 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     alignas(16) int16 V[T_KV * D_HEAD];
     for (int i = 0; i < T_KV * D_HEAD; i++) V[i] = window_readincr(v_in);
 
-    softmax_row_inplace(scores, T_DIM, T_KV, T_KV);
+    // integer softmax (K==4: packed == row-major)
+    alignas(16) int16 attn_p[4 * T_KV];
+    int_softmax_packed<T_DIM, T_KV, T_KV>(scores, attn_p);
 
-    // K==4: row-major == packed, scores feed the AV gemm directly
     alignas(16) int16 out[4 * D_HEAD];
-    gemm_pk<4, T_KV, D_HEAD>(scores, V, out, PIPE_ACC_SHIFT);
+    gemm_pk<4, T_KV, D_HEAD>(attn_p, V, out, PIPE_ACC_SHIFT);
 
     for (int r = 0; r < T_DIM; r++)
         for (int c = 0; c < D_HEAD; c++)
@@ -415,11 +438,12 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     alignas(16) int16 V[T_KV * D_HEAD];
     for (int i = 0; i < T_KV * D_HEAD; i++) V[i] = window_readincr(v_in);
 
-    softmax_row_inplace(scores, N_MAX, T_KV, T_KV);
+    // integer softmax (K==4: packed == row-major)
+    alignas(16) int16 attn_p[N_MAX * T_KV];
+    int_softmax_packed<N_MAX, T_KV, T_KV>(scores, attn_p);
 
-    // K==4: row-major == packed, scores feed the AV gemm directly
     alignas(16) int16 out[N_MAX * D_HEAD];
-    gemm_pk<N_MAX, T_KV, D_HEAD>(scores, V, out, PIPE_ACC_SHIFT);
+    gemm_pk<N_MAX, T_KV, D_HEAD>(attn_p, V, out, PIPE_ACC_SHIFT);
 
     for (int i = 0; i < N_MAX * D_HEAD; i++) window_writeincr(x_out, out[i]);
 }
