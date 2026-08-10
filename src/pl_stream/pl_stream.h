@@ -469,9 +469,138 @@ static void write_output_ddr(hls::stream<ap_uint<32>>& in, ap_uint<32>* out_buf,
     }
 }
 
-// top level DATAFLOW 
+// ---- batched wrappers: each stage loops n_events inside ONE dataflow ----
+// region, so successive events overlap in flight (event N in the AE while
+// event N+2 is in embed). The per-event passwd_dataflow below re-enters the
+// dataflow region every event; on hardware that entry/exit + m_axi setup
+// dominated (measured 70.3k cycles/ev vs 10.9k csynth compute).
+
+static void read_input_n(const ap_uint<32>* in_buf, int n, hls::stream<ap_uint<32>>& o) {
+    #pragma HLS INLINE off
+    for (int e = 0; e < n; e++) read_input(in_buf, e*72, o);
+}
+static void fork_n(hls::stream<ap_uint<32>>& in, int n,
+    hls::stream<data_t>& je, hls::stream<data_t>& jp, hls::stream<data_t>& jc,
+    hls::stream<bool>& me, hls::stream<bool>& mo0, hls::stream<bool>& mc0,
+    hls::stream<bool>& mo1, hls::stream<bool>& mc1, hls::stream<bool>& mcd) {
+    for (int e = 0; e < n; e++) read_and_fork(in, je, jp, jc, me, mo0, mc0, mo1, mc1, mcd);
+}
+static void embed_n(hls::stream<data_t>& i, hls::stream<bool>& m,
+    const EmbedWeights& w, hls::stream<data_t>& o, int n) {
+    for (int e = 0; e < n; e++) embed_stage(i, m, w, o);
+}
+static void pairwise_n(hls::stream<data_t>& i, const MLPWeights& w,
+    hls::stream<score_t>& o, int n) {
+    for (int e = 0; e < n; e++) pairwise_stage(i, w, o);
+}
+static void obj0_n(hls::stream<data_t>& i, hls::stream<score_t>& wij, hls::stream<bool>& m,
+    const AttnWeights& w, hls::stream<data_t>& ox, hls::stream<data_t>& oc, int n) {
+    for (int e = 0; e < n; e++) obj0_stage(i, wij, m, w, ox, oc);
+}
+static void obj1_n(hls::stream<data_t>& i, hls::stream<bool>& m,
+    const AttnWeights& w, hls::stream<data_t>& ox, hls::stream<data_t>& oc, int n) {
+    for (int e = 0; e < n; e++) obj1_stage(i, m, w, ox, oc);
+}
+static void cand_n(hls::stream<data_t>& i, const AttnWeights& w, hls::stream<data_t>& o, int n) {
+    for (int e = 0; e < n; e++) cand_stage(i, w, o);
+}
+static void cand2_n(hls::stream<data_t>& i, const AttnWeights& w,
+    hls::stream<data_t>& o1, hls::stream<data_t>& o2, int n) {
+    for (int e = 0; e < n; e++) cand_stage2(i, w, o1, o2);
+}
+static void cross_n(hls::stream<data_t>& ix, hls::stream<data_t>& ic, hls::stream<bool>& m,
+    const AttnWeights& w, hls::stream<data_t>& o, int n) {
+    for (int e = 0; e < n; e++) cross_stage(ix, ic, m, w, o);
+}
+static void lorentz_n(hls::stream<data_t>& jc, hls::stream<data_t>& x, hls::stream<data_t>& c,
+    hls::stream<bool>& m, hls::stream<data_t>& o, int n) {
+    for (int e = 0; e < n; e++) cand_lorentz_stage(jc, x, c, m, o);
+}
+static void ae_n(hls::stream<data_t>& i, const AEEncoderWeights& enc,
+    const AEDecoderWeights& dec, hls::stream<float>& o, int n) {
+    for (int e = 0; e < n; e++) ae_loss_stage(i, enc, dec, o);
+}
+static void wout_n(hls::stream<float>& i, hls::stream<ap_uint<32>>& o, int n) {
+    for (int e = 0; e < n; e++) write_output(i, o);
+}
+static void wddr_n(hls::stream<ap_uint<32>>& i, ap_uint<32>* out_buf, int n) {
+    #pragma HLS INLINE off
+    for (int e = 0; e < n; e++) write_output_ddr(i, out_buf, e*3);
+}
+
+// batched top-level dataflow: one region for the whole batch
+inline void passwd_dataflow_batched(
+    const ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n_events,
+    const EmbedWeights &embed_w,
+    const MLPWeights &mlp_w,
+    const AttnWeights &obj0_w, const AttnWeights &cand0_w, const AttnWeights &cross0_w,
+    const AttnWeights &obj1_w, const AttnWeights &cand1_w, const AttnWeights &cross1_w,
+    const AEEncoderWeights &ae_enc_w, const AEDecoderWeights &ae_dec_w
+) {
+    #pragma HLS DATAFLOW
+
+    hls::stream<ap_uint<32>> in_stream("mm2s");
+    hls::stream<ap_uint<32>> out_stream("s2mm");
+    #pragma HLS STREAM variable=in_stream depth = 144
+    #pragma HLS STREAM variable=out_stream depth = 8
+
+    // depths: >= one full event payload each (deadlock-safe), doubled where
+    // cheap so adjacent events overlap without back-pressure
+    hls::stream<data_t> s_jets_embed("jets_embed"), s_jets_pairwise("jets_pair"), s_jets_cand("jets_cand");
+    #pragma HLS STREAM variable = s_jets_embed depth = 128
+    #pragma HLS STREAM variable = s_jets_pairwise depth = 128
+    #pragma HLS STREAM variable = s_jets_cand depth = 384
+    hls::stream<bool> s_mask_embed("m_embed"), s_mask_obj0("m_obj0"), s_mask_cross0("m_cross0");
+    hls::stream<bool> s_mask_obj1("m_obj1"), s_mask_cross1("m_cross1"), s_mask_cand("m_cand");
+    #pragma HLS STREAM variable = s_mask_embed depth = 64
+    #pragma HLS STREAM variable = s_mask_obj0 depth = 64
+    #pragma HLS STREAM variable = s_mask_cross0 depth = 128
+    #pragma HLS STREAM variable = s_mask_obj1 depth = 128
+    #pragma HLS STREAM variable = s_mask_cross1 depth = 192
+    #pragma HLS STREAM variable = s_mask_cand depth = 256
+
+    hls::stream<data_t> s_embed("embed");
+    hls::stream<score_t> s_wij("wij");
+    hls::stream<data_t> s_x0a("x_obj0"), s_c0a("c_obj0"), s_c0b("c_cand0");
+    hls::stream<data_t> s_x0("x_layer0");
+    hls::stream<data_t> s_x1a("x_obj1"), s_c1a("c_obj1"), s_c1b("c_cand1");
+    hls::stream<data_t> s_x1("x_layer1"), s_c1("c_layer1");
+    hls::stream<data_t> s_ae("ae_input");
+    hls::stream<float> s_losses("losses");
+    #pragma HLS STREAM variable =  s_embed depth = 384
+    #pragma HLS STREAM variable =  s_wij depth = 288
+    #pragma HLS STREAM variable =  s_x0a depth = 384
+    #pragma HLS STREAM variable =  s_c0a depth = 96
+    #pragma HLS STREAM variable =  s_c0b depth = 96
+    #pragma HLS STREAM variable =  s_x0 depth = 384
+    #pragma HLS STREAM variable =  s_x1a depth = 384
+    #pragma HLS STREAM variable =  s_c1a depth = 96
+    #pragma HLS STREAM variable =  s_c1b depth = 96
+    #pragma HLS STREAM variable =  s_x1 depth = 384
+    #pragma HLS STREAM variable =  s_c1 depth = 96
+    #pragma HLS STREAM variable =  s_ae depth = 56
+    #pragma HLS STREAM variable =  s_losses depth = 8
+
+    read_input_n(in_buf, n_events, in_stream);
+    fork_n(in_stream, n_events, s_jets_embed, s_jets_pairwise, s_jets_cand,
+        s_mask_embed, s_mask_obj0, s_mask_cross0, s_mask_obj1, s_mask_cross1, s_mask_cand);
+    embed_n(s_jets_embed, s_mask_embed, embed_w, s_embed, n_events);
+    pairwise_n(s_jets_pairwise, mlp_w, s_wij, n_events);
+    obj0_n(s_embed, s_wij, s_mask_obj0, obj0_w, s_x0a, s_c0a, n_events);
+    cand_n(s_c0a, cand0_w, s_c0b, n_events);
+    cross_n(s_x0a, s_c0b, s_mask_cross0, cross0_w, s_x0, n_events);
+    obj1_n(s_x0, s_mask_obj1, obj1_w, s_x1a, s_c1a, n_events);
+    cand2_n(s_c1a, cand1_w, s_c1b, s_c1, n_events);
+    cross_n(s_x1a, s_c1b, s_mask_cross1, cross1_w, s_x1, n_events);
+    lorentz_n(s_jets_cand, s_x1, s_c1, s_mask_cand, s_ae, n_events);
+    ae_n(s_ae, ae_enc_w, ae_dec_w, s_losses, n_events);
+    wout_n(s_losses, out_stream, n_events);
+    wddr_n(out_stream, out_buf, n_events);
+}
+
+// top level DATAFLOW
 // stages are run concurrently - data flows through hls::stream FIFOs
-// weights are read-only and synthesize to BRAM 
+// weights are read-only and synthesize to BRAM
 
 inline void passwd_dataflow(
     // axi stream io

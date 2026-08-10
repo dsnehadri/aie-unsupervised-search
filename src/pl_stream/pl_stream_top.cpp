@@ -25,11 +25,13 @@ extern "C" void pl_stream_top(
                      obj1_w, cand1_w, cross1_w,
                      ae_enc_w, ae_dec_w);
 
-    for (int ev = 0; ev < n_events; ev++) {
-        passwd_dataflow(in_buf, ev*72, out_buf, ev*3,
-            embed_w, mlp_w,
-            obj0_w, cand0_w, cross0_w,
-            obj1_w, cand1_w, cross1_w,
-            ae_enc_w, ae_dec_w);
-    }
+    // ONE dataflow region for the whole batch: every stage loops n_events
+    // internally, so events overlap in flight. The previous per-event
+    // passwd_dataflow call re-entered the region each event; on hardware
+    // that overhead was ~85% of the 0.878 ms/event.
+    passwd_dataflow_batched(in_buf, out_buf, n_events,
+        embed_w, mlp_w,
+        obj0_w, cand0_w, cross0_w,
+        obj1_w, cand1_w, cross1_w,
+        ae_enc_w, ae_dec_w);
 }
