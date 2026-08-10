@@ -68,6 +68,23 @@ static const int FFN_DIM = E_DIM;
 // typedef ap_fixed<64, 20> acc_t;
 // typedef ap_fixed<64, 20> exp_t;
 
+#ifdef AIE_FRAC11
+// Original 11-frac contract (validated June hybrid config, git d1830be).
+// The AIE attention kernels and their sliced weights are defined on this:
+// data_t bit-pattern == int16 at DATA_SCALE=2048 (see attn_aie_types.h and
+// slice_weights_for_aie.py). Any build whose PL side bridges raw bits to the
+// AIE MUST use these types + 11-frac input packing; building the bridge with
+// the <16,7> types below skews every obj/cross activation 4x (measured
+// median +25% / p90 306% end-to-end error vs the intended function).
+typedef ap_fixed<16, 5> data_t;
+typedef ap_fixed<16, 4> weight_t;
+typedef ap_fixed<16, 6> score_t;
+typedef ap_fixed<16, 2> prob_t;
+typedef ap_fixed<16, 4> ln_param_t;
+typedef ap_fixed<32, 10> acc_t;
+typedef ap_fixed<32, 10> exp_t;
+#else
+// Retrained all-PL contract (wider integer range for the retrained weights).
 typedef ap_fixed<16, 7> data_t;
 typedef ap_fixed<16, 4> weight_t;
 typedef ap_fixed<16, 11> score_t;   // widened integer bits: cand Q*K^T can reach ~320; ±32 was saturating
@@ -75,6 +92,7 @@ typedef ap_fixed<16, 2> prob_t;
 typedef ap_fixed<16, 4> ln_param_t;
 typedef ap_fixed<32, 10> acc_t;
 typedef ap_fixed<32, 10> exp_t;
+#endif
 
 // scaling constant = 1/sqrt(D_HEAD)
 
