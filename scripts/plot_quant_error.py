@@ -1,12 +1,11 @@
 #!/usr/bin/env python
 """Quantization error of the AIE int16 attention vs the PyTorch float golden,
-per event sample. Data: 20-event x86sim run (bit-exact model of the hardware
-tiles) compared against phase3_export golden tensors -- the same comparison
-check_attn_outputs.py scores, plotted per sample.
+per event sample, as RELATIVE error: |int16 - float| as a percentage of the
+event's golden activation RMS for that block. Data: 20-event x86sim run
+(bit-exact model of the hardware tiles) vs phase3_export golden tensors.
 
-Per event: small dots = per-element |error| (unpadded rows); bold line =
-per-event max. 1 LSB reference shows the single-rounding floor; everything
-above it is accumulation through the block's gemms/softmax/LN chain."""
+Per block panel: shaded band = p5..p95 of per-element relative error,
+solid line = median, marker line = per-event max."""
 import os
 import numpy as np
 import matplotlib
@@ -27,70 +26,66 @@ def parse_plio(path):
         vals += [int(x) for x in t]
     return np.array(vals, dtype=np.int16)
 
-def block_errors(fname, gold_name, rows, scale, use_mask):
+def block_rel_errors(fname, gold_name, rows, scale, use_mask):
     per = rows * E_DIM
     raw = parse_plio(os.path.join(TB, "x86simulator_output/data", fname))
     gold = np.load(os.path.join(TV, gold_name))
     masks = np.load(os.path.join(TB, "data/padding_mask_event.npy")).astype(bool)
-    elems, mx = [], []
+    p5, p50, p95, mx = [], [], [], []
     for ev in range(NEV):
         comp = raw[ev*per:(ev+1)*per].astype(np.float64).reshape(rows, E_DIM) / scale
         g = gold[ev].reshape(rows, E_DIM)
-        err = np.abs(comp - g)
         if use_mask:
-            err = err[~masks[ev]]
-        elems.append(err.ravel())
-        mx.append(err.max())
-    return elems, np.array(mx)
+            comp, g = comp[~masks[ev]], g[~masks[ev]]
+        rms = np.sqrt(np.mean(g**2))              # event's activation scale
+        rel = 100.0 * np.abs(comp - g).ravel() / rms
+        p5.append(np.percentile(rel, 5)); p50.append(np.percentile(rel, 50))
+        p95.append(np.percentile(rel, 95)); mx.append(rel.max())
+    return map(np.array, (p5, p50, p95, mx))
 
-BLOCKS = [  # name, output file, golden, rows, dequant scale, mask padded rows
-    ("obj self-attn",   "obj_x_out_L0.txt",   "stage3_layer0_post_obj_selfattn.npy",  N_MAX, 2048.0, True,  "#2a78d6"),
-    ("cand self-attn",  "cand_c_out_L0.txt",  "stage3_layer0_post_cand_selfattn.npy", T_DIM,  512.0, False, "#eb6834"),
-    ("cross attn",      "cross_x_out_L0.txt", "stage3_layer0_post_cross_attn.npy",    N_MAX, 2048.0, True,  "#1baf7a"),
+BLOCKS = [
+    ("obj self-attention",  "obj_x_out_L0.txt",   "stage3_layer0_post_obj_selfattn.npy",  N_MAX, 2048.0, True,  "#2a78d6"),
+    ("cand self-attention", "cand_c_out_L0.txt",  "stage3_layer0_post_cand_selfattn.npy", T_DIM,  512.0, False, "#eb6834"),
+    ("cross attention",     "cross_x_out_L0.txt", "stage3_layer0_post_cross_attn.npy",    N_MAX, 2048.0, True,  "#1baf7a"),
 ]
 
 SURF, INK, INK2 = "#fcfcfb", "#0b0b0b", "#52514e"
-fig, ax = plt.subplots(figsize=(11.5, 5.2))
-fig.patch.set_facecolor(SURF); ax.set_facecolor(SURF)
-rng = np.random.default_rng(0)
+fig, axes = plt.subplots(3, 1, figsize=(10.5, 7.6), sharex=True, sharey=True)
+fig.patch.set_facecolor(SURF)
+x = np.arange(NEV)
 
-for name, f, g, rows, scale, um, col in BLOCKS:
-    elems, mx = block_errors(f, g, rows, scale, um)
-    for ev, e in enumerate(elems):  # per-element cloud, jittered
-        ax.plot(ev + rng.uniform(-0.18, 0.18, e.size), e, ".", color=col,
-                ms=2.5, alpha=0.28, markeredgewidth=0, zorder=2)
-    ax.plot(range(NEV), mx, "-o", color=col, lw=2, ms=6.5, zorder=4, label=name)
-    ax.annotate(name, xy=(NEV - 1, mx[-1]), xytext=(NEV - 0.6, mx[-1]),
-                color=col, fontsize=10, va="center", weight="bold")
+for ax, (name, f, g, rows, scale, um, col) in zip(axes, BLOCKS):
+    ax.set_facecolor(SURF)
+    p5, p50, p95, mx = block_rel_errors(f, g, rows, scale, um)
+    ax.fill_between(x, p5, p95, color=col, alpha=0.18, lw=0, label="p5–p95 of elements")
+    ax.plot(x, p50, "-", color=col, lw=2, label="median element")
+    ax.plot(x, mx, "-o", color=col, lw=1.2, ms=5, alpha=0.75, label="worst element")
+    ax.text(0.005, 0.86, name, transform=ax.transAxes, color=col,
+            fontsize=11, weight="bold")
+    # stats note: bottom-right in the cross panel (its band+worst line fill the top)
+    ty = 0.06 if name.startswith("cross") else 0.86
+    ax.text(0.995, ty, f"median ≈ {np.mean(p50):.1f}%   worst ≈ {mx.max():.0f}%",
+            transform=ax.transAxes, color=INK2, fontsize=9, ha="right")
+    ax.grid(alpha=0.15, axis="y")
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+    ax.tick_params(colors=INK2)
 
-lsb = 1.0 / 2048
-ax.axhline(lsb, color=INK2, lw=1, ls=(0, (4, 3)), zorder=1)
-ax.text(0.1, lsb * 1.4, "1 LSB (obj/cross quantum, 1/2048)", fontsize=8.5, color=INK2)
+axes[0].set_title("Quantization error of the AIE attention blocks, per event\n"
+                  "error as % of the event's golden activation RMS · "
+                  "x86sim (bit-exact model of the tiles) vs PyTorch float32, 20 events",
+                  fontsize=11, loc="left", color=INK)
+axes[0].legend(frameon=False, fontsize=9, loc="upper right", ncol=3,
+               bbox_to_anchor=(1.0, 1.02))
+axes[-1].set_xlabel("event sample index", fontsize=11, color=INK)
+axes[-1].set_xticks(range(0, NEV, 2))
+axes[1].set_ylabel("relative error  [% of activation RMS]", fontsize=11, color=INK)
 
-ax.set_xlabel("event sample index", fontsize=11, color=INK)
-ax.set_ylabel("|AIE int16  −  PyTorch float32|", fontsize=11, color=INK)
-ax.set_title("Quantization error of the AIE attention blocks, per event\n"
-             "dots = per-element error · line = per-event max · "
-             "x86sim (bit-exact model of the hardware tiles) vs float golden, 20 events",
-             fontsize=11, loc="left", color=INK)
-ax.set_xticks(range(0, NEV, 2))
-ax.set_xlim(-0.5, NEV + 1.6)
-ax.set_ylim(0, 0.072)
-ax.grid(alpha=0.15, axis="y")
-for s in ("top", "right"):
-    ax.spines[s].set_visible(False)
-ax.tick_params(colors=INK2)
-ax.legend(frameon=False, fontsize=9.5, loc="upper left")
-ax.text(0.995, 0.02, "pass tolerance 0.5 is ~7× above this axis · all 20 events pass",
-        transform=ax.transAxes, ha="right", fontsize=8.5, color=INK2)
-
-fig.tight_layout()
+fig.tight_layout(h_pad=0.6)
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/quantization_error.png"
 fig.savefig(out, dpi=200, bbox_inches="tight", facecolor=SURF)
 fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight", facecolor=SURF)
 print("saved", out)
 for name, f, g, rows, scale, um, col in BLOCKS:
-    elems, mx = block_errors(f, g, rows, scale, um)
-    alle = np.concatenate(elems)
-    print(f"{name:15s} per-elem median={np.median(alle):.5f}  p95={np.percentile(alle,95):.5f}  "
-          f"per-event max: mean={mx.mean():.5f} worst={mx.max():.5f}")
+    p5, p50, p95, mx = block_rel_errors(f, g, rows, scale, um)
+    print(f"{name:20s} median={np.mean(p50):.2f}%  p95={np.mean(p95):.2f}%  worst={mx.max():.1f}%")
