@@ -1,11 +1,10 @@
 #!/usr/bin/env python
-"""Quantization error of the AIE int16 attention vs the PyTorch float golden,
-per event sample, as RELATIVE error: |int16 - float| as a percentage of the
-event's golden activation RMS for that block. Data: 20-event x86sim run
-(bit-exact model of the hardware tiles) vs phase3_export golden tensors.
-
-Per block panel: shaded band = p5..p95 of per-element relative error,
-solid line = median, marker line = per-event max."""
+"""Quantization error of the AIE int16 attention vs the PyTorch float32 golden,
+in the simple functional-verification style: signed difference per sample,
+zero reference line, max-abs box. Samples = all attention output elements
+(unpadded) of 20 events from the x86sim run (bit-exact model of the tiles),
+concatenated obj | cand | cross. Difference is relative: % of the event's
+golden activation RMS."""
 import os
 import numpy as np
 import matplotlib
@@ -26,66 +25,53 @@ def parse_plio(path):
         vals += [int(x) for x in t]
     return np.array(vals, dtype=np.int16)
 
-def block_rel_errors(fname, gold_name, rows, scale, use_mask):
+def block_signed_rel(fname, gold_name, rows, scale, use_mask):
     per = rows * E_DIM
     raw = parse_plio(os.path.join(TB, "x86simulator_output/data", fname))
     gold = np.load(os.path.join(TV, gold_name))
     masks = np.load(os.path.join(TB, "data/padding_mask_event.npy")).astype(bool)
-    p5, p50, p95, mx = [], [], [], []
+    out = []
     for ev in range(NEV):
         comp = raw[ev*per:(ev+1)*per].astype(np.float64).reshape(rows, E_DIM) / scale
         g = gold[ev].reshape(rows, E_DIM)
         if use_mask:
             comp, g = comp[~masks[ev]], g[~masks[ev]]
-        rms = np.sqrt(np.mean(g**2))              # event's activation scale
-        rel = 100.0 * np.abs(comp - g).ravel() / rms
-        p5.append(np.percentile(rel, 5)); p50.append(np.percentile(rel, 50))
-        p95.append(np.percentile(rel, 95)); mx.append(rel.max())
-    return map(np.array, (p5, p50, p95, mx))
+        rms = np.sqrt(np.mean(g**2))
+        out.append(100.0 * (comp - g).ravel() / rms)
+    return np.concatenate(out)
 
-BLOCKS = [
-    ("obj self-attention",  "obj_x_out_L0.txt",   "stage3_layer0_post_obj_selfattn.npy",  N_MAX, 2048.0, True,  "#2a78d6"),
-    ("cand self-attention", "cand_c_out_L0.txt",  "stage3_layer0_post_cand_selfattn.npy", T_DIM,  512.0, False, "#eb6834"),
-    ("cross attention",     "cross_x_out_L0.txt", "stage3_layer0_post_cross_attn.npy",    N_MAX, 2048.0, True,  "#1baf7a"),
-]
+obj   = block_signed_rel("obj_x_out_L0.txt",   "stage3_layer0_post_obj_selfattn.npy",  N_MAX, 2048.0, True)
+cand  = block_signed_rel("cand_c_out_L0.txt",  "stage3_layer0_post_cand_selfattn.npy", T_DIM,  512.0, False)
+cross = block_signed_rel("cross_x_out_L0.txt", "stage3_layer0_post_cross_attn.npy",    N_MAX, 2048.0, True)
+diff = np.concatenate([obj, cand, cross])
+x = np.arange(diff.size)
 
-SURF, INK, INK2 = "#fcfcfb", "#0b0b0b", "#52514e"
-fig, axes = plt.subplots(3, 1, figsize=(10.5, 7.6), sharex=True, sharey=True)
-fig.patch.set_facecolor(SURF)
-x = np.arange(NEV)
+fig, ax = plt.subplots(figsize=(11, 6))
+ax.plot(x, diff, "o", color="#3b3bcc", ms=2.5, alpha=0.6,
+        markeredgecolor="k", markeredgewidth=0.15, label="Difference")
+ax.axhline(0, color="red", lw=1, ls="--", label="Zero Diff")
 
-for ax, (name, f, g, rows, scale, um, col) in zip(axes, BLOCKS):
-    ax.set_facecolor(SURF)
-    p5, p50, p95, mx = block_rel_errors(f, g, rows, scale, um)
-    ax.fill_between(x, p5, p95, color=col, alpha=0.18, lw=0, label="p5–p95 of elements")
-    ax.plot(x, p50, "-", color=col, lw=2, label="median element")
-    ax.plot(x, mx, "-o", color=col, lw=1.2, ms=5, alpha=0.75, label="worst element")
-    ax.text(0.005, 0.86, name, transform=ax.transAxes, color=col,
-            fontsize=11, weight="bold")
-    # stats note: bottom-right in the cross panel (its band+worst line fill the top)
-    ty = 0.06 if name.startswith("cross") else 0.86
-    ax.text(0.995, ty, f"median ≈ {np.mean(p50):.1f}%   worst ≈ {mx.max():.0f}%",
-            transform=ax.transAxes, color=INK2, fontsize=9, ha="right")
-    ax.grid(alpha=0.15, axis="y")
-    for s in ("top", "right"):
-        ax.spines[s].set_visible(False)
-    ax.tick_params(colors=INK2)
+# block region separators
+b1, b2 = obj.size, obj.size + cand.size
+for xb in (b1, b2):
+    ax.axvline(xb, color="gray", lw=0.8, ls=":", alpha=0.7)
+for xc, name in ((b1/2, "obj self-attn"), (b1 + cand.size/2, "cand"), (b2 + cross.size/2, "cross attn")):
+    ax.text(xc, -7.2, name, ha="center", fontsize=10, color="dimgray")
 
-axes[0].set_title("Quantization error of the AIE attention blocks, per event\n"
-                  "error as % of the event's golden activation RMS · "
-                  "x86sim (bit-exact model of the tiles) vs PyTorch float32, 20 events",
-                  fontsize=11, loc="left", color=INK)
-axes[0].legend(frameon=False, fontsize=9, loc="upper right", ncol=3,
-               bbox_to_anchor=(1.0, 1.02))
-axes[-1].set_xlabel("event sample index", fontsize=11, color=INK)
-axes[-1].set_xticks(range(0, NEV, 2))
-axes[1].set_ylabel("relative error  [% of activation RMS]", fontsize=11, color=INK)
+ax.text(0.015, 0.965, f"Max Abs Diff: {np.abs(diff).max():.1f}%   (int16 quantization)",
+        transform=ax.transAxes, va="top", fontsize=10,
+        bbox=dict(facecolor="white", edgecolor="gray"))
+ax.set_xlabel("Sample Index", fontsize=12)
+ax.set_ylabel("Actual - Expected  [% of activation RMS]", fontsize=12)
+ax.set_title("Quantization Error: AIE int16 Attention vs PyTorch float32 (x86sim, 20 events)", fontsize=14)
+ax.set_ylim(-8, 8)
+ax.grid(ls="--", alpha=0.5)
+ax.legend(loc="upper right", fontsize=11)
 
-fig.tight_layout(h_pad=0.6)
+fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/quantization_error.png"
-fig.savefig(out, dpi=200, bbox_inches="tight", facecolor=SURF)
-fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight", facecolor=SURF)
+fig.savefig(out, dpi=200, bbox_inches="tight")
+fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight")
 print("saved", out)
-for name, f, g, rows, scale, um, col in BLOCKS:
-    p5, p50, p95, mx = block_rel_errors(f, g, rows, scale, um)
-    print(f"{name:20s} median={np.mean(p50):.2f}%  p95={np.mean(p95):.2f}%  worst={mx.max():.1f}%")
+print(f"samples={diff.size}  max abs = {np.abs(diff).max():.2f}%  "
+      f"mean abs = {np.abs(diff).mean():.2f}%  bias = {diff.mean():+.3f}%")
