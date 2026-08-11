@@ -50,7 +50,7 @@ ax.set_ylabel("(AIE - PL) / PL   [%]", fontsize=12)
 ax.set_title("Final Result: AIE Hardware vs All-PL Hardware, per event\n"
              f"(final MSE loss, RETRAINED weights, first {N_SHOW} of {n} events)", fontsize=13)
 ax.grid(ls="--", alpha=0.5)
-ax.legend(loc="upper right", fontsize=11)
+ax.legend(loc="lower right", fontsize=11)
 
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/final_result_error_retrained.png"
