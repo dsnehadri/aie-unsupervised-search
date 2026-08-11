@@ -8,9 +8,11 @@ public:
     ObjAttnGraphL<0> obj0;
     CandAttnGraphL<0> cand0;
     CrossAttnGraphL<0> cross0;
-    // L1 obj included to cover the no-wij variant (fed a copy of the L0
-    // input; its output is not golden-checked, it exercises compile+run)
+    // Full L1 coverage: all six subgraphs, so the stepped hybrid golden
+    // (hybrid_golden_steps) can chain PL stages with x86sim per block.
     ObjAttnGraphL<1> obj1;
+    CandAttnGraphL<1> cand1;
+    CrossAttnGraphL<1> cross1;
 };
 
 AttnTestGraph g;
