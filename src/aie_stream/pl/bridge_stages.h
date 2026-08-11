@@ -214,10 +214,20 @@ inline void obj_attn_send(
         wij_buf[i] = v;
     }
     pack_buf_to_axi<X_SZ>(x_buf, x_out_aie);
+    // The stream carries score_t<16,11> bits (Q10.5); the AIE obj kernels add
+    // wij at their Q8.7 score scale -> shift left 2 (values |wij|<1, no
+    // overflow) so the bit-pattern lands on the kernel's grid.
     data_t slice[WIJ_SZ];
     for (int i = 0; i < N_MAX; i++)
-        for (int j = 0; j < N_KV; j++)
-            slice[i * N_KV + j] = (j < N_MAX) ? wij_buf[i * N_MAX + j] : (data_t)0;
+        for (int j = 0; j < N_KV; j++) {
+            data_t v = 0;
+            if (j < N_MAX) {
+                ap_int<16> bits = wij_buf[i * N_MAX + j].range(15, 0);
+                ap_int<16> shifted = (ap_int<16>)(bits << 2);
+                v.range(15, 0) = shifted.range(15, 0);
+            }
+            slice[i * N_KV + j] = v;
+        }
     pack_buf_to_axi<WIJ_SZ>(slice, wij_h0_out_aie);
     pack_buf_to_axi<WIJ_SZ>(slice, wij_h1_out_aie);
     pack_buf_to_axi<WIJ_SZ>(slice, wij_h2_out_aie);

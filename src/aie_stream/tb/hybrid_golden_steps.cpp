@@ -31,7 +31,9 @@ namespace hls {
 #include "../../cand_lorentz/cand_lorentz.h"
 #include "../../autoencoder/autoencoder.h"
 #include "../../cand_build/candidate_build.h"
-#include "/home/snehadri/aie_hybrid_pipe/weights_rom_orig.h"
+// RETRAINED weights (repo weights_rom.h): matches the retrained AIE weight
+// headers sliced 2026-08-10. Default types (<16,7> data / <16,11> score).
+#include "../../pl_stream/weights_rom.h"
 
 static const char* ST = "golden_state";
 
@@ -119,10 +121,12 @@ int main(int argc, char** argv) {
         int16_t slice[N_MAX * N_KV];
         for (int i = 0; i < N_MAX; i++)
             for (int j = 0; j < N_KV; j++) {
-                // stream carries (score_t)wij bits; bridge bit-copies to data_t
-                score_t s = (score_t)wij[i][j];
-                data_t v; v.range(15, 0) = s.range(15, 0);
-                slice[i * N_KV + j] = (j < N_MAX) ? d2i(v) : 0;
+                // stream carries (score_t)wij bits (Q10.5); the AIE obj
+                // kernels expect Q8.7 -> shift left 2 (mirrors the bridge)
+                score_t sc = (score_t)wij[i][j];
+                ap_int<16> bits = sc.range(15, 0);
+                ap_int<16> shifted = (ap_int<16>)(bits << 2);
+                slice[i * N_KV + j] = (j < N_MAX) ? (int16_t)(short)shifted : 0;
             }
         for (int h = 0; h < 4; h++) {
             char p[64]; snprintf(p, 64, "data/obj_wij_h%d_L0.txt", h);

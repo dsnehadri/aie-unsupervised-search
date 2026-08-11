@@ -1230,4 +1230,17 @@ inline void init_all_weights(
     init_rom_ae_dec_w(ae_dec_w);
 }
 
+// PL-only init for AIE-bridge builds (attention weights live on the AIE)
+inline void init_pl_only_weights(
+    EmbedWeights& embed_w,
+    MLPWeights& mlp_w,
+    AEEncoderWeights& ae_enc_w,
+    AEDecoderWeights& ae_dec_w
+) {
+    init_rom_embed_w(embed_w);
+    init_rom_mlp_w(mlp_w);
+    init_rom_ae_enc_w(ae_enc_w);
+    init_rom_ae_dec_w(ae_dec_w);
+}
+
 #endif

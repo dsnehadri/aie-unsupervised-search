@@ -22,26 +22,20 @@
 #define HEAD_PRE_FN   _HEAD_FN_2(ATTN_TYPE_TAG, pre,  HEAD_IDX, ATTN_LAYER)
 #define HEAD_POST_FN  _HEAD_FN_2(ATTN_TYPE_TAG, post, HEAD_IDX, ATTN_LAYER)
 
-// Pipeline-wide scale: cand uses the wider Q6.9 throughout (data, weights,
-// LN params) so the unnormalized cand_build sums fit. obj/cross use Q4.11.
-// Scores have an additional, separate scale because Q*K^T values can grow
-// large enough to saturate int16 at PIPE_SCALE; for cand we use the wider
-// CAND_SCORE_SCALE=32 (analogous to PL's score_t<16,11>).
+// Retrained-scale layout (attn_aie_types.h): data Q6.9, weights Q3.12 for
+// all types. Scores: obj/cross Q8.7 (finer, avoids near-tie softmax flips);
+// cand Q10.5 (needs the range -- retrained cand Q*K^T reaches ~320).
+#define PIPE_SCALE        DATA_SCALE
+#define PIPE_ACC_SHIFT    ACC_SHIFT      // data*weight gemms
+#define PIPE_AV_SHIFT     AV_SHIFT       // attn*V gemm (both operands at data scale)
 #if defined(ATTN_TYPE_CAND)
-#define PIPE_SCALE        CAND_SCALE
-#define PIPE_ACC_SHIFT    CAND_ACC_SHIFT
-// Cand Q*K^T sum reaches ~18M; >> CAND_ACC_SHIFT(9) = 36K which wraps int16
-// (aie::mmul to_vector saturation isn't reliable on x86sim). Shift more so the
-// result fits int16 cleanly; scores are then at the narrower CAND_SCORE_SCALE.
 #define PIPE_SCORE_SCALE  CAND_SCORE_SCALE
 #define PIPE_SCORE_SHIFT  CAND_SCORE_SHIFT
 #define PIPE_QKT_SHIFT    CAND_QKT_SHIFT
 #else
-#define PIPE_SCALE        DATA_SCALE
-#define PIPE_ACC_SHIFT    ACC_SHIFT
-#define PIPE_SCORE_SCALE  DATA_SCALE
-#define PIPE_SCORE_SHIFT  DATA_FRAC_BITS
-#define PIPE_QKT_SHIFT    ACC_SHIFT
+#define PIPE_SCORE_SCALE  SCORE_SCALE
+#define PIPE_SCORE_SHIFT  SCORE_SHIFT
+#define PIPE_QKT_SHIFT    QKT_SHIFT
 #endif
 
 
@@ -306,7 +300,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     int_softmax_packed<N_MAX, N_KV, N_KV_PAD>(scores, attn_p);
 
     alignas(16) int16 head_out[N_MAX * D_HEAD];
-    gemm_pk<N_MAX, N_KV_PAD, D_HEAD>(attn_p, V, head_out, PIPE_ACC_SHIFT);
+    gemm_pk<N_MAX, N_KV_PAD, D_HEAD>(attn_p, V, head_out, PIPE_AV_SHIFT);
 
     for (int i = 0; i < N_MAX * D_HEAD; i++) window_writeincr(x_out, head_out[i]);
 }
@@ -376,7 +370,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     int_softmax_packed<T_DIM, T_KV, T_KV>(scores, attn_p);
 
     alignas(16) int16 out[4 * D_HEAD];
-    gemm_pk<4, T_KV, D_HEAD>(attn_p, V, out, PIPE_ACC_SHIFT);
+    gemm_pk<4, T_KV, D_HEAD>(attn_p, V, out, PIPE_AV_SHIFT);
 
     for (int r = 0; r < T_DIM; r++)
         for (int c = 0; c < D_HEAD; c++)
@@ -454,7 +448,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     int_softmax_packed<N_MAX, T_KV, T_KV>(scores, attn_p);
 
     alignas(16) int16 out[N_MAX * D_HEAD];
-    gemm_pk<N_MAX, T_KV, D_HEAD>(attn_p, V, out, PIPE_ACC_SHIFT);
+    gemm_pk<N_MAX, T_KV, D_HEAD>(attn_p, V, out, PIPE_AV_SHIFT);
 
     for (int i = 0; i < N_MAX * D_HEAD; i++) window_writeincr(x_out, out[i]);
 }

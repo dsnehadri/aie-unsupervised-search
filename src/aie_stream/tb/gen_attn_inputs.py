@@ -45,7 +45,7 @@ N_KV = 13          # N_MAX + 1 (bias_kv slot)
 T_DIM = 3
 
 # data_t = ap_fixed<16,5>  -> 11 fractional bits  -> scale = 2048
-DATA_FRAC_BITS = 11
+DATA_FRAC_BITS = 9  # retrained layout: data Q6.9 (was 11)
 DATA_SCALE = 1 << DATA_FRAC_BITS  # 2048
 
 # PLIO transfer width / element width
@@ -138,7 +138,13 @@ def main():
         return np.concatenate([a.reshape(-1) for a in per_event_int16])
 
     NEG_BIAS = -15.0  # for masked-out keys in wij
-    CAND_SCALE = 1 << 9   # cand Q6.9
+    CAND_SCALE = 1 << 9   # cand data scale (== DATA_SCALE in the retrained layout)
+    # wij is added to SCORES on the AIE, so it is quantized at the score scale
+    # (Q10.5, mirroring the PL score_t<16,11> bits the bridge sends)
+    SCORE_SCALE = 1 << 7
+    def to_int16_score(x):
+        q = np.round(np.asarray(x, dtype=np.float64) * SCORE_SCALE)
+        return np.clip(q, -32768, 32767).astype(np.int16)
 
     # ---- obj0 inputs --------------------------------------------------------
     print("\n[obj0]")
@@ -155,7 +161,7 @@ def main():
         for j in range(N_MAX):
             if pad_masks[i, j]:
                 wij_full[:, j] = NEG_BIAS
-        wij_q_per.append(to_int16(wij_full))
+        wij_q_per.append(to_int16_score(wij_full))
     for h in range(N_HEADS):
         write_plio_text(os.path.join(args.data_dir, f"obj_wij_h{h}_L0.txt"),
                         concat_events(wij_q_per))

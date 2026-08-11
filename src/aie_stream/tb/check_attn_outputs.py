@@ -38,7 +38,7 @@ import numpy as np
 N_MAX = 12
 E_DIM = 16
 T_DIM = 3
-DATA_FRAC_BITS = 11
+DATA_FRAC_BITS = 9  # retrained layout: data Q6.9 (was 11)
 DATA_SCALE = 1 << DATA_FRAC_BITS
 
 # Default tolerance — matches the relaxed bound your PL stream tb used for the

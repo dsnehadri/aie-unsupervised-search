@@ -30,8 +30,11 @@ E_DIM = 16
 D_HEAD = 4
 N_HEADS = 4
 T_DIM = 3
-DATA_FRAC_BITS = 11
-WEIGHT_FRAC_BITS = 11  # ap_fixed<16,5> has 11 frac bits, same as data
+# RETRAINED scale layout (2026-08-10, must match attn_aie_types.h):
+# data/biases/LN at Q6.9 (ap_fixed<16,7> bit-pattern, range +/-64 for the
+# |17.9| retrained cand embeddings), weight MATRICES at Q3.12 (all |w|<=1.1).
+DATA_FRAC_BITS = 9
+WEIGHT_FRAC_BITS = 12
 
 def to_fixed16(arr, frac_bits=11):
     """Convert float array to int16 fixed-point."""
@@ -156,8 +159,11 @@ def process_attn_block(export_dir, out_dir, attn_type, layer):
     # unnormalized sums up to ~|19| that overflow Q4.11. All cand weights,
     # biases, and LN params are quantized at this wider scale; the kernel
     # uses CAND_ACC_SHIFT / CAND_SCALE in its data flow.
-    frac_bits = 9 if attn_type == "cand" else DATA_FRAC_BITS
-    def to_q(arr): return to_fixed16(arr, frac_bits=frac_bits)
+    # uniform layout: matrices at WEIGHT_FRAC_BITS, everything added to or
+    # scaling activations (biases, bias_kv rows, LN gamma/beta) at DATA_FRAC_BITS
+    frac_bits = DATA_FRAC_BITS
+    def to_q(arr): return to_fixed16(arr, frac_bits=DATA_FRAC_BITS)
+    def to_w(arr): return to_fixed16(arr, frac_bits=WEIGHT_FRAC_BITS)
 
     print(f"\nProcessing {attn_type} attention, layer {layer}")
     print(f"  Prefix: {prefix}  frac_bits={frac_bits}")
@@ -188,11 +194,11 @@ def process_attn_block(export_dir, out_dir, attn_type, layer):
         w_prefix = "" if attn_type == "obj" else f"{attn_type}_"
 
         weights = {
-            f"{w_prefix}Wq": to_q(Wq_h),
+            f"{w_prefix}Wq": to_w(Wq_h),
             f"{w_prefix}bq": to_q(bq_h),
-            f"{w_prefix}Wk": to_q(Wk_h),
+            f"{w_prefix}Wk": to_w(Wk_h),
             f"{w_prefix}bk": to_q(bk_h),
-            f"{w_prefix}Wv": to_q(Wv_h),
+            f"{w_prefix}Wv": to_w(Wv_h),
             f"{w_prefix}bv": to_q(bv_h),
             f"{w_prefix}bias_k_row": to_q(bk_row_h),
             f"{w_prefix}bias_v_row": to_q(bv_row_h),
@@ -211,7 +217,7 @@ def process_attn_block(export_dir, out_dir, attn_type, layer):
 
     # FFN layers: Sequential with stride-of-3 (Linear, LayerNorm, ReLU)
     post_weights = {
-        "Wout": to_q(out_proj_w.T),  # transpose for AIE (X @ W, not X @ W^T)
+        "Wout": to_w(out_proj_w.T),  # transpose for AIE (X @ W, not X @ W^T)
         "bout": to_q(out_proj_b),
         "post_attn_ln_gamma": to_q(post_attn_ln_w),
         "post_attn_ln_beta":  to_q(post_attn_ln_b),
@@ -225,7 +231,7 @@ def process_attn_block(export_dir, out_dir, attn_type, layer):
         ffn_w = load_npy(export_dir, weights_prefix, f"ffwd_{seq_idx}_weight")  # [out, in]
         ffn_b = load_npy(export_dir, weights_prefix, f"ffwd_{seq_idx}_bias")
 
-        post_weights[f"ffn_W{ffn_idx}"] = to_q(ffn_w.T)  # transpose
+        post_weights[f"ffn_W{ffn_idx}"] = to_w(ffn_w.T)  # transpose
         post_weights[f"ffn_b{ffn_idx}"] = to_q(ffn_b)
 
         ln_w_path = os.path.join(export_dir, f"{weights_prefix}ffwd_{seq_idx+1}_weight.npy")
