@@ -11,7 +11,7 @@ mkdir -p golden_state data
 # zero-init every PLIO input so uncomputed blocks run on junk without hanging
 python3 - <<'PY'
 import os
-sizes = {"obj_x_in_L0":192, "obj_x_in_L1":192,
+sizes = {"obj_x_in_L0":208, "obj_x_in_L1":208,
          "cand_c_in_L0":48, "cand_c_in_L1":48,
          "cross_x_in_L0":192, "cross_x_in_L1":192,
          "cross_c_in_L0":48, "cross_c_in_L1":48}
@@ -21,7 +21,7 @@ for n,c in sizes.items():
         for i in range(0,c,4): f.write("0 0 0 0\n")
 PY
 
-SIM="x86simulator --pkg-dir=Work_x86"
+SIM="x86simulator --pkg-dir=Work_x86_1ev"
 G=./hybrid_golden_steps
 $G p1 "$IN" "$EV"
 $SIM > /dev/null 2>&1   # obj0

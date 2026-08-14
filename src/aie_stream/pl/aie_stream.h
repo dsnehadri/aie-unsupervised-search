@@ -128,6 +128,7 @@ inline void aie_stream(
     hls::stream<data_t> s_jets_embed, s_jets_pairwise, s_jets_cand;
     hls::stream<bool> s_mask_embed, s_mask_cb0, s_mask_cb1, s_mask_cand;
     hls::stream<bool> s_mask_remask0, s_mask_remask1;
+    hls::stream<bool> s_mask_obj0, s_mask_obj1;
     // Depth = MARGIN above buffered-element-count for every stream forked up front but
     // consumed DOWNSTREAM of an AIE round-trip. Default/exact-fit depths deadlock on HW: the
     // fork blocks once the FIFO fills (consumer is downstream-blocked) and starves obj_attn_send,
@@ -143,12 +144,14 @@ inline void aie_stream(
     #pragma HLS STREAM variable=s_mask_cand depth = 64
     #pragma HLS STREAM variable=s_mask_remask0 depth = 64
     #pragma HLS STREAM variable=s_mask_remask1 depth = 64
+    #pragma HLS STREAM variable=s_mask_obj0 depth = 64
+    #pragma HLS STREAM variable=s_mask_obj1 depth = 128
 
     // adapt read_and_fork to produce additional mask consumers
     read_and_fork_aie(in_stream,
     s_jets_embed, s_jets_pairwise, s_jets_cand,
     s_mask_embed, s_mask_cb0, s_mask_cb1, s_mask_cand,
-    s_mask_remask0, s_mask_remask1);
+    s_mask_remask0, s_mask_remask1, s_mask_obj0, s_mask_obj1);
 
     // embed + pairwise 
     hls::stream<data_t> s_embed;
@@ -164,7 +167,7 @@ inline void aie_stream(
     // obj_attn L0 bridge
     hls::stream<data_t> s_x0_after_obj;
     #pragma HLS STREAM variable=s_x0_after_obj depth = 192
-    obj_attn_send(s_embed, s_wij0,
+    obj_attn_send(s_embed, s_wij0, s_mask_obj0,
         obj0_x_out, obj0_w0_out, obj0_w1_out, obj0_w2_out, obj0_w3_out);
     obj_attn_recv(obj0_x_in, s_x0_after_obj);
 
@@ -199,7 +202,7 @@ inline void aie_stream(
 
     hls::stream<data_t> s_x1_after_obj;
     #pragma HLS STREAM variable=s_x1_after_obj depth = 192
-    obj_attn_send_nowij(s_x0_after_cross, obj1_x_out);
+    obj_attn_send_nowij(s_x0_after_cross, s_mask_obj1, obj1_x_out);
     obj_attn_recv(obj1_x_in, s_x1_after_obj);
 
     hls::stream<data_t> s_x1_remasked;

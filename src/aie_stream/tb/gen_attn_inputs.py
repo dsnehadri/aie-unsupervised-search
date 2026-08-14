@@ -149,7 +149,12 @@ def main():
     # ---- obj0 inputs --------------------------------------------------------
     print("\n[obj0]")
     x_obj_per = event_slice("stage1_post_embedding.npy", (N_MAX, E_DIM))     # (nev,12,16)
-    x_obj_q   = [to_int16(x_obj_per[i]) for i in range(nev)]
+    # obj x window carries N_MAX+1 rows: last row = padding mask (1=padded)
+    def with_mask_row(xq, i):
+        mrow = np.zeros(E_DIM, dtype=np.int16)
+        mrow[:N_MAX] = pad_masks[i].astype(np.int16)
+        return np.concatenate([xq.reshape(-1), mrow])
+    x_obj_q   = [with_mask_row(to_int16(x_obj_per[i]), i) for i in range(nev)]
     write_plio_text(os.path.join(args.data_dir, "obj_x_in_L0.txt"),
                     concat_events(x_obj_q))
 
@@ -158,9 +163,8 @@ def main():
     for i in range(nev):
         wij_full = np.zeros((N_MAX, N_KV), dtype=np.float32)
         wij_full[:, :N_MAX] = wij_raw_per[i]
-        for j in range(N_MAX):
-            if pad_masks[i, j]:
-                wij_full[:, j] = NEG_BIAS
+        # no NEG_BIAS here any more: padded-key masking is done by the kernel
+        # from the mask row (mirrors the hardware bridge exactly)
         wij_q_per.append(to_int16_score(wij_full))
     for h in range(N_HEADS):
         write_plio_text(os.path.join(args.data_dir, f"obj_wij_h{h}_L0.txt"),

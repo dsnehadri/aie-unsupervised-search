@@ -73,6 +73,13 @@ static void x_to_file(const data_t x[N_MAX][E_DIM], const char* path) {
     for (int i = 0; i < N_MAX; i++) for (int j = 0; j < E_DIM; j++) b[i * E_DIM + j] = d2i(x[i][j]);
     write_plio(path, b, N_MAX * E_DIM);
 }
+// obj x windows carry an extra mask row (1 = padded), mirroring the bridge
+static void x_to_file_masked(const data_t x[N_MAX][E_DIM], const bool mask[N_MAX], const char* path) {
+    int16_t b[(N_MAX + 1) * E_DIM];
+    for (int i = 0; i < N_MAX; i++) for (int j = 0; j < E_DIM; j++) b[i * E_DIM + j] = d2i(x[i][j]);
+    for (int j = 0; j < E_DIM; j++) b[N_MAX * E_DIM + j] = (j < N_MAX && mask[j]) ? 1 : 0;
+    write_plio(path, b, (N_MAX + 1) * E_DIM);
+}
 static void file_to_x(const char* path, data_t x[N_MAX][E_DIM]) {
     int16_t b[N_MAX * E_DIM];
     if (read_plio(path, b, N_MAX * E_DIM) != N_MAX * E_DIM) { fprintf(stderr, "short read %s\n", path); exit(2); }
@@ -111,7 +118,7 @@ int main(int argc, char** argv) {
 
         data_t x[N_MAX][E_DIM];
         embed_ffn(raw, mask, embed_w, x);
-        x_to_file(x, "data/obj_x_in_L0.txt");
+        x_to_file_masked(x, mask, "data/obj_x_in_L0.txt");
 
         // pairwise -> wij; per-head slice mirrors obj_attn_send (col N_MAX = 0)
         data_t w_ang[N_MAX][3];
@@ -156,9 +163,10 @@ int main(int argc, char** argv) {
         c_to_file(c, L0 ? "data/cross_c_in_L0.txt" : "data/cross_c_in_L1.txt");
         printf("%s done\n", ph.c_str());
     } else if (ph == "p4") {
-        data_t x[N_MAX][E_DIM];
+        data_t x[N_MAX][E_DIM]; bool mask[N_MAX];
         file_to_x("x86simulator_output/data/cross_x_out_L0.txt", x);
-        x_to_file(x, "data/obj_x_in_L1.txt");
+        load_bin("mask.bin", mask, sizeof(mask));
+        x_to_file_masked(x, mask, "data/obj_x_in_L1.txt");
         printf("p4 done\n");
     } else if (ph == "p7") {
         data_t x[N_MAX][E_DIM]; data_t c[T_DIM][E_DIM];

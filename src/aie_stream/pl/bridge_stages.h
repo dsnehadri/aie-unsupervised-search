@@ -97,13 +97,15 @@ inline void read_and_fork_aie   (
     hls::stream<data_t> &out_jets_pairwise,
     hls::stream<data_t> &out_jets_cand,
 
-    // mask -> 6 consumers 
+    // mask -> 8 consumers (obj sends carry the mask row to the AIE)
     hls::stream<bool> &out_mask_embed,
     hls::stream<bool> &out_mask_cb0,
     hls::stream<bool> &out_mask_cb1,
     hls::stream<bool> &out_mask_cand,
     hls::stream<bool> &out_mask_remask0,
-    hls::stream<bool> &out_mask_remask1
+    hls::stream<bool> &out_mask_remask1,
+    hls::stream<bool> &out_mask_obj0,
+    hls::stream<bool> &out_mask_obj1
 ) {
     // read raw_jets from axi-stream
     data_t raw_jets[N_MAX][RAW_DIM];
@@ -149,22 +151,30 @@ inline void read_and_fork_aie   (
         out_mask_cand.write(val);
         out_mask_remask0.write(val);
         out_mask_remask1.write(val);
+        out_mask_obj0.write(val);
+        out_mask_obj1.write(val);
     }
 }
 
 // (emit_zero_wij is gone: layer-1 obj attention no longer has wij PLIOs,
 // so nothing streams 624 zeros per event through the NoC any more)
 
-// layer-1 obj send: x only, no wij
+// layer-1 obj send: x only, no wij; mask row appended (see obj_attn_send)
 inline void obj_attn_send_nowij(
     hls::stream<data_t>& x_in_pl,
+    hls::stream<bool>& mask_in_pl,
     hls::stream<pkt64_t>& x_out_aie
 ) {
-    const int X_SZ = N_MAX * E_DIM;
+    const int X_SZ = (N_MAX + 1) * E_DIM;
     data_t x_buf[X_SZ];
-    for (int i = 0; i < X_SZ; i++) {
+    for (int i = 0; i < N_MAX * E_DIM; i++) {
         #pragma HLS PIPELINE II=1
         x_buf[i] = x_in_pl.read();
+    }
+    MASKROW: for (int j = 0; j < E_DIM; j++) {
+        #pragma HLS PIPELINE II=1
+        bool mv = (j < N_MAX) ? mask_in_pl.read() : false;
+        x_buf[N_MAX * E_DIM + j] = mv ? (data_t)1 : (data_t)0;
     }
     pack_buf_to_axi<X_SZ>(x_buf, x_out_aie);
 }
@@ -189,18 +199,26 @@ inline void obj_attn_send_nowij(
 inline void obj_attn_send(
     hls::stream<data_t>& x_in_pl,
     hls::stream<score_t>& wij_in_pl,
+    hls::stream<bool>& mask_in_pl,
     hls::stream<pkt64_t>& x_out_aie,
     hls::stream<pkt64_t>& wij_h0_out_aie,
     hls::stream<pkt64_t>& wij_h1_out_aie,
     hls::stream<pkt64_t>& wij_h2_out_aie,
     hls::stream<pkt64_t>& wij_h3_out_aie
 ) {
-    const int X_SZ = N_MAX * E_DIM;
+    // x window to the AIE carries N_MAX+1 rows: the last row is the padding
+    // mask (1 = padded), so the kernels hard-mask padded keys (-inf scores).
+    const int X_SZ = (N_MAX + 1) * E_DIM;
     const int WIJ_SZ = N_MAX * N_KV;
     data_t x_buf[X_SZ];
-    for (int i = 0; i < X_SZ; i++) {
+    for (int i = 0; i < N_MAX * E_DIM; i++) {
         #pragma HLS PIPELINE II=1
         x_buf[i] = x_in_pl.read();
+    }
+    MASKROW: for (int j = 0; j < E_DIM; j++) {
+        #pragma HLS PIPELINE II=1
+        bool mv = (j < N_MAX) ? mask_in_pl.read() : false;
+        x_buf[N_MAX * E_DIM + j] = mv ? (data_t)1 : (data_t)0;
     }
     // pairwise_stage streams the 144 unique wij values (no head
     // replication on the PL stream any more); expand per head here.

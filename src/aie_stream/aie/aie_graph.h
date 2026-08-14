@@ -97,8 +97,11 @@ public:
         source(k_post_c) = ("kernels/obj_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_c) = 0.9;
 
-        // window sizes
-        constexpr int x_sz       = N_MAX * E_DIM * sizeof(int16);
+        // window sizes. obj x INPUT carries N_MAX+1 rows: row N_MAX is the
+        // padding mask (nonzero = padded), giving both layers true key
+        // masking. The output stays N_MAX rows.
+        constexpr int x_sz       = (N_MAX + 1) * E_DIM * sizeof(int16);
+        constexpr int x_out_sz   = N_MAX * E_DIM * sizeof(int16);
         constexpr int wij_sz     = N_MAX * N_KV * sizeof(int16);
         constexpr int scores_sz  = N_MAX * N_KV_PAD * sizeof(int16);
         constexpr int v_sz       = N_KV_PAD * D_HEAD * sizeof(int16);
@@ -139,7 +142,7 @@ public:
         // post_b1 -> post_b2 -> post_c -> PLIO
         connect<window<proj_sz>>(k_post_b1.out[0], k_post_b2.in[0]);
         connect<window<proj_sz>>(k_post_b2.out[0], k_post_c.in[0]);
-        connect<window<x_sz>>(k_post_c.out[0], plio_x_out.in[0]);
+        connect<window<x_out_sz>>(k_post_c.out[0], plio_x_out.in[0]);
     }
 };
 

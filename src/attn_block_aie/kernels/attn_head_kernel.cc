@@ -220,11 +220,16 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
                        output_window_int16* __restrict v_out)
 {
     // read X directly into packed layout (same scalar read cost; the gemms
-    // then run on pure vector loads)
+    // then run on pure vector loads). The window carries N_MAX+1 rows: the
+    // extra row is the padding mask (nonzero = padded jet), so BOTH layers
+    // get true key masking without extra PLIOs (fixes the padded-key leak:
+    // previously padded keys kept bias-only scores instead of -inf).
     alignas(16) int16 Xp[N_MAX * E_DIM];
     for (int r = 0; r < N_MAX; r++)
         for (int c = 0; c < E_DIM; c++)
             Xp[pk_idx<E_DIM>(r, c)] = window_readincr(x_in);
+    int16 kmask[E_DIM];
+    for (int c = 0; c < E_DIM; c++) kmask[c] = window_readincr(x_in);
 
     // V first - persists into the output stream
     alignas(16) int16 V[N_KV_PAD * D_HEAD] = {0};
@@ -254,6 +259,12 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
     }
 
     scale_scores(scores, N_MAX, N_KV_PAD, 0.5f);
+
+    // hard-mask padded keys: -32000 pushes softmax past D_MAX -> exactly 0
+    for (int j = 0; j < N_MAX; j++)
+        if (kmask[j] != 0)
+            for (int i = 0; i < N_MAX; i++)
+                scores[i * N_KV_PAD + j] = -32000;
 
     for (int i = 0; i < N_MAX * N_KV_PAD; i++) window_writeincr(scores_out, scores[i]);
     for (int i = 0; i < N_KV_PAD * D_HEAD; i++) window_writeincr(v_out, V[i]);
