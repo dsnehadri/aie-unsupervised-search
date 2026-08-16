@@ -30,3 +30,29 @@ src/aie_stream/tb/ISS_RPC_SERVER_PORT
 *.json
 *.dat
 *.txt
+# --- 2026-08-15 additions: simulator/build work dirs and generated state ---
+_x_rebuild/
+_x*/
+Work*/
+x86simulator_output*/
+aiesimulator_output*/
+temp/
+.Xil/
+sol.db
+ISS_RPC_SERVER_PORT
+pl_sample_counts
+golden_state/
+src/aie_stream/tb/data/
+src/aie_stream/tb/predicted_*.txt
+# native test binaries (sources are tracked)
+src/aie_stream/tb/hybrid_golden_steps
+src/aie_stream/tb/hybrid_golden_dbg
+src/aie_stream/tb/attn_block_aie
+src/pl_stream/golden_native
+src/pl_stream/golden_hi
+src/pl_stream/plhost
+src/pl_stream/plhost_timed
+# generated weight-header backups
+src/attn_block_aie/kernels/weights_orig_backup/
+# build reports (regenerated every build)
+src/aie_stream/tb/Map_Report.csv
