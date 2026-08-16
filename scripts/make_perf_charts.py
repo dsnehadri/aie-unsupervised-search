@@ -37,8 +37,8 @@ mpl.rcParams.update({
     "patch.linewidth": 0.0,
 })
 
-PL_COLOR    = "#1f77b4"   # blue
-AIE_COLOR   = "#d62728"   # red
+PL_COLOR    = "#d62728"   # blue
+AIE_COLOR   = "#1f77b4"   # red
 NEUTRAL     = "#7f7f7f"
 RATIO_GOOD  = "#1a8a2e"
 RATIO_BAD   = "#a31515"
