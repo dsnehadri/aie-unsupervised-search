@@ -36,18 +36,31 @@ T_DIM = 3
 DATA_FRAC_BITS = 9
 WEIGHT_FRAC_BITS = 12
 
+FLOAT_MODE = False  # set by --float: emit float32 arrays (unquantized reference)
+
 def to_fixed16(arr, frac_bits=11):
-    """Convert float array to int16 fixed-point."""
+    """Convert float array to int16 fixed-point (or passthrough in float mode)."""
+    if FLOAT_MODE:
+        return np.asarray(arr, dtype=np.float32)
     scale = 2 ** frac_bits
     return np.clip(np.round(arr * scale), -32768, 32767).astype(np.int16)
 
 def format_array(name, arr, per_line=8):
-    """Format int16 array as C initializer."""
+    """Format int16 (or float32) array as C initializer."""
     flat = arr.flatten()
-    lines = [f"alignas(16) static const int16 {name}[{len(flat)}] = {{"]
+    ctype = "float" if FLOAT_MODE else "int16"
+    lines = [f"alignas(16) static const {ctype} {name}[{len(flat)}] = {{"]
     for i in range(0, len(flat), per_line):
         chunk = flat[i:i+per_line]
-        vals = ", ".join(f"{int(v):6d}" for v in chunk)
+        # %.9g drops the decimal point for integral values ("1" -> "1f" is
+        # not valid C); force one so the f suffix always parses
+        def cf(v):
+            s = f"{float(v):.9g}"
+            if not any(c in s for c in ".einf"):
+                s += ".0"
+            return s + "f"
+        vals = (", ".join(cf(v) for v in chunk) if FLOAT_MODE
+                else ", ".join(f"{int(v):6d}" for v in chunk))
         comma = "," if i + per_line < len(flat) else ""
         lines.append(f"    {vals}{comma}")
     lines.append("};")
@@ -256,9 +269,14 @@ def main():
                         help="Path to phase3_export/ directory with .npy files")
     parser.add_argument("--out_dir", required=True,
                         help="Output directory for AIE weight headers")
+    parser.add_argument("--float", action="store_true",
+                        help="emit float32 arrays (unquantized x86sim reference)")
     parser.add_argument("--layer", type=int, required=True,
                         help="Attention layer index (0 or 1)")
     args = parser.parse_args()
+    if args.float:
+        global FLOAT_MODE
+        FLOAT_MODE = True
 
     os.makedirs(args.out_dir, exist_ok=True)
 
