@@ -18,15 +18,19 @@ namespace hls {
 
 int main(int argc, char** argv) {
     int nev = argc > 1 ? atoi(argv[1]) : 20;
+    const char* fin_path = argc > 2 ? argv[2] : "evalfloat_bkg.bin";
+    const char* tag = argc > 3 ? argv[3] : "cpp";
     static EmbedWeights embed_w; static MLPWeights mlp_w;
     static AttnWeights obj0_w, cand0_w, cross0_w, obj1_w, cand1_w, cross1_w;
     static AEEncoderWeights ae_enc_w; static AEDecoderWeights ae_dec_w;
     init_all_weights(embed_w, mlp_w, obj0_w, cand0_w, cross0_w,
                      obj1_w, cand1_w, cross1_w, ae_enc_w, ae_dec_w);
 
-    std::ifstream fin("evalfloat_bkg.bin", std::ios::binary);
-    FILE* f1 = fopen("cpp_stage1.bin", "wb");   // embed out
-    FILE* f3 = fopen("cpp_stage3.bin", "wb");   // obj block out
+    std::ifstream fin(fin_path, std::ios::binary);
+    char n1[64], n3[64];
+    snprintf(n1, 64, "%s_stage1.bin", tag); snprintf(n3, 64, "%s_stage3.bin", tag);
+    FILE* f1 = fopen(n1, "wb");   // embed out
+    FILE* f3 = fopen(n3, "wb");   // obj block out
 
     for (int ev = 0; ev < nev; ev++) {
         uint32_t words[72];
@@ -39,7 +43,9 @@ int main(int argc, char** argv) {
 
         data_t x[N_MAX][E_DIM];
         embed_ffn(raw, mask, embed_w, x);
-        fwrite(x, sizeof(float), N_MAX * E_DIM, f1);
+        float dump[N_MAX * E_DIM];
+        for (int i = 0; i < N_MAX; i++) for (int j = 0; j < E_DIM; j++) dump[i*E_DIM+j] = (float)x[i][j];
+        fwrite(dump, sizeof(float), N_MAX * E_DIM, f1);
 
         data_t w_ang[N_MAX][3];
         for (int j = 0; j < N_MAX; j++) { w_ang[j][0] = raw[j][1]; w_ang[j][1] = raw[j][2]; w_ang[j][2] = raw[j][3]; }
@@ -55,7 +61,8 @@ int main(int argc, char** argv) {
             obj0_w.ffn_w, obj0_w.ffn_b, obj0_w.ffn_ln_g, obj0_w.ffn_ln_b,
             obj0_w.post_ffn_g, obj0_w.post_ffn_b);
         remask(x, mask);
-        fwrite(x, sizeof(float), N_MAX * E_DIM, f3);
+        for (int i = 0; i < N_MAX; i++) for (int j = 0; j < E_DIM; j++) dump[i*E_DIM+j] = (float)x[i][j];
+        fwrite(dump, sizeof(float), N_MAX * E_DIM, f3);
     }
     fclose(f1); fclose(f3);
     printf("dumped %d events\n", nev);
