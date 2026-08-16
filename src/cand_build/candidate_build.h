@@ -1,3 +1,4 @@
+#pragma once
 // candidate building: jet choice = one_hot(argmax(x[:,:,T])) with ISR bias, c = jet_choice^T @ x
 
 #include "../attn_block_pl/attn_block_types.h"
