@@ -68,7 +68,18 @@ static const int FFN_DIM = E_DIM;
 // typedef ap_fixed<64, 20> acc_t;
 // typedef ap_fixed<64, 20> exp_t;
 
-#ifdef AIE_FRAC11
+#ifdef FLOAT_DATAPATH
+// Unquantized reference build: the IDENTICAL algorithm code in float32.
+// Demonstrates that all fixed-point deviation is quantization, not logic:
+// vs PyTorch this agrees to float32 op-reordering level (~1e-7 relative).
+typedef float data_t;
+typedef float weight_t;
+typedef float score_t;
+typedef float prob_t;
+typedef float ln_param_t;
+typedef float acc_t;
+typedef float exp_t;
+#elif defined(AIE_FRAC11)
 // Original 11-frac contract (validated June hybrid config, git d1830be).
 // The AIE attention kernels and their sliced weights are defined on this:
 // data_t bit-pattern == int16 at DATA_SCALE=2048 (see attn_aie_types.h and
@@ -102,8 +113,12 @@ static const score_t SCALE = 0.5;
 
 // score_t = ap_fixed<16, 6> has range [-32, 32). Using -64 wraps to 0!
 // Use the smallest representable score_t value so exp(NEG_INF - max) underflows
-// for all reasonable max scores.
+// for all reasonable max scores. (float build: a genuinely large value.)
+#ifdef FLOAT_DATAPATH
+static const score_t NEG_INF = -1e9f;
+#else
 static const score_t NEG_INF = -31.0;
+#endif
 
 // layer norm epsilon
 

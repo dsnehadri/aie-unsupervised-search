@@ -101,6 +101,9 @@ void layernorm(
 // relative to the datapath, it is (exp_t)expf(x) precomputed. Replaces a full
 // float expf core per softmax element (the previous LUT was dead code: built,
 // runtime-initialized, and never read).
+#ifdef FLOAT_DATAPATH
+static exp_t exp_fixed(score_t x) { return expf(x); }
+#else
 #include "exp_lut_rom.h"
 
 static exp_t exp_fixed(score_t x) {
@@ -111,6 +114,7 @@ static exp_t exp_fixed(score_t x) {
     int idx = (int)(d * (score_t)(EXP_LUT_SIZE / 8));       // *32: exact shift
     return exp_lut_rom[idx];
 }
+#endif
 
 // converts into probabilities with partition fn over a row of length LEN
 

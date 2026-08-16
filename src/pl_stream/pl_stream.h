@@ -11,6 +11,7 @@
 // while AE processes event N, attention processes N+1, embedding
 // processes N+2. throughput = 1/slowest stage, not sum of all stages
 
+#include <cstring>
 #include "hls_stream.h"
 #include "ap_axi_sdata.h"
 
@@ -104,9 +105,17 @@ inline void read_and_fork(
             #pragma HLS PIPELINE II=1
             //reinterpret 32-bit unsigned as data_t
             ap_uint<32> bits = in_s.read();
+#ifdef FLOAT_DATAPATH
+            // float build: the word carries raw float32 bits
+            uint32_t w32 = (uint32_t)bits;
+            float fv;
+            memcpy(&fv, &w32, 4);
+            raw_jets[i][j] = fv;
+#else
             data_t val;
             val.range(15, 0) =  bits.range(15, 0);
             raw_jets[i][j] = val;
+#endif
         }
     }
 
