@@ -56,3 +56,5 @@ src/pl_stream/plhost_timed
 src/attn_block_aie/kernels/weights_orig_backup/
 # build reports (regenerated every build)
 src/aie_stream/tb/Map_Report.csv
+weights_f32/
+src/aie_stream/tb/data_float/

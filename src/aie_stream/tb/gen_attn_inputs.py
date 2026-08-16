@@ -62,6 +62,28 @@ def to_int16(x_float):
     return q.astype(np.int16)
 
 
+FLOATS_PER_TRANSFER = 2   # plio_64_bits / 32 = 2  (FLOAT_AIE build)
+
+
+def write_plio_text_float(path, float_arr):
+    """Write a flat float32 array as a PLIO text file (2 floats per 64-bit line).
+
+    For the FLOAT_AIE (unquantized reference) build: the graph's windows are
+    float, so plio_64_bits carries 2 float32 values per transfer and the
+    simulator parses tokens as decimal floats.
+    """
+    flat = np.asarray(float_arr, dtype=np.float32).reshape(-1)
+    pad = (-len(flat)) % FLOATS_PER_TRANSFER
+    if pad:
+        flat = np.concatenate([flat, np.zeros(pad, dtype=np.float32)])
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        for i in range(0, len(flat), FLOATS_PER_TRANSFER):
+            row = flat[i:i + FLOATS_PER_TRANSFER]
+            f.write(" ".join("%.9g" % float(v) for v in row) + "\n")
+    print(f"  wrote {path}  ({len(flat)} floats, {len(flat)//FLOATS_PER_TRANSFER} transfers)")
+
+
 def write_plio_text(path, int16_arr):
     """Write a flat int16 array as a PLIO text file (4 signed-decimal int16s per line).
 
@@ -98,6 +120,9 @@ def main():
                     help="Number of events to concatenate into each PLIO file (default: 1)")
     ap.add_argument("--data-dir", default="./data",
                     help="Where to write PLIO text files (default: ./data)")
+    ap.add_argument("--float", dest="float_mode", action="store_true",
+                    help="FLOAT_AIE build: write raw float32 PLIO files (no "
+                         "quantization) for ALL 6 subgraphs (L0 + L1)")
     args = ap.parse_args()
 
     tv = os.path.join(args.phase3, "test_vectors")
@@ -136,6 +161,68 @@ def main():
     def concat_events(per_event_int16):
         # per_event_int16: list of length nev, each a flat int16 array
         return np.concatenate([a.reshape(-1) for a in per_event_int16])
+
+    # ---- FLOAT_AIE mode: raw float32 inputs for all 6 subgraphs ------------
+    if args.float_mode:
+        print("\nFLOAT mode: raw float32 PLIO files, L0 + L1")
+
+        def with_mask_row_f(x, i):
+            mrow = np.zeros(E_DIM, dtype=np.float32)
+            mrow[:N_MAX] = pad_masks[i].astype(np.float32)
+            return np.concatenate([np.asarray(x, dtype=np.float32).reshape(-1), mrow])
+
+        def cat(per_event):
+            return np.concatenate([np.asarray(a, dtype=np.float32).reshape(-1)
+                                   for a in per_event])
+
+        # obj L0: post-embedding x (+ mask row); obj L1: post-cross-L0 x
+        x_obj0 = event_slice("stage1_post_embedding.npy", (N_MAX, E_DIM))
+        x_obj1 = event_slice("stage3_layer0_post_cross_attn.npy", (N_MAX, E_DIM))
+        write_plio_text_float(os.path.join(args.data_dir, "obj_x_in_L0.txt"),
+                              cat([with_mask_row_f(x_obj0[i], i) for i in range(nev)]))
+        write_plio_text_float(os.path.join(args.data_dir, "obj_x_in_L1.txt"),
+                              cat([with_mask_row_f(x_obj1[i], i) for i in range(nev)]))
+
+        # wij (L0 only): raw float, padded to N_KV columns (col 12 = bias key, 0)
+        wij_raw = event_slice("stage2_wij_post_mlp.npy", (N_MAX, N_MAX))
+        wij_f = []
+        for i in range(nev):
+            w = np.zeros((N_MAX, N_KV), dtype=np.float32)
+            w[:, :N_MAX] = wij_raw[i]
+            wij_f.append(w)
+        for h in range(N_HEADS):
+            write_plio_text_float(os.path.join(args.data_dir, f"obj_wij_h{h}_L0.txt"),
+                                  cat(wij_f))
+
+        # cand inputs: candidates are REBUILT from x each layer (cand_build),
+        # so layer 1's input is stage3_layer1_candidates_embedded -- not the
+        # L0 cand output.
+        c_cand0 = event_slice("stage3_layer0_candidates_embedded.npy", (T_DIM, E_DIM))
+        c_cand1 = event_slice("stage3_layer1_candidates_embedded.npy", (T_DIM, E_DIM))
+        write_plio_text_float(os.path.join(args.data_dir, "cand_c_in_L0.txt"), cat(c_cand0))
+        write_plio_text_float(os.path.join(args.data_dir, "cand_c_in_L1.txt"), cat(c_cand1))
+
+        # cross L0: (post-obj-selfattn L0 x, post-cand-selfattn L0 c)
+        # cross L1: (post-obj-selfattn L1 x, post-cand-selfattn L1 c)
+        # GOTCHA: get_jet_choice() mutates x IN PLACE (x[:,:,2] -= 1, the ISR
+        # bias) between the post_obj dump and the cross call -- candidate_build
+        # does the same on hardware. The dump predates the mutation; apply it.
+        x_cr0 = event_slice("stage3_layer0_post_obj_selfattn.npy", (N_MAX, E_DIM)).copy()
+        x_cr0[:, :, 2] -= 1.0
+        c_cr0 = event_slice("stage3_layer0_post_cand_selfattn.npy", (T_DIM, E_DIM))
+        x_cr1 = event_slice("stage3_layer1_post_obj_selfattn.npy", (N_MAX, E_DIM)).copy()
+        x_cr1[:, :, 2] -= 1.0
+        c_cr1 = event_slice("stage3_layer1_post_cand_selfattn.npy", (T_DIM, E_DIM))
+        write_plio_text_float(os.path.join(args.data_dir, "cross_x_in_L0.txt"), cat(x_cr0))
+        write_plio_text_float(os.path.join(args.data_dir, "cross_c_in_L0.txt"), cat(c_cr0))
+        write_plio_text_float(os.path.join(args.data_dir, "cross_x_in_L1.txt"), cat(x_cr1))
+        write_plio_text_float(os.path.join(args.data_dir, "cross_c_in_L1.txt"), cat(c_cr1))
+
+        np.save(os.path.join(args.data_dir, "padding_mask_event.npy"), pad_masks)
+        with open(os.path.join(args.data_dir, "event_range.txt"), "w") as f:
+            f.write(f"{ev0} {nev}\n")
+        print(f"\ndone. wrote FLOAT PLIO files for {nev} events (all 6 subgraphs).")
+        return
 
     NEG_BIAS = -15.0  # for masked-out keys in wij
     CAND_SCALE = 1 << 9   # cand data scale (== DATA_SCALE in the retrained layout)
@@ -180,12 +267,34 @@ def main():
 
     # ---- cross0 inputs ------------------------------------------------------
     print("\n[cross0]")
-    x_cross_per = event_slice("stage3_layer0_post_obj_selfattn.npy", (N_MAX, E_DIM))
+    # get_jet_choice() mutates x in place (x[:,:,2] -= 1, ISR bias) after the
+    # post_obj dump; candidate_build does the same on hardware. Apply it.
+    x_cross_per = event_slice("stage3_layer0_post_obj_selfattn.npy", (N_MAX, E_DIM)).copy()
+    x_cross_per[:, :, 2] -= 1.0
     c_cross_per = event_slice("stage3_layer0_post_cand_selfattn.npy", (T_DIM, E_DIM))
     write_plio_text(os.path.join(args.data_dir, "cross_x_in_L0.txt"),
                     concat_events([to_int16(x_cross_per[i]) for i in range(nev)]))
     write_plio_text(os.path.join(args.data_dir, "cross_c_in_L0.txt"),
                     concat_events([to_int16(c_cross_per[i]) for i in range(nev)]))
+
+    # ---- L1 inputs (per-block exact PyTorch inputs, like the float mode) ----
+    print("\n[L1]")
+    x_obj1 = event_slice("stage3_layer0_post_cross_attn.npy", (N_MAX, E_DIM))
+    write_plio_text(os.path.join(args.data_dir, "obj_x_in_L1.txt"),
+                    concat_events([with_mask_row(to_int16(x_obj1[i]), i)
+                                   for i in range(nev)]))
+    c_cand1 = event_slice("stage3_layer1_candidates_embedded.npy", (T_DIM, E_DIM))
+    write_plio_text(os.path.join(args.data_dir, "cand_c_in_L1.txt"),
+                    concat_events([np.clip(np.round(c_cand1[i] * CAND_SCALE),
+                                           -32768, 32767).astype(np.int16)
+                                   for i in range(nev)]))
+    x_cr1 = event_slice("stage3_layer1_post_obj_selfattn.npy", (N_MAX, E_DIM)).copy()
+    x_cr1[:, :, 2] -= 1.0   # same in-place jet-choice mutation, layer 1
+    c_cr1 = event_slice("stage3_layer1_post_cand_selfattn.npy", (T_DIM, E_DIM))
+    write_plio_text(os.path.join(args.data_dir, "cross_x_in_L1.txt"),
+                    concat_events([to_int16(x_cr1[i]) for i in range(nev)]))
+    write_plio_text(os.path.join(args.data_dir, "cross_c_in_L1.txt"),
+                    concat_events([to_int16(c_cr1[i]) for i in range(nev)]))
 
     # Save padding masks for all events so the output checker can skip masked rows
     np.save(os.path.join(args.data_dir, "padding_mask_event.npy"), pad_masks)

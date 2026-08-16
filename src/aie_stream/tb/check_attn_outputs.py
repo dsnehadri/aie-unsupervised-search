@@ -78,6 +78,22 @@ def parse_plio_text(path, expected_count):
     return np.array(vals[:expected_count], dtype=np.int16)
 
 
+def parse_plio_text_float(path):
+    """Parse a FLOAT_AIE PLIO output file: tokens are decimal floats (2 per
+    64-bit line). Timestamp lines are skipped."""
+    if not os.path.isfile(path):
+        sys.exit(f"output file not found: {path}")
+    vals = []
+    with open(path, "r") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line == "TLAST" or line.startswith("#") or line.startswith("T "):
+                continue
+            for s in line.split():
+                vals.append(float(s))
+    return np.array(vals, dtype=np.float32)
+
+
 def parse_plio_text_with_timestamps(path):
     """Parse PLIO output preserving per-line ('T <time> ns') timestamps.
 
@@ -188,6 +204,13 @@ def main():
                     help=f"Pass tolerance on max_err (default: {DEFAULT_TOL})")
     ap.add_argument("--timing-out", default=None,
                     help="If set, dump per-event first-output timestamps as JSON to this path")
+    ap.add_argument("--float", dest="float_mode", action="store_true",
+                    help="FLOAT_AIE build: parse float PLIO outputs, no "
+                         "dequantization, check ALL 6 blocks (L0 + L1)")
+    ap.add_argument("--per-event-out", default=None,
+                    help="If set, dump per-event per-block max abs errors as JSON")
+    ap.add_argument("--all-blocks", action="store_true",
+                    help="Check all 6 blocks (L0 + L1) in int16 mode too")
     args = ap.parse_args()
 
     tv = os.path.join(args.phase3, "test_vectors")
@@ -213,6 +236,54 @@ def main():
                 nev = int(n_str)
         else:
             nev = pad_masks_arr.shape[0]
+
+    # ---- all-6-block mode (FLOAT_AIE, or int16 with --all-blocks) ----------
+    if args.float_mode or args.all_blocks:
+        mode = "FLOAT" if args.float_mode else "int16"
+        print(f"{mode} mode: checking all 6 blocks vs PyTorch "
+              f"(events {ev0}..{ev0+nev-1}, tol={args.tol})\n")
+        blocks = [
+            ("obj_L0",   "obj_x_out_L0.txt",   "stage3_layer0_post_obj_selfattn.npy",  N_MAX, True),
+            ("cand_L0",  "cand_c_out_L0.txt",  "stage3_layer0_post_cand_selfattn.npy", T_DIM, False),
+            ("cross_L0", "cross_x_out_L0.txt", "stage3_layer0_post_cross_attn.npy",    N_MAX, True),
+            ("obj_L1",   "obj_x_out_L1.txt",   "stage3_layer1_post_obj_selfattn.npy",  N_MAX, True),
+            ("cand_L1",  "cand_c_out_L1.txt",  "stage3_layer1_post_cand_selfattn.npy", T_DIM, False),
+            ("cross_L1", "cross_x_out_L1.txt", "stage3_layer1_post_cross_attn.npy",    N_MAX, True),
+        ]
+        per_event = {}
+        failures = 0
+        for name, fname, gname, n_rows, masked in blocks:
+            d = parse_plio_text_float(find_output(fname, args.output_dir))
+            if not args.float_mode:
+                d = d / DATA_SCALE   # cand runs at the same Q6.9 scale now
+            gold = np.load(os.path.join(tv, gname))
+            per = n_rows * E_DIM
+            errs = []
+            for i in range(min(nev, len(d) // per)):
+                ev = ev0 + i
+                o = d[i*per:(i+1)*per].reshape(n_rows, E_DIM)
+                diff = (o - gold[ev]).astype(np.float64)
+                if masked:
+                    diff = diff[~pad_masks_arr[i]]
+                err = float(np.max(np.abs(diff))) if diff.size else 0.0
+                errs.append(err)
+                if err >= args.tol:
+                    failures += 1
+            a = np.array(errs)
+            per_event[name] = errs
+            print(f"  {name:<10s} N={len(a):3d}  max={a.max():.3e}  "
+                  f"mean={a.mean():.3e}  fail={(a >= args.tol).sum()}")
+        if args.per_event_out:
+            import json
+            with open(args.per_event_out, "w") as f:
+                json.dump(per_event, f, indent=2)
+            print(f"\nwrote per-event errors to {args.per_event_out}")
+        print()
+        if failures == 0:
+            print(f"ALL PASSED: 0 failure(s) across {nev} events x 6 blocks")
+            sys.exit(0)
+        print(f"FAILED: {failures} block-events over tol")
+        sys.exit(1)
 
     print(f"checking AIE attention outputs against golden (events {ev0}..{ev0+nev-1}, tol={args.tol})\n")
 
