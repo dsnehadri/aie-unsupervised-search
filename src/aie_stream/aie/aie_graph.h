@@ -100,14 +100,14 @@ public:
         // window sizes. obj x INPUT carries N_MAX+1 rows: row N_MAX is the
         // padding mask (nonzero = padded), giving both layers true key
         // masking. The output stays N_MAX rows.
-        constexpr int x_sz       = (N_MAX + 1) * E_DIM * sizeof(int16);
-        constexpr int x_out_sz   = N_MAX * E_DIM * sizeof(int16);
-        constexpr int wij_sz     = N_MAX * N_KV * sizeof(int16);
-        constexpr int scores_sz  = N_MAX * N_KV_PAD * sizeof(int16);
-        constexpr int v_sz       = N_KV_PAD * D_HEAD * sizeof(int16);
-        constexpr int hout       = N_MAX * D_HEAD * sizeof(int16);
-        constexpr int concat_sz  = N_MAX * E_DIM * sizeof(int16);
-        constexpr int proj_sz    = N_MAX * E_DIM * sizeof(int16);
+        constexpr int x_sz       = (N_MAX + 1) * E_DIM * sizeof(aiedt);
+        constexpr int x_out_sz   = N_MAX * E_DIM * sizeof(aiedt);
+        constexpr int wij_sz     = N_MAX * N_KV * sizeof(aiedt);
+        constexpr int scores_sz  = N_MAX * N_KV_PAD * sizeof(aiedt);
+        constexpr int v_sz       = N_KV_PAD * D_HEAD * sizeof(aiedt);
+        constexpr int hout       = N_MAX * D_HEAD * sizeof(aiedt);
+        constexpr int concat_sz  = N_MAX * E_DIM * sizeof(aiedt);
+        constexpr int proj_sz    = N_MAX * E_DIM * sizeof(aiedt);
 
         // plio -> pre (X for all 4 heads)
         for (int h = 0; h < N_HEADS; h++) {
@@ -213,12 +213,12 @@ public:
         source(k_post_c) = ("kernels/cand_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_c) = 0.9;
 
-        constexpr int c_sz      = T_DIM * E_DIM * sizeof(int16);
-        constexpr int scores_sz = 4 * T_KV * sizeof(int16);
-        constexpr int v_sz      = T_KV * D_HEAD * sizeof(int16);
-        constexpr int hout      = T_DIM * D_HEAD * sizeof(int16);
-        constexpr int concat_sz = T_DIM * E_DIM * sizeof(int16);
-        constexpr int proj_sz   = T_DIM * E_DIM * sizeof(int16);
+        constexpr int c_sz      = T_DIM * E_DIM * sizeof(aiedt);
+        constexpr int scores_sz = 4 * T_KV * sizeof(aiedt);
+        constexpr int v_sz      = T_KV * D_HEAD * sizeof(aiedt);
+        constexpr int hout      = T_DIM * D_HEAD * sizeof(aiedt);
+        constexpr int concat_sz = T_DIM * E_DIM * sizeof(aiedt);
+        constexpr int proj_sz   = T_DIM * E_DIM * sizeof(aiedt);
 
         for (int h = 0; h < N_HEADS; h++) {
             connect<window<c_sz>>(plio_c_in.out[0], k_pre[h].in[0]);
@@ -306,13 +306,13 @@ public:
         source(k_post_c) = ("kernels/cross_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_c) = 0.9;
 
-        constexpr int x_sz      = N_MAX * E_DIM * sizeof(int16);
-        constexpr int c_sz      = T_DIM * E_DIM * sizeof(int16);
-        constexpr int scores_sz = N_MAX * T_KV * sizeof(int16);
-        constexpr int v_sz      = T_KV * D_HEAD * sizeof(int16);
-        constexpr int hout      = N_MAX * D_HEAD * sizeof(int16);
-        constexpr int concat_sz = N_MAX * E_DIM * sizeof(int16);
-        constexpr int proj_sz   = N_MAX * E_DIM * sizeof(int16);
+        constexpr int x_sz      = N_MAX * E_DIM * sizeof(aiedt);
+        constexpr int c_sz      = T_DIM * E_DIM * sizeof(aiedt);
+        constexpr int scores_sz = N_MAX * T_KV * sizeof(aiedt);
+        constexpr int v_sz      = T_KV * D_HEAD * sizeof(aiedt);
+        constexpr int hout      = N_MAX * D_HEAD * sizeof(aiedt);
+        constexpr int concat_sz = N_MAX * E_DIM * sizeof(aiedt);
+        constexpr int proj_sz   = N_MAX * E_DIM * sizeof(aiedt);
 
         for (int h = 0; h < N_HEADS; h++) {
             connect<window<x_sz>>(plio_x_in.out[0], k_pre[h].in[0]);

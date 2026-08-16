@@ -100,6 +100,14 @@ constexpr int LN_PARAM_SIZE = E_DIM; // 16 (gamma) + 16 (beta)
 
 constexpr int N_KV_PAD = 16;
 
+// window element type: int16 for the deployed build, float for the
+// FLOAT_AIE unquantized x86sim reference (window sizes scale with it)
+#ifdef FLOAT_AIE
+typedef float aiedt;
+#else
+typedef int16 aiedt;
+#endif
+
 // wij_bias = [N_MAX x N_KV] per head
 // in pl this was [N_HEADS x N_MAX x N_KV], in aie each head gets its own slice
 

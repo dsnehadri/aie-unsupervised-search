@@ -15,23 +15,31 @@
 
 #include "attn_aie_types.h"
 
+#ifdef FLOAT_AIE
+#define AIE_IW input_window_float
+#define AIE_OW output_window_float
+#else
+#define AIE_IW input_window_int16
+#define AIE_OW output_window_int16
+#endif
+
 #define DECL_POST_PROJ(t, l) void t##_post_a_proj_L##l( \
-    input_window_int16* __restrict head0_in, \
-    input_window_int16* __restrict head1_in, \
-    input_window_int16* __restrict head2_in, \
-    input_window_int16* __restrict head3_in, \
-    input_window_int16* __restrict residual_in, \
-    output_window_int16* __restrict proj_out)
+    AIE_IW* __restrict head0_in, \
+    AIE_IW* __restrict head1_in, \
+    AIE_IW* __restrict head2_in, \
+    AIE_IW* __restrict head3_in, \
+    AIE_IW* __restrict residual_in, \
+    AIE_OW* __restrict proj_out)
 #define DECL_POST_B1(t, l) void t##_post_b1_L##l( \
-    input_window_int16* __restrict proj_in, \
-    output_window_int16* __restrict ffn0_out)
+    AIE_IW* __restrict proj_in, \
+    AIE_OW* __restrict ffn0_out)
 #define DECL_POST_B2(t, l) void t##_post_b2_L##l( \
-    input_window_int16* __restrict ffn0_in, \
-    output_window_int16* __restrict ffn1_out)
+    AIE_IW* __restrict ffn0_in, \
+    AIE_OW* __restrict ffn1_out)
 #define DECL_POST_C(t, l) void t##_post_c_L##l( \
-    input_window_int16* __restrict ffn_in, \
-    input_window_int16* __restrict residual_b_in, \
-    output_window_int16* __restrict x_out)
+    AIE_IW* __restrict ffn_in, \
+    AIE_IW* __restrict residual_b_in, \
+    AIE_OW* __restrict x_out)
 
 DECL_POST_PROJ(obj, 0);  DECL_POST_PROJ(obj, 1);
 DECL_POST_PROJ(cand, 0); DECL_POST_PROJ(cand, 1);

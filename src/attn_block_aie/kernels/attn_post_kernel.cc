@@ -7,6 +7,16 @@
 // (residual for the FFN skip).
 
 #include "attn_post_kernel.h"
+
+// weight header directory: int16 slices by default, float slices for the
+// FLOAT_AIE (unquantized x86sim reference) build
+#define AIE_STR(x) #x
+#define AIE_XSTR(x) AIE_STR(x)
+#ifdef FLOAT_AIE
+#define WEIGHTS_DIR weights_f32
+#else
+#define WEIGHTS_DIR weights
+#endif
 #include <aie_api/aie.hpp>
 #include <aie_api/aie_adf.hpp>
 #include <adf.h>
@@ -33,25 +43,25 @@
 
 #if defined(ATTN_TYPE_OBJ)
     #if ATTN_LAYER == 0
-        #include "weights/obj_post_weights_L0.h"
+        #include AIE_XSTR(WEIGHTS_DIR/obj_post_weights_L0.h)
     #elif ATTN_LAYER == 1
-        #include "weights/obj_post_weights_L1.h"
+        #include AIE_XSTR(WEIGHTS_DIR/obj_post_weights_L1.h)
     #endif
 #endif
 
 #if defined(ATTN_TYPE_CAND)
     #if ATTN_LAYER == 0
-        #include "weights/cand_post_weights_L0.h"
+        #include AIE_XSTR(WEIGHTS_DIR/cand_post_weights_L0.h)
     #elif ATTN_LAYER == 1
-        #include "weights/cand_post_weights_L1.h"
+        #include AIE_XSTR(WEIGHTS_DIR/cand_post_weights_L1.h)
     #endif
 #endif
 
 #if defined(ATTN_TYPE_CROSS)
     #if ATTN_LAYER == 0
-        #include "weights/cross_post_weights_L0.h"
+        #include AIE_XSTR(WEIGHTS_DIR/cross_post_weights_L0.h)
     #elif ATTN_LAYER == 1
-        #include "weights/cross_post_weights_L1.h"
+        #include AIE_XSTR(WEIGHTS_DIR/cross_post_weights_L1.h)
     #endif
 #endif
 
@@ -65,6 +75,114 @@
     #error "define ATTN_TYPE_OBJ, ATTN_TYPE_CAND or ATTN_TYPE_CROSS"
 #endif
 
+#ifdef FLOAT_AIE
+// ================= FLOAT_AIE: unquantized reference (see head kernel) =====
+template <int M, int K, int N>
+static void gemm_f(const float* A, const float* B, float* C)
+{
+    for (int m = 0; m < M; m++)
+        for (int n = 0; n < N; n++) {
+            float s = 0.0f;
+            for (int k = 0; k < K; k++) s += A[m * K + k] * B[k * N + n];
+            C[m * N + n] = s;
+        }
+}
+static void add_bias_f(float* m, const float* b, int R, int C)
+{
+    for (int r = 0; r < R; r++) for (int c = 0; c < C; c++) m[r * C + c] += b[c];
+}
+static void layernorm_f(float* x, int n_rows, int n_cols, const float* g, const float* b)
+{
+    const float eps = 1e-5f;
+    for (int r = 0; r < n_rows; r++) {
+        float sum = 0.0f;
+        for (int c = 0; c < n_cols; c++) sum += x[r * n_cols + c];
+        float mean = sum / n_cols;
+        float var = 0.0f;
+        for (int c = 0; c < n_cols; c++) { float d = x[r * n_cols + c] - mean; var += d * d; }
+        var /= n_cols;
+        float inv_std = 1.0f / sqrtf(var + eps);
+        for (int c = 0; c < n_cols; c++)
+            x[r * n_cols + c] = g[c] * (x[r * n_cols + c] - mean) * inv_std + b[c];
+    }
+}
+static void relu_f(float* x, int n) { for (int i = 0; i < n; i++) if (x[i] < 0) x[i] = 0; }
+
+#if defined(POST_STAGE_A_PROJ)
+void POST_A_PROJ_FN(input_window_float* __restrict head0_in,
+                    input_window_float* __restrict head1_in,
+                    input_window_float* __restrict head2_in,
+                    input_window_float* __restrict head3_in,
+                    input_window_float* __restrict residual_in,
+                    output_window_float* __restrict proj_out)
+{
+    float concat[POST_N_ROWS * E_DIM];
+    input_window_float* __restrict heads[N_HEADS] = {head0_in, head1_in, head2_in, head3_in};
+    for (int r = 0; r < POST_N_ROWS; r++)
+        for (int h = 0; h < N_HEADS; h++)
+            for (int d = 0; d < D_HEAD; d++)
+                concat[r * E_DIM + h * D_HEAD + d] = window_readincr(heads[h]);
+
+    float proj[POST_N_ROWS * E_DIM];
+    gemm_f<POST_N_ROWS, E_DIM, E_DIM>(concat, Wout, proj);
+    add_bias_f(proj, bout, POST_N_ROWS, E_DIM);
+#if !defined(ATTN_TYPE_CROSS)
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) proj[i] += window_readincr(residual_in);
+#else
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) (void)window_readincr(residual_in);
+#endif
+    layernorm_f(proj, POST_N_ROWS, E_DIM, post_attn_ln_gamma, post_attn_ln_beta);
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) window_writeincr(proj_out, proj[i]);
+}
+#endif
+
+#if defined(POST_STAGE_B1)
+void POST_B1_FN(input_window_float* __restrict proj_in, output_window_float* __restrict ffn0_out)
+{
+    float in[POST_N_ROWS * E_DIM];
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) in[i] = window_readincr(proj_in);
+    float out[POST_N_ROWS * E_DIM];
+    gemm_f<POST_N_ROWS, E_DIM, E_DIM>(in, ffn_W0, out);
+    add_bias_f(out, ffn_b0, POST_N_ROWS, E_DIM);
+    layernorm_f(out, POST_N_ROWS, E_DIM, ffn_ln_gamma0, ffn_ln_beta0);
+    relu_f(out, POST_N_ROWS * E_DIM);
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) window_writeincr(ffn0_out, out[i]);
+}
+#endif
+
+#if defined(POST_STAGE_B2)
+void POST_B2_FN(input_window_float* __restrict ffn0_in, output_window_float* __restrict ffn1_out)
+{
+    float in[POST_N_ROWS * E_DIM];
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) in[i] = window_readincr(ffn0_in);
+    float out[POST_N_ROWS * E_DIM];
+    gemm_f<POST_N_ROWS, E_DIM, E_DIM>(in, ffn_W1, out);
+    add_bias_f(out, ffn_b1, POST_N_ROWS, E_DIM);
+    layernorm_f(out, POST_N_ROWS, E_DIM, ffn_ln_gamma1, ffn_ln_beta1);
+    relu_f(out, POST_N_ROWS * E_DIM);
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) window_writeincr(ffn1_out, out[i]);
+}
+#endif
+
+#if defined(POST_STAGE_C)
+void POST_C_FN(input_window_float* __restrict ffn_in,
+               input_window_float* __restrict residual_b_in,
+               output_window_float* __restrict x_out)
+{
+    float ffn1[POST_N_ROWS * E_DIM];
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) ffn1[i] = window_readincr(ffn_in);
+    float ffn2[POST_N_ROWS * E_DIM];
+    gemm_f<POST_N_ROWS, E_DIM, E_DIM>(ffn1, ffn_W2, ffn2);
+    add_bias_f(ffn2, ffn_b2, POST_N_ROWS, E_DIM);
+    layernorm_f(ffn2, POST_N_ROWS, E_DIM, ffn_ln_gamma2, ffn_ln_beta2);
+    relu_f(ffn2, POST_N_ROWS * E_DIM);
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) ffn2[i] += window_readincr(residual_b_in);
+    layernorm_f(ffn2, POST_N_ROWS, E_DIM, post_ffn_ln_gamma, post_ffn_ln_beta);
+    for (int i = 0; i < POST_N_ROWS * E_DIM; i++) window_writeincr(x_out, ffn2[i]);
+}
+#endif
+
+#else  // !FLOAT_AIE -- the deployed int16 kernels
 // vectorized tiled gemm: A packed 4x4-block-major, B row-major (gemm_utils.h)
 #include "gemm_utils.h"
 
@@ -262,3 +380,4 @@ void POST_C_FN(input_window_int16* __restrict ffn_in,
     for (int i = 0; i < POST_N_ROWS * E_DIM; i++) window_writeincr(x_out, ffn2[i]);
 }
 #endif // POST_STAGE_C
+#endif // !FLOAT_AIE

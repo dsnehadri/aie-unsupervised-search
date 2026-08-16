@@ -13,41 +13,49 @@
 
 #include "attn_aie_types.h"
 
+#ifdef FLOAT_AIE
+#define AIE_IW input_window_float
+#define AIE_OW output_window_float
+#else
+#define AIE_IW input_window_int16
+#define AIE_OW output_window_int16
+#endif
+
 // pre signatures
 #define DECLARE_OBJ_PRE(h, l)   void obj_attn_head_pre_h##h##_L##l ( \
-    input_window_int16* __restrict x_in, \
-    output_window_int16* __restrict scores_out, \
-    output_window_int16* __restrict v_out)
+    AIE_IW* __restrict x_in, \
+    AIE_OW* __restrict scores_out, \
+    AIE_OW* __restrict v_out)
 #define DECLARE_CAND_PRE(h, l)  void cand_attn_head_pre_h##h##_L##l ( \
-    input_window_int16* __restrict c_in, \
-    output_window_int16* __restrict scores_out, \
-    output_window_int16* __restrict v_out)
+    AIE_IW* __restrict c_in, \
+    AIE_OW* __restrict scores_out, \
+    AIE_OW* __restrict v_out)
 #define DECLARE_CROSS_PRE(h, l) void cross_attn_head_pre_h##h##_L##l ( \
-    input_window_int16* __restrict x_in, \
-    input_window_int16* __restrict c_in, \
-    output_window_int16* __restrict scores_out, \
-    output_window_int16* __restrict v_out)
+    AIE_IW* __restrict x_in, \
+    AIE_IW* __restrict c_in, \
+    AIE_OW* __restrict scores_out, \
+    AIE_OW* __restrict v_out)
 
 // post signatures (obj layer 1 has no wij port -- the bias only exists in
 // layer 0; streaming zeros to a dummy port wasted 624 words/event of NoC
 // traffic plus 4 PLIOs)
 #define DECLARE_OBJ_POST_L0(h)  void obj_attn_head_post_h##h##_L0 ( \
-    input_window_int16* __restrict scores_in, \
-    input_window_int16* __restrict v_in, \
-    input_window_int16* __restrict wij_in, \
-    output_window_int16* __restrict x_out)
+    AIE_IW* __restrict scores_in, \
+    AIE_IW* __restrict v_in, \
+    AIE_IW* __restrict wij_in, \
+    AIE_OW* __restrict x_out)
 #define DECLARE_OBJ_POST_L1(h)  void obj_attn_head_post_h##h##_L1 ( \
-    input_window_int16* __restrict scores_in, \
-    input_window_int16* __restrict v_in, \
-    output_window_int16* __restrict x_out)
+    AIE_IW* __restrict scores_in, \
+    AIE_IW* __restrict v_in, \
+    AIE_OW* __restrict x_out)
 #define DECLARE_CAND_POST(h, l) void cand_attn_head_post_h##h##_L##l ( \
-    input_window_int16* __restrict scores_in, \
-    input_window_int16* __restrict v_in, \
-    output_window_int16* __restrict c_out)
+    AIE_IW* __restrict scores_in, \
+    AIE_IW* __restrict v_in, \
+    AIE_OW* __restrict c_out)
 #define DECLARE_CROSS_POST(h, l) void cross_attn_head_post_h##h##_L##l ( \
-    input_window_int16* __restrict scores_in, \
-    input_window_int16* __restrict v_in, \
-    output_window_int16* __restrict x_out)
+    AIE_IW* __restrict scores_in, \
+    AIE_IW* __restrict v_in, \
+    AIE_OW* __restrict x_out)
 
 DECLARE_OBJ_PRE(0, 0);  DECLARE_OBJ_PRE(1, 0);  DECLARE_OBJ_PRE(2, 0);  DECLARE_OBJ_PRE(3, 0);
 DECLARE_OBJ_PRE(0, 1);  DECLARE_OBJ_PRE(1, 1);  DECLARE_OBJ_PRE(2, 1);  DECLARE_OBJ_PRE(3, 1);
