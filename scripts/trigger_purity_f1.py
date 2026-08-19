@@ -35,7 +35,7 @@ def load_jets(f):
 def online(pt):
     return pt * (1.0 + RES * rng.standard_normal(pt.shape))
 
-T_SCAN = np.linspace(100, 900, 81)
+T_SCAN = np.linspace(0, 900, 91)
 
 bkg_pt, bkg_nev = load_jets(BKG[0])
 bkg_online = online(bkg_pt)
