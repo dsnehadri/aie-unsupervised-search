@@ -15,8 +15,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, FancyArrowPatch
 
-ONCHIP  = "#f0f0f0"
-ONCHIP2 = "#e2e2e2"   # on-chip sub-blocks
+ONCHIP  = "#cfe3f5"
+ONCHIP2 = "#b3cfe9"   # on-chip sub-blocks
 BLACK   = "#1a1a1a"
 BLUE    = "#2b6cb0"
 ORANGE  = "#d97706"
