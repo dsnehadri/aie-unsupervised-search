@@ -20,14 +20,15 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, FancyArrowPatch
 
 TEXTWIDTH = 6.5          # inches -- set to the journal's \textwidth
-H = 3.7                  # ~1.76:1 -- exact 2:1 leaves zero padding at 12 pt
+H = TEXTWIDTH / 2        # 2:1 (fits again at the smaller visual-parity fonts)
 
 ONCHIP  = "#faf3d9"   # on-chip blocks
 ONCHIP2 = "#cfe3f5"   # internal resources within an on-chip block
 BLACK   = "#1a1a1a"
 BLUE    = "#2b6cb0"
 ORANGE  = "#d97706"
-FS, FST = 12, 13      # body / title font sizes (pt, physical)
+FS, FST = 10, 11      # DejaVu x-height is ~1.25x Computer Modern's,
+                      # so 10/11 pt here reads like 12/13 pt CM body text
 
 fig, ax = plt.subplots(figsize=(TEXTWIDTH, H))
 ax.set_xlim(0, TEXTWIDTH); ax.set_ylim(0, H)
@@ -48,71 +49,71 @@ def arrow(p0, p1, color=BLACK, lw=1.2, ls="-", both=True, z=4, head=6):
                                  linestyle=ls, zorder=z, shrinkA=0, shrinkB=0))
 
 # ---------------- Programmable Logic (top left) ----------------
-box(0.05, 2.64, 3.05, 3.68, fc=ONCHIP)
-txt(1.55, 3.49, "Programmable Logic", FST, "bold")
+box(0.05, 2.44, 3.05, 3.20, fc=ONCHIP)
+txt(1.55, 3.03, "Programmable Logic", FST, "bold")
 for x0, x1, lab in [(0.20, 1.40, "BRAM / URAM"), (1.48, 2.03, "DSP"),
                     (2.11, 3.01, "LUT / FF")]:
-    box(x0, 2.83, x1, 3.19, fc=ONCHIP2, lw=0.8, z=3)
-    txt((x0 + x1) / 2, 3.01, lab, FS, z=6)
+    box(x0, 2.62, x1, 2.92, fc=ONCHIP2, lw=0.8, z=3)
+    txt((x0 + x1) / 2, 2.77, lab, FS, z=6)
 
 # ---------------- AI Engine array + interface tiles (top right) ----------------
-box(3.60, 3.20, 6.45, 3.68, fc=ONCHIP)
-txt(5.02, 3.55, "AI Engine array (400 tiles)", FS, "bold")
+box(3.60, 2.82, 6.45, 3.20, fc=ONCHIP)
+txt(5.02, 3.115, "AI Engine array (400 tiles)", FS, "bold")
 for x0 in (3.76, 4.84):
-    box(x0, 3.26, x0 + 0.88, 3.45, fc=ONCHIP2, lw=0.8, z=3)
-    txt(x0 + 0.44, 3.355, "AIE tile", FS, z=6)
-txt(6.08, 3.355, "· · ·", FS)
+    box(x0, 2.87, x0 + 0.88, 3.03, fc=ONCHIP2, lw=0.8, z=3)
+    txt(x0 + 0.44, 2.95, "AIE tile", FS, z=6)
+txt(6.08, 2.95, "· · ·", FS)
 
-box(3.60, 2.62, 6.45, 3.08, fc=ONCHIP)
-txt(5.02, 2.955, "Array interface tiles", FST, "bold")
-txt(5.02, 2.765, "per column: 8 in / 6 out", FS)
+box(3.60, 2.38, 6.45, 2.72, fc=ONCHIP)
+txt(5.02, 2.61, "Array interface tiles", FST, "bold")
+txt(5.02, 2.46, "per column: 8 in / 6 out", FS)
 
 # interface <-> array streams; PL <-> interface direct AXI4-Stream
-arrow((4.20, 3.08), (4.20, 3.20), color=BLUE, lw=1.2, head=5)
-arrow((5.28, 3.08), (5.28, 3.20), color=BLUE, lw=1.2, head=5)
-arrow((3.05, 2.86), (3.60, 2.86), color=BLUE, lw=1.4)
+arrow((4.20, 2.72), (4.20, 2.82), color=BLUE, lw=1.2, head=5)
+arrow((5.28, 2.72), (5.28, 2.82), color=BLUE, lw=1.2, head=5)
+arrow((3.05, 2.55), (3.60, 2.55), color=BLUE, lw=1.4)
 
 # ---------------- NoC ----------------
-box(0.05, 2.20, 6.45, 2.50, fc=ONCHIP)
-txt(3.25, 2.35, "Network on Chip (NoC)", FST, "bold")
-arrow((1.50, 2.64), (1.50, 2.50), head=5)    # PL <-> NoC
-arrow((5.00, 2.62), (5.00, 2.50), head=5)    # AIE interface <-> NoC
+box(0.05, 2.02, 6.45, 2.28, fc=ONCHIP)
+txt(3.25, 2.15, "Network on Chip (NoC)", FST, "bold")
+arrow((1.50, 2.44), (1.50, 2.28), head=5)    # PL <-> NoC
+arrow((5.00, 2.38), (5.00, 2.28), head=5)    # AIE interface <-> NoC
 
 # ---------------- subsystem row: PMC, PS, DDR controllers ----------------
-box(0.10, 1.38, 1.50, 2.06, fc=ONCHIP)
-txt(0.80, 1.92, "PMC", FST, "bold")
-txt(0.80, 1.615, "Boot + device\nconfiguration", FS)
+box(0.10, 1.26, 1.50, 1.86, fc=ONCHIP)
+txt(0.80, 1.74, "PMC", FST, "bold")
+txt(0.80, 1.475, "Boot + device\nconfiguration", FS)
 
-box(1.70, 1.38, 3.65, 2.06, fc=ONCHIP)
-txt(2.675, 1.92, "Processing System", FST, "bold")
-txt(2.675, 1.615, "2× Arm Cortex-A72\n2× Arm Cortex-R5", FS)
+box(1.70, 1.26, 3.65, 1.86, fc=ONCHIP)
+txt(2.675, 1.74, "Processing System", FST, "bold")
+txt(2.675, 1.475, "2× Arm Cortex-A72\n2× Arm Cortex-R5", FS)
 
 for x0 in (3.85, 5.20):
-    box(x0, 1.38, x0 + 1.15, 2.06, fc=ONCHIP)
-    txt(x0 + 0.575, 1.72, "DDR memory\ncontroller", FS)
+    box(x0, 1.26, x0 + 1.15, 1.86, fc=ONCHIP)
+    txt(x0 + 0.575, 1.56, "DDR memory\ncontroller", FS)
 
-arrow((0.80, 2.06), (0.80, 2.20), color=ORANGE, ls=":", head=5)
-arrow((2.675, 2.06), (2.675, 2.20), head=5)
-arrow((4.425, 2.06), (4.425, 2.20), head=5)
-arrow((5.775, 2.06), (5.775, 2.20), head=5)
+arrow((0.80, 1.86), (0.80, 2.02), color=ORANGE, ls=":", head=5)
+arrow((2.675, 1.86), (2.675, 2.02), head=5)
+arrow((4.425, 1.86), (4.425, 2.02), head=5)
+arrow((5.775, 1.86), (5.775, 2.02), head=5)
 
 # ---------------- off-chip components ----------------
-box(0.10, 0.82, 1.50, 1.24)
-txt(0.80, 1.03, "MicroSD\nBoot image", FS)
-box(1.70, 0.82, 3.65, 1.24)
-txt(2.675, 1.03, "Ethernet / UART", FS)
-box(3.85, 0.82, 5.00, 1.24)
-txt(4.425, 1.03, "DDR4 DIMM\n8 GB", FS)
-box(5.20, 0.82, 6.35, 1.24)
-txt(5.775, 1.03, "LPDDR4\n8 GB", FS)
+box(0.10, 0.76, 1.50, 1.12)
+txt(0.80, 0.94, "MicroSD\nBoot image", FS)
+box(1.70, 0.76, 3.65, 1.12)
+txt(2.675, 0.94, "Ethernet / UART", FS)
+box(3.85, 0.76, 5.00, 1.12)
+txt(4.425, 0.94, "DDR4 DIMM\n8 GB", FS)
+box(5.20, 0.76, 6.35, 1.12)
+txt(5.775, 0.94, "LPDDR4\n8 GB", FS)
 
-arrow((0.80, 1.24), (0.80, 1.38), color=ORANGE, ls=":", both=False, head=5)
-arrow((2.675, 1.24), (2.675, 1.38), head=5)
-arrow((4.425, 1.24), (4.425, 1.38), head=5)
-arrow((5.775, 1.24), (5.775, 1.38), head=5)
+arrow((0.80, 1.12), (0.80, 1.26), color=ORANGE, ls=":", both=False, head=5)
+arrow((2.675, 1.12), (2.675, 1.26), head=5)
+arrow((4.425, 1.12), (4.425, 1.26), head=5)
+arrow((5.775, 1.12), (5.775, 1.26), head=5)
 
 # ---------------- legend (bottom strip, 3 rows x 2 columns) ----------------
-box(0.05, 0.02, 6.45, 0.70, fc="white", z=6)
+box(0.05, 0.02, 6.45, 0.64, fc="white", z=6)
 items = [
     (BLACK,  "-",  "AXI4 (memory-mapped)", "arrow"),
     (BLUE,   "-",  "AXI4-Stream",          "arrow"),
@@ -123,7 +124,7 @@ items = [
 ]
 for i, (col, ls, lab, kind) in enumerate(items):
     x = 0.20 if i < 3 else 3.35
-    y = (0.565, 0.36, 0.155)[i % 3]
+    y = (0.51, 0.33, 0.15)[i % 3]
     if kind == "arrow":
         ax.add_patch(FancyArrowPatch((x, y), (x + 0.30, y), arrowstyle="->",
                                      mutation_scale=6, color=col, lw=1.2,
