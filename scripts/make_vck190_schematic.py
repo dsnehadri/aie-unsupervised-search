@@ -53,6 +53,7 @@ txt(61, 58.2, "AI Engine array interface tiles", 9.5, "bold")
 txt(61, 55.9, "PL interface tiles (AXI4-Stream)   ·   NoC interface tiles (AXI4)", 7.8)
 for x in (39, 57, 75):
     arrow((x, 60), (x, 63.5), color=BLUE, lw=1.4)
+txt(80.5, 61.75, "per column: 6 \u2191 / 4 \u2193  (32-bit)", 7.2, ha="left")
 
 # ---------------- Programmable Logic ----------------
 box(20, 34, 102, 45, fc=ONCHIP)
@@ -63,6 +64,7 @@ for x0, x1, lab in [(38, 53, "BRAM / URAM"), (57, 67, "DSP"), (71, 84, "LUT / FF
 
 # PL <-> AIE interface: direct AXI4-Stream through the PL interface tiles
 arrow((61, 45), (61, 54), color=BLUE, lw=1.6)
+txt(63, 49.5, "39 columns \u00d7 8 \u2191 / 6 \u2193  (64-bit)", 7.2, ha="left")
 
 # AIE interface <-> NoC (routed around the PL block; heads only at the blocks)
 ax.plot([94, 110], [57, 57], color=BLACK, lw=1.5, zorder=3)
