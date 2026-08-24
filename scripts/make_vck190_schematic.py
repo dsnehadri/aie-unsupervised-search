@@ -3,8 +3,8 @@
 
 Utilitarian block-diagram style: plain boxes, black borders, muted fills,
 color-coded arrows with a legend. Connectivity per AMD AM009 / NoC docs:
-  - AIE array interface = PL interface tiles (AXI4-Stream) + NoC interface
-    tiles (AXI4 via NMU/NSU)
+  - AIE array interface = PL interface tiles (AXI4-Stream, DIRECT to the
+    fabric, no NoC) + NoC interface tiles (AXI4 via NMU/NSU)
   - PS, PMC, PL, AIE interface, and the integrated DDR memory controllers
     all attach to the NoC
   - PMC boots from MicroSD and configures the device (config traffic over
@@ -15,14 +15,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, FancyArrowPatch
 
-ONDIE   = "#f0f0f0"
+ONCHIP  = "#f0f0f0"
 CREAM   = "#faf3d9"
 NOCBLUE = "#cfe3f5"
 BLACK   = "#1a1a1a"
 BLUE    = "#2b6cb0"
 ORANGE  = "#d97706"
 
-fig, ax = plt.subplots(figsize=(12.5, 8))
+fig, ax = plt.subplots(figsize=(12.5, 7.8))
 ax.set_xlim(0, 130); ax.set_ylim(0, 84)
 ax.axis("off")
 
@@ -39,13 +39,10 @@ def arrow(p0, p1, color=BLACK, lw=1.5, ls="-", both=True, z=4, head=8):
                                  mutation_scale=head, color=color, lw=lw,
                                  linestyle=ls, zorder=z, shrinkA=0, shrinkB=0))
 
-# ---------------- frame ----------------
-box(2, 2, 128, 80, fc="white", lw=1.8)
-txt(4, 77.3, "VCK190 evaluation board", 10, "bold", ha="left")
 txt(65, 82.3, "VCK190 / XCVC1902 interconnect schematic", 12, "bold")
 
 # ---------------- AI Engine array ----------------
-box(28, 63.5, 94, 78, fc=ONDIE)
+box(28, 63.5, 94, 78, fc=ONCHIP)
 txt(61, 74.9, "AI Engine array — 400 tiles", 10, "bold")
 for x0 in (32, 50, 68):
     box(x0, 65.5, x0 + 14, 71, fc=CREAM, lw=0.9, z=3)
@@ -60,19 +57,21 @@ for x in (39, 57, 75):
     arrow((x, 60), (x, 63.5), color=BLUE, lw=1.4)
 
 # ---------------- Programmable Logic ----------------
-box(20, 32, 102, 46, fc=ONDIE)
-txt(22, 42.8, "Programmable Logic (FPGA fabric)", 10, "bold", ha="left")
-for x0, x1, lab in [(64, 77, "BRAM / URAM"), (80, 88, "DSP"), (91, 100, "LUT / FF")]:
+box(20, 32, 102, 46, fc=ONCHIP)
+txt(61, 43.2, "Programmable Logic (FPGA fabric)", 10, "bold")
+for x0, x1, lab in [(38, 53, "BRAM / URAM"), (57, 67, "DSP"), (71, 84, "LUT / FF")]:
     box(x0, 34.5, x1, 40.5, fc="white", lw=0.9, z=3)
     txt((x0 + x1) / 2, 37.5, lab, 7.6, z=6)
 
-# PL <-> AIE interface (direct AXI4-Stream)
+# PL <-> AIE interface: direct AXI4-Stream through the PL interface tiles
 arrow((39, 46), (39, 54), color=BLUE, lw=1.6)
 arrow((51, 46), (51, 54), color=BLUE, lw=1.6)
 
-# AIE interface <-> NoC (around the PL block)
+# AIE interface <-> NoC (routed around the PL block; heads only at the blocks)
 ax.plot([94, 110], [57, 57], color=BLACK, lw=1.5, zorder=3)
-arrow((110, 57), (110, 26), lw=1.5)
+ax.plot([110, 110], [57, 26], color=BLACK, lw=1.5, zorder=3)
+arrow((96, 57), (94, 57), both=False)
+arrow((110, 28), (110, 26), both=False)
 
 # ---------------- NoC ----------------
 box(10, 20, 120, 26, fc=NOCBLUE)
@@ -80,17 +79,17 @@ txt(65, 23, "Network on Chip (NoC)", 10, "bold")
 arrow((30, 32), (30, 26))            # PL <-> NoC
 arrow((92, 32), (92, 26))
 
-# ---------------- on-die row: PMC, PS, DDR controllers ----------------
-box(12, 11, 26, 18, fc=ONDIE)
+# ---------------- on-chip row: PMC, PS, DDR controllers ----------------
+box(12, 11, 26, 18, fc=ONCHIP)
 txt(19, 16.1, "PMC", 9, "bold")
-txt(19, 13.3, "boot + device\nconfiguration", 7.2)
+txt(19, 13.3, "Boot + device\nconfiguration", 7.2)
 
-box(30, 11, 56, 18, fc=ONDIE)
+box(30, 11, 56, 18, fc=ONCHIP)
 txt(43, 16.1, "Processing System", 9, "bold")
 txt(43, 13.3, "2× Arm Cortex-A72\n2× Arm Cortex-R5", 7.2)
 
 for x0 in (62, 84):
-    box(x0, 11, x0 + 16, 18, fc=ONDIE)
+    box(x0, 11, x0 + 16, 18, fc=ONCHIP)
     txt(x0 + 8, 14.5, "DDR memory\ncontroller", 7.6)
 
 arrow((19, 18), (19, 20), color=ORANGE, ls="--")   # PMC config over NoC
@@ -98,9 +97,9 @@ arrow((43, 18), (43, 20))
 arrow((70, 18), (70, 20))
 arrow((92, 18), (92, 20))
 
-# ---------------- board components ----------------
+# ---------------- off-chip components ----------------
 box(12, 3.5, 26, 9.5)
-txt(19, 6.5, "MicroSD\nboot image", 7.8)
+txt(19, 6.5, "MicroSD\nBoot image", 7.8)
 box(30, 3.5, 48, 9.5)
 txt(39, 6.5, "Ethernet / UART", 7.8)
 box(62, 3.5, 78, 9.5)
@@ -114,16 +113,16 @@ arrow((70, 9.5), (70, 11))
 arrow((92, 9.5), (92, 11))
 
 # ---------------- legend ----------------
-box(99, 62, 126, 78, fc="white", z=6)
+box(99, 61.5, 127, 78, fc="white", z=6)
 rows = [
-    (BLACK,  "-",  "AXI4 (memory-mapped)", "arrow"),
-    (BLUE,   "-",  "AXI4-Stream",          "arrow"),
-    (ORANGE, "--", "boot / configuration", "arrow"),
-    (ONDIE,  "-",  "on-die (XCVC1902)",    "swatch"),
-    ("white", "-", "board component",      "swatch"),
+    (BLACK,  "-",  "AXI4 (memory-mapped)",  "arrow"),
+    (BLUE,   "-",  "AXI4-Stream",           "arrow"),
+    (ORANGE, "--", "Boot / configuration",  "arrow"),
+    (ONCHIP, "-",  "On-chip (XCVC1902)",    "swatch"),
+    ("white", "-", "Off-chip component",    "swatch"),
 ]
 for i, (col, ls, lab, kind) in enumerate(rows):
-    y = 75.4 - i * 3.1
+    y = 75.6 - i * 3.0
     if kind == "arrow":
         ax.add_patch(FancyArrowPatch((101, y), (106.5, y), arrowstyle="->",
                                      mutation_scale=8, color=col, lw=1.5,
