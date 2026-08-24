@@ -128,6 +128,6 @@ for i, (col, ls, lab, kind) in enumerate(rows):
 
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/vck190_dataflow_schematic.png"
-fig.savefig(out, dpi=200, bbox_inches="tight", facecolor="white")
+fig.savefig(out, dpi=600, bbox_inches="tight", facecolor="white")
 fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight", facecolor="white")
 print("saved", out)
