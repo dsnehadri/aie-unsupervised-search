@@ -40,50 +40,50 @@ def arrow(p0, p1, color=BLACK, lw=1.5, ls="-", both=True, z=4, head=8):
 
 # ---------------- Programmable Logic (top left) ----------------
 box(6, 52, 106, 96, fc=ONCHIP)
-txt(56, 91.2, "Programmable Logic (FPGA fabric)", 11, "bold")
+txt(56, 91.2, "Programmable Logic (FPGA fabric)", 13, "bold")
 for x0, x1, lab in [(16, 42, "BRAM / URAM"), (46, 66, "DSP"), (70, 96, "LUT / FF")]:
     box(x0, 60, x1, 74, fc=ONCHIP2, lw=1.0, z=3)
-    txt((x0 + x1) / 2, 67, lab, 8.6, z=6)
+    txt((x0 + x1) / 2, 67, lab, 10.5, z=6)
 
 # ---------------- AI Engine array + interface tiles (top right) ----------------
-box(118, 68, 194, 96, fc=ONCHIP)
-txt(156, 91.6, "AI Engine array (400 tiles)", 11, "bold")
+box(120, 68, 194, 96, fc=ONCHIP)
+txt(156, 91.6, "AI Engine array (400 tiles)", 13, "bold")
 for x0 in (123, 145, 167):
     box(x0, 72, x0 + 17, 81, fc=ONCHIP2, lw=1.0, z=3)
-    txt(x0 + 8.5, 76.5, "AIE tile", 8.2, z=6)
-txt(190, 76.5, "·  ·  ·", 9)
+    txt(x0 + 8.5, 76.5, "AIE tile", 10, z=6)
+txt(190, 76.5, "·  ·  ·", 11)
 
-box(118, 52, 194, 62, fc=ONCHIP)
-txt(156, 59.1, "AI Engine array interface tiles", 9.8, "bold")
-txt(156, 55.4, "PL interface tiles (AXI4-Stream)  ·  NoC interface tiles (AXI4)", 8)
+box(120, 52, 194, 62, fc=ONCHIP)
+txt(157, 59.0, "AI Engine array interface tiles", 12, "bold")
+txt(157, 55.2, "PL interface tiles (AXI4-Stream)  ·  NoC interface tiles (AXI4)", 9.5)
 
 # interface <-> array (vertical streams, per column)
-for x in (127, 146):
+for x in (128, 142):
     arrow((x, 62), (x, 68), color=BLUE, lw=1.5)
-txt(192, 65, "per column: 6 ↑ / 4 ↓  (32-bit)", 7.6, ha="right")
+txt(192, 65, "per column: 6 ↑ / 4 ↓  (32-bit)", 9, ha="right")
 
 # PL <-> interface (direct AXI4-Stream through the PL interface tiles)
-arrow((106, 57), (118, 57), color=BLUE, lw=1.8)
-txt(112, 64, "39 columns\n× 8 → / 6 ←\n(64-bit)", 7.6)
+arrow((106, 57), (120, 57), color=BLUE, lw=1.8)
+txt(113, 64.5, "39 columns\n× 8 → / 6 ←\n(64-bit)", 9)
 
 # ---------------- NoC ----------------
 box(6, 30, 194, 38, fc=ONCHIP)
-txt(100, 34, "Network on Chip (NoC)", 11, "bold")
+txt(100, 34, "Network on Chip (NoC)", 13, "bold")
 arrow((50, 52), (50, 38))            # PL <-> NoC
 arrow((150, 52), (150, 38))          # AIE interface <-> NoC
 
 # ---------------- on-chip row: PMC, PS, DDR controllers ----------------
 box(10, 16, 28, 26, fc=ONCHIP)
-txt(19, 23.2, "PMC", 9.2, "bold")
-txt(19, 19.4, "Boot + device\nconfiguration", 7.4)
+txt(19, 23.2, "PMC", 11, "bold")
+txt(19, 19.4, "Boot + device\nconfiguration", 8.8)
 
 box(34, 16, 64, 26, fc=ONCHIP)
-txt(49, 23.2, "Processing System", 9.2, "bold")
-txt(49, 19.4, "2× Arm Cortex-A72\n2× Arm Cortex-R5", 7.4)
+txt(49, 23.2, "Processing System", 11, "bold")
+txt(49, 19.4, "2× Arm Cortex-A72\n2× Arm Cortex-R5", 8.8)
 
 for x0 in (72, 100):
     box(x0, 16, x0 + 20, 26, fc=ONCHIP)
-    txt(x0 + 10, 21, "DDR memory\ncontroller", 8)
+    txt(x0 + 10, 21, "DDR memory\ncontroller", 9.5)
 
 arrow((19, 26), (19, 30), color=ORANGE, ls=":", lw=1.3, head=6.5)  # PMC config
 arrow((49, 26), (49, 30), lw=1.3, head=6.5)
@@ -92,13 +92,13 @@ arrow((110, 26), (110, 30), lw=1.3, head=6.5)
 
 # ---------------- off-chip components ----------------
 box(10, 2, 28, 10)
-txt(19, 6, "MicroSD\nBoot image", 7.8)
+txt(19, 6, "MicroSD\nBoot image", 9.5)
 box(34, 2, 64, 10)
-txt(49, 6, "Ethernet / UART", 8)
+txt(49, 6, "Ethernet / UART", 9.5)
 box(72, 2, 92, 10)
-txt(82, 6, "DDR4 DIMM\n8 GB", 7.8)
+txt(82, 6, "DDR4 DIMM\n8 GB", 9.5)
 box(100, 2, 120, 10)
-txt(110, 6, "LPDDR4\n8 GB", 7.8)
+txt(110, 6, "LPDDR4\n8 GB", 9.5)
 
 arrow((19, 10), (19, 16), color=ORANGE, ls=":", both=False, lw=1.3, head=6.5)
 arrow((49, 10), (49, 16), lw=1.2, head=6.5)
@@ -124,7 +124,7 @@ for i, (col, ls, lab, kind) in enumerate(rows):
     else:
         ax.add_patch(Rectangle((155.4, y - 1.2), 5.6, 2.4, facecolor=col,
                                edgecolor=BLACK, lw=0.9, zorder=7))
-    txt(164.5, y, lab, 8, ha="left", z=8)
+    txt(164.5, y, lab, 9.5, ha="left", z=8)
 
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/vck190_dataflow_schematic.png"
