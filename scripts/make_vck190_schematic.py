@@ -47,7 +47,7 @@ for x0 in (32, 50, 68):
 txt(87.5, 68.2, "· · ·", 10)
 
 # ---------------- AIE array interface ----------------
-box(28, 54, 94, 60, fc=ONCHIP2)
+box(28, 54, 94, 60, fc=ONCHIP)
 txt(61, 58.2, "AI Engine array interface tiles", 9.5, "bold")
 txt(61, 55.9, "PL interface tiles (AXI4-Stream)   ·   NoC interface tiles (AXI4)", 7.8)
 for x in (39, 57, 75):
