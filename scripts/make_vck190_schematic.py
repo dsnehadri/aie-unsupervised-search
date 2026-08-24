@@ -16,8 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, FancyArrowPatch
 
 ONCHIP  = "#f0f0f0"
-CREAM   = "#faf3d9"
-NOCBLUE = "#cfe3f5"
+ONCHIP2 = "#e2e2e2"   # on-chip sub-blocks
 BLACK   = "#1a1a1a"
 BLUE    = "#2b6cb0"
 ORANGE  = "#d97706"
@@ -43,12 +42,12 @@ def arrow(p0, p1, color=BLACK, lw=1.5, ls="-", both=True, z=4, head=8):
 box(28, 63.5, 94, 78, fc=ONCHIP)
 txt(61, 74.9, "AI Engine array (400 tiles)", 10, "bold")
 for x0 in (32, 50, 68):
-    box(x0, 65.5, x0 + 14, 71, fc=CREAM, lw=0.9, z=3)
+    box(x0, 65.5, x0 + 14, 71, fc=ONCHIP2, lw=0.9, z=3)
     txt(x0 + 7, 68.2, "AIE tile", 7.8, z=6)
 txt(87.5, 68.2, "· · ·", 10)
 
 # ---------------- AIE array interface ----------------
-box(28, 54, 94, 60, fc=CREAM)
+box(28, 54, 94, 60, fc=ONCHIP2)
 txt(61, 58.2, "AI Engine array interface tiles", 9.5, "bold")
 txt(61, 55.9, "PL interface tiles (AXI4-Stream)   ·   NoC interface tiles (AXI4)", 7.8)
 for x in (39, 57, 75):
@@ -59,7 +58,7 @@ txt(80.5, 61.75, "per column: 6 \u2191 / 4 \u2193  (32-bit)", 7.2, ha="left")
 box(20, 34, 102, 45, fc=ONCHIP)
 txt(61, 42.9, "Programmable Logic (FPGA fabric)", 10, "bold")
 for x0, x1, lab in [(38, 53, "BRAM / URAM"), (57, 67, "DSP"), (71, 84, "LUT / FF")]:
-    box(x0, 35.3, x1, 40.8, fc="white", lw=0.9, z=3)
+    box(x0, 35.3, x1, 40.8, fc=ONCHIP2, lw=0.9, z=3)
     txt((x0 + x1) / 2, 38.05, lab, 7.6, z=6)
 
 # PL <-> AIE interface: direct AXI4-Stream through the PL interface tiles
@@ -73,7 +72,7 @@ arrow((96, 57), (94, 57), both=False)
 arrow((110, 28), (110, 26), both=False)
 
 # ---------------- NoC ----------------
-box(10, 20, 120, 26, fc=NOCBLUE)
+box(10, 20, 120, 26, fc=ONCHIP)
 txt(65, 23, "Network on Chip (NoC)", 10, "bold")
 arrow((61, 34), (61, 26))            # PL <-> NoC
 
