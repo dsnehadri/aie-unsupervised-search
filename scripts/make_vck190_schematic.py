@@ -23,7 +23,7 @@ BLUE    = "#2b6cb0"
 ORANGE  = "#d97706"
 
 fig, ax = plt.subplots(figsize=(12.5, 7.8))
-ax.set_xlim(0, 130); ax.set_ylim(0, 84)
+ax.set_xlim(0, 130); ax.set_ylim(0, 80)
 ax.axis("off")
 
 def box(x0, y0, x1, y1, fc="white", lw=1.2, z=2):
@@ -39,11 +39,9 @@ def arrow(p0, p1, color=BLACK, lw=1.5, ls="-", both=True, z=4, head=8):
                                  mutation_scale=head, color=color, lw=lw,
                                  linestyle=ls, zorder=z, shrinkA=0, shrinkB=0))
 
-txt(65, 82.3, "VCK190 / XCVC1902 interconnect schematic", 12, "bold")
-
 # ---------------- AI Engine array ----------------
 box(28, 63.5, 94, 78, fc=ONCHIP)
-txt(61, 74.9, "AI Engine array — 400 tiles", 10, "bold")
+txt(61, 74.9, "AI Engine array (400 tiles)", 10, "bold")
 for x0 in (32, 50, 68):
     box(x0, 65.5, x0 + 14, 71, fc=CREAM, lw=0.9, z=3)
     txt(x0 + 7, 68.2, "AIE tile", 7.8, z=6)
@@ -57,15 +55,14 @@ for x in (39, 57, 75):
     arrow((x, 60), (x, 63.5), color=BLUE, lw=1.4)
 
 # ---------------- Programmable Logic ----------------
-box(20, 32, 102, 46, fc=ONCHIP)
-txt(61, 43.2, "Programmable Logic (FPGA fabric)", 10, "bold")
+box(20, 34, 102, 45, fc=ONCHIP)
+txt(61, 42.9, "Programmable Logic (FPGA fabric)", 10, "bold")
 for x0, x1, lab in [(38, 53, "BRAM / URAM"), (57, 67, "DSP"), (71, 84, "LUT / FF")]:
-    box(x0, 34.5, x1, 40.5, fc="white", lw=0.9, z=3)
-    txt((x0 + x1) / 2, 37.5, lab, 7.6, z=6)
+    box(x0, 35.3, x1, 40.8, fc="white", lw=0.9, z=3)
+    txt((x0 + x1) / 2, 38.05, lab, 7.6, z=6)
 
 # PL <-> AIE interface: direct AXI4-Stream through the PL interface tiles
-arrow((39, 46), (39, 54), color=BLUE, lw=1.6)
-arrow((51, 46), (51, 54), color=BLUE, lw=1.6)
+arrow((61, 45), (61, 54), color=BLUE, lw=1.6)
 
 # AIE interface <-> NoC (routed around the PL block; heads only at the blocks)
 ax.plot([94, 110], [57, 57], color=BLACK, lw=1.5, zorder=3)
@@ -76,48 +73,47 @@ arrow((110, 28), (110, 26), both=False)
 # ---------------- NoC ----------------
 box(10, 20, 120, 26, fc=NOCBLUE)
 txt(65, 23, "Network on Chip (NoC)", 10, "bold")
-arrow((30, 32), (30, 26))            # PL <-> NoC
-arrow((92, 32), (92, 26))
+arrow((61, 34), (61, 26))            # PL <-> NoC
 
 # ---------------- on-chip row: PMC, PS, DDR controllers ----------------
-box(12, 11, 26, 18, fc=ONCHIP)
-txt(19, 16.1, "PMC", 9, "bold")
-txt(19, 13.3, "Boot + device\nconfiguration", 7.2)
+box(12, 10, 26, 17, fc=ONCHIP)
+txt(19, 15.1, "PMC", 9, "bold")
+txt(19, 12.3, "Boot + device\nconfiguration", 7.2)
 
-box(30, 11, 56, 18, fc=ONCHIP)
-txt(43, 16.1, "Processing System", 9, "bold")
-txt(43, 13.3, "2× Arm Cortex-A72\n2× Arm Cortex-R5", 7.2)
+box(30, 10, 56, 17, fc=ONCHIP)
+txt(43, 15.1, "Processing System", 9, "bold")
+txt(43, 12.3, "2× Arm Cortex-A72\n2× Arm Cortex-R5", 7.2)
 
 for x0 in (62, 84):
-    box(x0, 11, x0 + 16, 18, fc=ONCHIP)
-    txt(x0 + 8, 14.5, "DDR memory\ncontroller", 7.6)
+    box(x0, 10, x0 + 16, 17, fc=ONCHIP)
+    txt(x0 + 8, 13.5, "DDR memory\ncontroller", 7.6)
 
-arrow((19, 18), (19, 20), color=ORANGE, ls="--")   # PMC config over NoC
-arrow((43, 18), (43, 20))
-arrow((70, 18), (70, 20))
-arrow((92, 18), (92, 20))
+arrow((19, 17), (19, 20), color=ORANGE, ls=":", lw=1.3, head=6.5)  # PMC config
+arrow((43, 17), (43, 20), lw=1.3, head=6.5)
+arrow((70, 17), (70, 20), lw=1.3, head=6.5)
+arrow((92, 17), (92, 20), lw=1.3, head=6.5)
 
 # ---------------- off-chip components ----------------
-box(12, 3.5, 26, 9.5)
-txt(19, 6.5, "MicroSD\nBoot image", 7.8)
-box(30, 3.5, 48, 9.5)
-txt(39, 6.5, "Ethernet / UART", 7.8)
-box(62, 3.5, 78, 9.5)
-txt(70, 6.5, "DDR4 DIMM\n8 GB", 7.8)
-box(84, 3.5, 100, 9.5)
-txt(92, 6.5, "LPDDR4\n8 GB", 7.8)
+box(12, 1.5, 26, 7.5)
+txt(19, 4.5, "MicroSD\nBoot image", 7.8)
+box(30, 1.5, 48, 7.5)
+txt(39, 4.5, "Ethernet / UART", 7.8)
+box(62, 1.5, 78, 7.5)
+txt(70, 4.5, "DDR4 DIMM\n8 GB", 7.8)
+box(84, 1.5, 100, 7.5)
+txt(92, 4.5, "LPDDR4\n8 GB", 7.8)
 
-arrow((19, 9.5), (19, 11), color=ORANGE, ls="--", both=False)
-arrow((39, 9.5), (39, 11), lw=1.2)
-arrow((70, 9.5), (70, 11))
-arrow((92, 9.5), (92, 11))
+arrow((19, 7.5), (19, 10), color=ORANGE, ls=":", both=False, lw=1.3, head=6.5)
+arrow((39, 7.5), (39, 10), lw=1.2, head=6.5)
+arrow((70, 7.5), (70, 10), lw=1.2, head=6.5)
+arrow((92, 7.5), (92, 10), lw=1.2, head=6.5)
 
 # ---------------- legend ----------------
 box(99, 61.5, 127, 78, fc="white", z=6)
 rows = [
     (BLACK,  "-",  "AXI4 (memory-mapped)",  "arrow"),
     (BLUE,   "-",  "AXI4-Stream",           "arrow"),
-    (ORANGE, "--", "Boot / configuration",  "arrow"),
+    (ORANGE, ":",  "Boot / configuration",  "arrow"),
     (ONCHIP, "-",  "On-chip (XCVC1902)",    "swatch"),
     ("white", "-", "Off-chip component",    "swatch"),
 ]
