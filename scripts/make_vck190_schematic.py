@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, FancyArrowPatch
 
 ONCHIP  = "#cfe3f5"
-ONCHIP2 = "#b3cfe9"   # on-chip sub-blocks
+ONCHIP2 = "#faf3d9"   # internal resources within an on-chip block
 BLACK   = "#1a1a1a"
 BLUE    = "#2b6cb0"
 ORANGE  = "#d97706"
@@ -110,12 +110,13 @@ arrow((70, 7.5), (70, 10), lw=1.2, head=6.5)
 arrow((92, 7.5), (92, 10), lw=1.2, head=6.5)
 
 # ---------------- legend ----------------
-box(99, 61.5, 127, 78, fc="white", z=6)
+box(99, 58.5, 127, 78, fc="white", z=6)
 rows = [
     (BLACK,  "-",  "AXI4 (memory-mapped)",  "arrow"),
     (BLUE,   "-",  "AXI4-Stream",           "arrow"),
     (ORANGE, ":",  "Boot / configuration",  "arrow"),
     (ONCHIP, "-",  "On-chip (XCVC1902)",    "swatch"),
+    (ONCHIP2, "-", "Internal resource",     "swatch"),
     ("white", "-", "Off-chip component",    "swatch"),
 ]
 for i, (col, ls, lab, kind) in enumerate(rows):
