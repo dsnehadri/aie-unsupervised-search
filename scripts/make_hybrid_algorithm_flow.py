@@ -53,15 +53,15 @@ Y0 = 0.15  # everything except the legend sits this much higher than in
            # the all-PL figure (taller legend strip below)
 
 # ---------------- top row: input -> embed -> ABC layers --------------------
-box(0.05, 2.02+Y0, 0.70, 2.78+Y0)                        # external memory
-txt(0.375, 2.40+Y0, "Events\n(DDR4)")
-arrow((0.70, 2.40+Y0), (0.95, 2.40+Y0))
-txt(0.80, 2.63+Y0, "12×5", bbox=True)
+box(0.05, 2.02+Y0, 0.62, 2.78+Y0)                        # external memory
+txt(0.335, 2.40+Y0, "Events\n(DDR4)")
+arrow((0.62, 2.40+Y0), (1.00, 2.40+Y0))
+txt(0.81, 2.52+Y0, "12×5")
 
-box(0.95, 2.02+Y0, 1.80, 2.78+Y0, fc=PLC)
-txt(1.375, 2.40+Y0, "Per-object\nembedding\n2-layer MLP")
-arrow((1.80, 2.40+Y0), (2.28, 2.40+Y0), color=BLUE)
-txt(2.03, 2.63+Y0, "12×16", bbox=True)
+box(1.00, 2.02+Y0, 1.85, 2.78+Y0, fc=PLC)
+txt(1.425, 2.40+Y0, "Per-object\nembedding\n2-layer MLP")
+arrow((1.85, 2.40+Y0), (2.28, 2.40+Y0), color=BLUE)
+txt(2.065, 2.52+Y0, "12×16")
 
 # ABC layer container (instantiated twice)
 box(2.20, 1.88+Y0, 6.45, 2.88+Y0, fc="none", lw=1.0, ls=(0, (4, 3)))
@@ -77,7 +77,7 @@ for x0, x1, lab, fc in stages:
     txt((x0 + x1) / 2, 2.34+Y0, lab, z=6)
 arrow((3.14, 2.34+Y0), (3.24, 2.34+Y0), color=BLUE)
 arrow((4.10, 2.34+Y0), (4.50, 2.34+Y0), color=BLUE)
-txt(4.30, 2.34+Y0, "3×16", bbox=True)
+txt(4.30, 2.46+Y0, "3×16")
 arrow((5.36, 2.34+Y0), (5.46, 2.34+Y0), color=BLUE)
 
 # object embeddings also feed cross attention (queries)
@@ -88,7 +88,7 @@ txt(4.17, 1.96+Y0, "12×16", bbox=True)
 # ---------------- pairwise w_ij branch -------------------------------------
 box(0.60, 1.50+Y0, 2.10, 1.82+Y0, fc=PLC)
 txt(1.35, 1.66+Y0, "Pairwise wᵢⱼ MLP")
-elbow([(0.375, 2.02+Y0), (0.375, 1.66+Y0), (0.60, 1.66+Y0)])
+elbow([(0.335, 2.02+Y0), (0.335, 1.66+Y0), (0.60, 1.66+Y0)])
 elbow([(2.10, 1.66+Y0), (2.45, 1.66+Y0), (2.45, 2.02+Y0)], color=BLUE)
 
 # AIE footprint note (below the container, right side)
@@ -96,22 +96,22 @@ txt(5.95, 1.78+Y0, "6 attention graphs · 72 AIE tiles", ha="right")
 
 # ---------------- down to bottom row ---------------------------------------
 elbow([(6.10, 2.02+Y0), (6.10, 1.36+Y0)], color=BLUE)
-txt(6.28, 1.70+Y0, "12×16", bbox=True)
+txt(6.28, 1.70+Y0, "12×16")
 
 # ---------------- bottom row (right to left) -------------------------------
 box(5.10, 0.60+Y0, 6.45, 1.36+Y0, fc=PLC)
 txt(5.775, 0.98+Y0, "Build candidates*\n+ invariant mass")
-arrow((5.10, 0.98+Y0), (4.85, 0.98+Y0))
-txt(4.975, 1.14+Y0, "2×14", bbox=True)
+arrow((5.10, 0.98+Y0), (4.78, 0.98+Y0))
+txt(4.94, 1.12+Y0, "2×14")
 
-box(3.45, 0.60+Y0, 4.85, 1.36+Y0, fc=PLC)
-txt(4.15, 0.98+Y0, "Autoencoder\nshared weights\n× 2 candidates")
-arrow((3.45, 0.98+Y0), (3.05, 0.98+Y0))
-txt(3.25, 1.14+Y0, "2×14", bbox=True)
+box(3.48, 0.60+Y0, 4.78, 1.36+Y0, fc=PLC)
+txt(4.13, 0.98+Y0, "Autoencoder\nshared weights\n× 2 candidates")
+arrow((3.48, 0.98+Y0), (3.08, 0.98+Y0))
+txt(3.28, 1.12+Y0, "2×14")
 
-box(1.70, 0.60+Y0, 3.05, 1.36+Y0, fc=PLC)
-txt(2.375, 0.98+Y0, "MSE losses\nreco + crossed")
-arrow((1.70, 0.98+Y0), (0.85, 0.98+Y0))
+box(1.75, 0.60+Y0, 3.08, 1.36+Y0, fc=PLC)
+txt(2.415, 0.98+Y0, "MSE losses\nreco + crossed")
+arrow((1.75, 0.98+Y0), (0.85, 0.98+Y0))
 
 box(0.05, 0.60+Y0, 0.85, 1.36+Y0)                        # external memory
 txt(0.45, 0.98+Y0, "Scores\n(DDR4)")

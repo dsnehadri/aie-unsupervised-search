@@ -52,15 +52,15 @@ def elbow(pts, lw=1.2, z=3, head=6):
     arrow(pts[-2], pts[-1], lw=lw, z=z, head=head)
 
 # ---------------- top row: input -> embed -> ABC layers --------------------
-box(0.05, 2.02, 0.70, 2.78)                              # external memory
-txt(0.375, 2.40, "Events\n(DDR4)")
-arrow((0.70, 2.40), (0.95, 2.40))
-txt(0.80, 2.63, "12×5", bbox=True)
+box(0.05, 2.02, 0.62, 2.78)                              # external memory
+txt(0.335, 2.40, "Events\n(DDR4)")
+arrow((0.62, 2.40), (1.00, 2.40))
+txt(0.81, 2.52, "12×5")
 
-box(0.95, 2.02, 1.80, 2.78, fc=STAGE)
-txt(1.375, 2.40, "Per-object\nembedding\n2-layer MLP")
-arrow((1.80, 2.40), (2.28, 2.40))
-txt(2.03, 2.63, "12×16", bbox=True)
+box(1.00, 2.02, 1.85, 2.78, fc=STAGE)
+txt(1.425, 2.40, "Per-object\nembedding\n2-layer MLP")
+arrow((1.85, 2.40), (2.28, 2.40))
+txt(2.065, 2.52, "12×16")
 
 # ABC layer container (instantiated twice)
 box(2.20, 1.88, 6.45, 2.88, fc="none", lw=1.0, ls=(0, (4, 3)))
@@ -77,7 +77,7 @@ for x0, x1, lab in blue:
     txt((x0 + x1) / 2, 2.34, lab, z=6)
 arrow((3.14, 2.34), (3.24, 2.34))
 arrow((4.10, 2.34), (4.50, 2.34))
-txt(4.30, 2.34, "3×16", bbox=True)
+txt(4.30, 2.46, "3×16")
 arrow((5.36, 2.34), (5.46, 2.34))
 
 # object embeddings also feed cross attention (queries)
@@ -87,27 +87,27 @@ txt(4.17, 1.96, "12×16", bbox=True)
 # ---------------- pairwise w_ij branch -------------------------------------
 box(0.60, 1.50, 2.10, 1.82, fc=STAGE)
 txt(1.35, 1.66, "Pairwise wᵢⱼ MLP")
-elbow([(0.375, 2.02), (0.375, 1.66), (0.60, 1.66)])
+elbow([(0.335, 2.02), (0.335, 1.66), (0.60, 1.66)])
 elbow([(2.10, 1.66), (2.45, 1.66), (2.45, 2.02)])
 
 # ---------------- down to bottom row ---------------------------------------
 elbow([(6.10, 2.02), (6.10, 1.36)])
-txt(6.28, 1.70, "12×16", bbox=True)
+txt(6.28, 1.70, "12×16")
 
 # ---------------- bottom row (right to left) -------------------------------
 box(5.10, 0.60, 6.45, 1.36, fc=STAGE)
 txt(5.775, 0.98, "Build candidates*\n+ invariant mass")
-arrow((5.10, 0.98), (4.85, 0.98))
-txt(4.975, 1.14, "2×14", bbox=True)
+arrow((5.10, 0.98), (4.78, 0.98))
+txt(4.94, 1.12, "2×14")
 
-box(3.45, 0.60, 4.85, 1.36, fc=STAGE)
-txt(4.15, 0.98, "Autoencoder\nshared weights\n× 2 candidates")
-arrow((3.45, 0.98), (3.05, 0.98))
-txt(3.25, 1.14, "2×14", bbox=True)
+box(3.48, 0.60, 4.78, 1.36, fc=STAGE)
+txt(4.13, 0.98, "Autoencoder\nshared weights\n× 2 candidates")
+arrow((3.48, 0.98), (3.08, 0.98))
+txt(3.28, 1.12, "2×14")
 
-box(1.70, 0.60, 3.05, 1.36, fc=STAGE)
-txt(2.375, 0.98, "MSE losses\nreco + crossed")
-arrow((1.70, 0.98), (0.85, 0.98))
+box(1.75, 0.60, 3.08, 1.36, fc=STAGE)
+txt(2.415, 0.98, "MSE losses\nreco + crossed")
+arrow((1.75, 0.98), (0.85, 0.98))
 
 box(0.05, 0.60, 0.85, 1.36)                              # external memory
 txt(0.45, 0.98, "Scores\n(DDR4)")
