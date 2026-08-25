@@ -58,7 +58,7 @@ arrow((0.62, 2.40), (1.00, 2.40))
 txt(0.81, 2.52, "12×5", size=7.5, bbox=True)
 
 box(1.00, 2.02, 1.85, 2.78, fc=STAGE)
-txt(1.425, 2.40, "Per-object\nembedding\n2-layer MLP")
+txt(1.425, 2.40, "Per-object\nembedding\n3-layer MLP")
 arrow((1.85, 2.40), (2.28, 2.40))
 txt(2.065, 2.52, "12×16", size=7.5, bbox=True)
 
