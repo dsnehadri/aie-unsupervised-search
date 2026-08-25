@@ -83,7 +83,7 @@ arrow((5.36, 2.34+Y0), (5.46, 2.34+Y0), color=BLUE)
 # object embeddings also feed cross attention (queries)
 elbow([(2.75, 2.02+Y0), (2.75, 1.96+Y0), (5.60, 1.96+Y0), (5.60, 2.02+Y0)],
       color=BLUE)
-txt(4.17, 1.93+Y0, "12×16", size=7.5, bbox=True)
+txt(4.30, 1.945+Y0, "12×16", size=7.5, bbox=True)
 
 # ---------------- pairwise w_ij branch -------------------------------------
 box(0.60, 1.50+Y0, 2.10, 1.82+Y0, fc=PLC)

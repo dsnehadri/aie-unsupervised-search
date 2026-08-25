@@ -82,7 +82,7 @@ arrow((5.36, 2.34), (5.46, 2.34))
 
 # object embeddings also feed cross attention (queries)
 elbow([(2.75, 2.02), (2.75, 1.96), (5.60, 1.96), (5.60, 2.02)])
-txt(4.17, 1.93, "12×16", size=7.5, bbox=True)
+txt(4.30, 1.945, "12×16", size=7.5, bbox=True)
 
 # ---------------- pairwise w_ij branch -------------------------------------
 box(0.60, 1.50, 2.10, 1.82, fc=STAGE)
