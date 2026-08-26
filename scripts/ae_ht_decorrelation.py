@@ -38,19 +38,21 @@ centers = 0.5 * (edges[:-1] + edges[1:])
 
 print(f"{'H_T bin (GeV)':16s}" + "".join(f"{s[0][:14]:>16s}" for s in [(k,) for k,_,_ in SIGNALS]))
 results = {}
+bkg_mavg = bl["qcd_background_mavg"]
 for f, lab, col in SIGNALS:
-    s_ht, s_loss = bl[f"{f}_ht"], ae[f]
-    aucs, ht_aucs, ns = [], [], []
+    s_ht, s_loss, s_mavg = bl[f"{f}_ht"], ae[f], bl[f"{f}_mavg"]
+    aucs, m_aucs, ns = [], [], []
     for lo, hi in zip(edges[:-1], edges[1:]):
         bi = (bkg_ht >= lo) & (bkg_ht < hi)
         si = (s_ht >= lo) & (s_ht < hi)
         if bi.sum() >= MIN_N and si.sum() >= MIN_N:
             aucs.append(auc(bkg_loss[bi], s_loss[si]))
-            ht_aucs.append(auc(bkg_ht[bi], s_ht[si]))
+            bm, sm = bkg_mavg[bi], s_mavg[si]
+            m_aucs.append(auc(bm[np.isfinite(bm)], sm[np.isfinite(sm)]))
             ns.append((int(bi.sum()), int(si.sum())))
         else:
-            aucs.append(np.nan); ht_aucs.append(np.nan); ns.append((int(bi.sum()), int(si.sum())))
-    results[f] = {"auc": aucs, "ht_auc": ht_aucs, "n": ns}
+            aucs.append(np.nan); m_aucs.append(np.nan); ns.append((int(bi.sum()), int(si.sum())))
+    results[f] = {"auc": aucs, "mavg_auc": m_aucs, "n": ns}
 
 for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
     row = f"{lo:4.0f}-{hi:4.0f}      "
@@ -72,19 +74,27 @@ plt.rcParams.update({"font.size": 12})
 fig, ax = plt.subplots(figsize=(7.4, 5.2))
 for f, lab, col in SIGNALS:
     a = np.array(results[f]["auc"])
+    m = np.array(results[f]["mavg_auc"])
     ok = np.isfinite(a)
     ax.plot(centers[ok] / 1000, a[ok], "o-", lw=1.8, ms=5, color=col, label=lab)
+    ax.plot(centers[ok] / 1000, m[ok], "s--", lw=1.3, ms=4, color=col, alpha=0.55)
+from matplotlib.lines import Line2D
+style_handles = [Line2D([], [], color="#444", marker="o", ls="-", label="AE loss"),
+                 Line2D([], [], color="#444", marker="s", ls="--", alpha=0.55,
+                        label=r"min-asym $m_{avg}$")]
 ax.axhline(0.5, color="#888", ls="--", lw=1)
 ax.text(1.05, 0.512, "no discrimination", fontsize=9, color="#666", ha="left")
 ax.set_xlim(1.0, 3.0); ax.set_ylim(0.4, 1.02)
 ax.set_xlabel(r"$H_T$ bin  [TeV]", fontsize=13)
-ax.set_ylabel("AE-loss AUC within bin", fontsize=13)
+ax.set_ylabel("anomaly-score AUC within bin", fontsize=13)
 ax.xaxis.set_minor_locator(AutoMinorLocator(5))
 ax.yaxis.set_minor_locator(AutoMinorLocator(5))
 ax.tick_params(which="both", direction="in", right=True, top=True)
 ax.grid(alpha=.12)
-ax.legend(frameon=False, fontsize=10, loc="lower right")
-ax.set_title("AE loss discrimination at fixed event energy\n"
+leg1 = ax.legend(frameon=False, fontsize=10, loc="lower right")
+ax.add_artist(leg1)
+ax.legend(handles=style_handles, frameon=False, fontsize=9, loc="upper left")
+ax.set_title("Anomaly-score discrimination at fixed event energy\n"
              r"(AUC vs QCD within $H_T$ bins; bins with $\geq$30 events per class)",
              fontsize=12)
 fig.tight_layout()
@@ -94,5 +104,5 @@ fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight")
 print("\nsaved", out)
 
 with open(f"{SAVE}/ae_ht_decorrelation.json", "w") as f_:
-    json.dump({k: {"auc": v["auc"], "ht_auc": v["ht_auc"], "n": v["n"]}
+    json.dump({k: {"auc": v["auc"], "mavg_auc": v["mavg_auc"], "n": v["n"]}
                for k, v in results.items()}, f_, indent=2, default=float)
