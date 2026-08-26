@@ -49,9 +49,9 @@ for ax in (ax1, ax2):
 
 # --- power panel ---
 ax1.plot(pl_t, roll(col(pl_rows, "total_W")), color=BLUE, lw=2,
-         label="PL-only image (1,139 events/s)")
+         label="PL-only image")
 ax1.plot(ai_t, roll(col(ai_rows, "total_W")), color=ORANGE, lw=2,
-         label="AIE-PL hybrid image (8,962 events/s)")
+         label="AIE-PL hybrid image")
 ax1.set_ylabel("Board power (W)", color=BLACK, fontsize=10)
 ax1.legend(frameon=False, fontsize=9, labelcolor=BLACK, loc="center right")
 
