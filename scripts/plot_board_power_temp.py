@@ -66,7 +66,8 @@ ax2.plot(ai_t, roll(col(ai_rows, "aie")), color=ORANGE, lw=1.4, ls="--",
          label="AIE array, hybrid")
 ax2.set_ylabel("Temperature (°C)", color=BLACK, fontsize=10)
 ax2.set_xlabel("Time relative to load start (s)", color=BLACK, fontsize=10)
-ax2.legend(frameon=False, fontsize=8.5, labelcolor=BLACK, ncol=2, loc="center left")
+ax2.set_ylim(29.7, None)   # headroom below the traces for the legend
+ax2.legend(frameon=False, fontsize=8.5, labelcolor=BLACK, ncol=2, loc="lower left")
 
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/board_pl_vs_aie_power_temp.png"
