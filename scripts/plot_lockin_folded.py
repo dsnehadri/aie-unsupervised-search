@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Folded ON/OFF load cycle (lock-in): board power over die temperatures.
+"""Folded ON/OFF load cycle (lock-in), plotted with the same configuration
+as plot_board_power_temp.py: board power on top, die temperatures below,
+white background, black text, no title, shaded load-ON region.
 
-Paper style, matching plot_board_power_temp.py: white background, black
-text, no title, capitalized labels. Cycles are folded onto one common
-cycle axis and averaged; the shaded band is +/-1 standard error across
-repetitions, so the band -- not the sample-to-sample jitter -- shows the
-precision of the measurement.
+Sixteen ON/OFF cycles are folded onto one common cycle axis and averaged,
+which cancels ambient drift; the same 30-sample rolling mean as the time
+series is then applied.
 """
 import csv
 import numpy as np
@@ -17,7 +17,7 @@ CSV = "/home/snehadri/repos/aie-unsupervised-search/figs/board_thermal_lockin_lo
 PHASES = "/home/snehadri/repos/aie-unsupervised-search/figs/board_thermal_lockin_phases.txt"
 BLUE, ORANGE = "#2a78d6", "#eb6834"
 BLACK, GRID = "#1a1a1a", "#dddddd"
-BIN = 2.0        # s per folded bin
+BIN = 1.0        # s per folded bin (matches the raw sampling cadence)
 
 rows = list(csv.DictReader(open(CSV)))
 epochs = np.array([float(r["epoch"]) for r in rows])
@@ -32,10 +32,9 @@ for line in open(PHASES):
 ons = [(s, e) for s, e in ons if e is not None]
 period = np.median([ons[i + 1][0] - ons[i][0] for i in range(len(ons) - 1)])
 on_len = np.median([e - s for s, e in ons])
-print(f"{len(ons)} cycles, period {period:.0f} s, ON {on_len:.0f} s")
 
 def fold(key):
-    """Return (bin centers, mean, standard error) folded over cycles."""
+    """Mean over cycles, per folded time bin."""
     vals = np.array([float(r[key]) for r in rows])
     nb = int(np.ceil(period / BIN))
     acc = [[] for _ in range(nb)]
@@ -46,9 +45,18 @@ def fold(key):
                 acc[min(int(t / BIN), nb - 1)].append(v)
     centers = (np.arange(nb) + 0.5) * BIN
     mean = np.array([np.mean(a) if a else np.nan for a in acc])
-    sem = np.array([np.std(a, ddof=1) / np.sqrt(len(a)) if len(a) > 1 else np.nan
-                    for a in acc])
-    return centers, mean, sem
+    return centers, mean
+
+def roll(xs, k=30):
+    """Centered rolling mean: a trailing window would drag the sharp ON/OFF
+    step across ~k seconds and misstate when the transition happened."""
+    h = k // 2
+    return [np.nanmean(xs[max(0, i - h):min(len(xs), i + h + 1)])
+            for i in range(len(xs))]
+
+def col(key):
+    c, m = fold(key)
+    return c, roll(m)
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8.5, 5.6), dpi=150, sharex=True,
                                gridspec_kw={"hspace": 0.12})
@@ -62,35 +70,21 @@ for ax in (ax1, ax2):
     ax.set_axisbelow(True)
     ax.axvspan(0, on_len, color=GRID, alpha=0.45, zorder=0)
 
-def band(ax, key, color, label):
-    c, m, e = fold(key)
-    ax.plot(c, m, color=color, lw=1.8, label=label, zorder=3)
-    ax.fill_between(c, m - e, m + e, color=color, alpha=0.25, lw=0, zorder=2)
-    return c, m, e
-
-# --- power ---
-c, m, e = band(ax1, "total_W", BLUE, "Board power")
+# --- power panel ---
+t, p = col("total_W")
+ax1.plot(t, p, color=BLUE, lw=2, label="AIE-PL hybrid image")
 ax1.set_ylabel("Board power (W)", color=BLACK, fontsize=10)
-on = (c > 35) & (c < on_len)
-off = c > on_len + 20
-dP = np.nanmean(m[on]) - np.nanmean(m[off])
-sP = np.sqrt(np.nanmean(e[on] ** 2) / on.sum() + np.nanmean(e[off] ** 2) / off.sum())
-ax1.set_ylim(10.55, 11.52)   # headroom so the step is centered
+ax1.legend(frameon=False, fontsize=9, labelcolor=BLACK, loc="center right")
 
-# --- temperatures ---
-band(ax2, "versal", BLUE, "Versal die")
-band(ax2, "aie", ORANGE, "AIE array")
+# --- temperature panel ---
+t, v = col("versal")
+ax2.plot(t, v, color=BLUE, lw=2, label="Versal die")
+t, a = col("aie")
+ax2.plot(t, a, color=BLUE, lw=1.4, ls="--", label="AIE array")
 ax2.set_ylabel("Temperature (°C)", color=BLACK, fontsize=10)
 ax2.set_xlabel("Time within cycle (s)", color=BLACK, fontsize=10)
-ax2.set_ylim(34.02, None)
-ax2.legend(frameon=False, fontsize=9, labelcolor=BLACK, ncol=2, loc="lower center")
-
-c2, m2, e2 = fold("versal")
-on2 = (c2 > 35) & (c2 < on_len)
-off2 = c2 > on_len + 20
-dT = np.nanmean(m2[on2]) - np.nanmean(m2[off2])
-print(f"ON-OFF power delta:  {dP*1000:+.0f} mW +/- {sP*1000:.0f}")
-print(f"ON-OFF Versal dT:    {dT:+.3f} C")
+ax2.legend(frameon=False, fontsize=8.5, labelcolor=BLACK, ncol=2,
+           loc="lower center")
 
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/board_lockin_folded_cycle.png"
