@@ -5,7 +5,8 @@ each in float32 (unquantized) and int16 (deployed). Median with
 95% interval error bars.
 
 Data:
-  PL  -- float_stage_check dumps (fx/flt_stage3.bin) vs torch_obj100.npy
+  PL  -- float_stage_check dumps (M_fx/M_flt_s3.bin) vs m_obj2000.npy
+         (inputs and reference built together by make_matched_set.py)
   AIE -- x86sim all-blocks runs (float_aie_errors.json / int16_aie_errors.json)
          vs stage3_layer0_post_obj_selfattn goldens
 """
@@ -21,9 +22,9 @@ TV = "/home/snehadri/repos/unsupervised-search/phase3_export_retrained/test_vect
 PL_C, AIE_C = "#d62728", "#1f77b4"
 
 # ---- PL: obj block stage dumps, 100 events --------------------------------
-N_PL = 100
-gold = np.load(f"{SAVE}/torch_obj100.npy")
-mask = np.load(f"{SAVE}/mask100.npy")
+N_PL = 2000
+gold = np.load(f"{SAVE}/m_obj2000.npy")
+mask = np.load(f"{SAVE}/m_mask2000.npy")
 rms_pl = np.sqrt(np.mean(gold ** 2))
 def pl_pct(binfile):
     arr = np.fromfile(binfile, dtype=np.float32).reshape(N_PL, 12, 16)
@@ -31,7 +32,7 @@ def pl_pct(binfile):
     for i in range(N_PL):
         d[i][mask[i]] = 0
     return 100.0 * d.reshape(N_PL, -1).max(1) / rms_pl
-pl_fx, pl_flt = pl_pct(f"{SAVE}/fx_stage3.bin"), pl_pct(f"{SAVE}/flt_stage3.bin")
+pl_fx, pl_flt = pl_pct(f"{SAVE}/M_fx_s3.bin"), pl_pct(f"{SAVE}/M_flt_s3.bin")
 
 # ---- AIE: obj_L0 block from the x86sim all-blocks runs, 20 events ---------
 with open(f"{TB}/float_aie_errors.json") as f:
