@@ -55,6 +55,9 @@ for ax, data, flat, ylab, xlab in panels:
     ax.tick_params(which="both", direction="in", right=True, top=True)
     ax.grid(alpha=.12)
     ax.legend(frameon=False, fontsize=10, loc="lower right")
+    # single 0 at the corner: the y-axis label serves both axes
+    ax.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    ax.set_xticklabels(["", "0.2", "0.4", "0.6", "0.8", "1.0"])
 
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/roc_event_and_candidate.png"
