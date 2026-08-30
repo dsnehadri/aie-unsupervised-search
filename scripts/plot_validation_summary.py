@@ -2,7 +2,7 @@
 """Validation summary: per-event max error vs PyTorch for the obj
 self-attention block output, four builds of the SAME source -- PL and AIE,
 each in float32 (unquantized) and int16 (deployed). Median with
-16th-84th percentile error bars.
+95% interval error bars.
 
 Data:
   PL  -- float_stage_check dumps (fx/flt_stage3.bin) vs torch_obj100.npy
@@ -55,19 +55,17 @@ groups = [
 fig, ax = plt.subplots(figsize=(7.2, 5.2))
 for gi, (label, vals, color, fill) in enumerate(groups):
     med = np.median(vals)
-    lo, hi = np.percentile(vals, [16, 84])
+    lo, hi = np.percentile(vals, [2.5, 97.5])
     ax.errorbar(gi, med, yerr=[[med - lo], [hi - med]],
                 fmt="o", ms=9, capsize=6, capthick=1.6, elinewidth=1.6,
                 color=color, markerfacecolor=(color if fill == "full" else "white"),
                 markeredgecolor=color, markeredgewidth=1.8, zorder=3)
-    ax.annotate(f"{med:.2g}%", (gi + 0.13, med), va="center", ha="left",
-                fontsize=10.5, weight="bold")
 
 ax.set_yscale("log")
 ax.set_ylim(1e-5, 50)
 ax.set_xticks(range(len(groups)))
 ax.set_xticklabels([g[0] for g in groups], fontsize=12)
-ax.set_xlim(-0.5, len(groups) - 0.35)
+ax.set_xlim(-0.5, len(groups) - 0.5)
 ax.set_ylabel("Per-event maximum error vs PyTorch\n[% of activation RMS]",
               fontsize=12)
 ax.grid(axis="y", ls="--", alpha=0.4)
@@ -80,7 +78,7 @@ fig.savefig(out, dpi=200, bbox_inches="tight")
 fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight")
 print("saved", out)
 for label, vals, *_ in groups:
-    lo, hi = np.percentile(vals, [16, 84])
+    lo, hi = np.percentile(vals, [2.5, 97.5])
     print(f"{label.replace(chr(10),' '):14s} N={len(vals):3d}  "
-          f"median {np.median(vals):.3g}%  16-84% [{lo:.3g}, {hi:.3g}]  "
+          f"median {np.median(vals):.3g}%  95% [{lo:.3g}, {hi:.3g}]  "
           f"max {vals.max():.3g}%")
