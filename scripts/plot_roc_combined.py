@@ -38,8 +38,8 @@ fig, (ax_ev, ax_cd) = plt.subplots(1, 2, figsize=(12.4, 5.8))
 panels = [
     (ax_ev, ev,   lambda a: a,                "Signal event efficiency",
      "QCD event efficiency"),
-    (ax_cd, cand, lambda a: a.reshape(-1),    "Signal candidate efficiency",
-     "QCD candidate efficiency"),
+    (ax_cd, cand, lambda a: a.max(axis=1),    "Signal event efficiency",
+     "QCD event efficiency"),
 ]
 
 for ax, data, flat, ylab, xlab in panels:

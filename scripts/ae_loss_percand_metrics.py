@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-"""Per-CANDIDATE AE-loss metrics -- the object-level version of the
-ae_loss figures. The event score is MSE(c0)+MSE(c1); here each of the two
-BSM candidates is scored independently (2 objects per event), and the
-purity/efficiency/F1 threshold sweep and ROC/AUC run over candidates.
+"""Maximum-candidate AE-loss metrics. The event score is MSE(c0)+MSE(c1);
+here an event fires if EITHER candidate exceeds the threshold, i.e. the
+discriminant is max(loss_c0, loss_c1). The decision unit is the event, so
+these curves are directly comparable with the summed-loss version.
 
 Captured with forward hooks on enc.ae_in / enc.ae_out (called once per
 candidate per event); loss per candidate = mean((c - c_out)^2) as in
@@ -79,14 +79,14 @@ if not os.path.isfile(CACHE):
     print("cached", CACHE)
 
 d = np.load(CACHE)
-bkg = d["qcd_background"].reshape(-1)          # 2 candidates per event, pooled
+bkg = d["qcd_background"].max(axis=1)   # event fires if EITHER candidate is above
 
-allv = np.concatenate([bkg] + [d[f].reshape(-1) for f, _, _ in SIGNALS])
+allv = np.concatenate([bkg] + [d[f].max(axis=1) for f, _, _ in SIGNALS])
 T_SCAN = np.quantile(allv, np.linspace(0.0, 0.999, 200))
 
 curves = []
 for f, lab, col in SIGNALS:
-    sig = d[f].reshape(-1)
+    sig = d[f].max(axis=1)
     eff = np.array([(sig > t).mean() for t in T_SCAN])
     bfr = np.array([(bkg > t).mean() for t in T_SCAN])
     pur = np.where(eff + bfr > 0, eff / (eff + bfr), np.nan)   # equal cand yields
@@ -95,15 +95,15 @@ for f, lab, col in SIGNALS:
 
 plt.rcParams.update({"font.size": 12})
 fig, axes = plt.subplots(1, 3, figsize=(16.8, 5.0), sharex=True)
-panels = ["(a) purity  —  fired signal cands / all fired cands",
-          "(b) efficiency  —  fired signal cands / all signal cands",
+panels = ["(a) purity  —  fired signal events / all fired events",
+          "(b) efficiency  —  fired signal events / all signal events",
           "(c) F1"]
-ylabels = ["candidate purity", "candidate efficiency", "candidate F1"]
+ylabels = ["event purity", "event efficiency", "event F1"]
 for ax, title, yl, idx in zip(axes, panels, ylabels, range(3)):
     for lab, col, pur, eff, f1 in curves:
         ax.plot(T_SCAN, (pur, eff, f1)[idx], "-", lw=1.8, color=col, label=lab)
     ax.set_xlim(T_SCAN[0], T_SCAN[-1]); ax.set_ylim(0, 1.03)
-    ax.set_xlabel("per-candidate AE loss threshold", fontsize=13)
+    ax.set_xlabel("maximum-candidate AE loss threshold", fontsize=13)
     ax.set_ylabel(yl, fontsize=13)
     ax.xaxis.set_minor_locator(AutoMinorLocator(4))
     ax.yaxis.set_minor_locator(AutoMinorLocator(5))
@@ -111,8 +111,8 @@ for ax, title, yl, idx in zip(axes, panels, ylabels, range(3)):
     ax.grid(alpha=.12)
     ax.set_title(title, fontsize=12.5, loc="left")
 axes[0].legend(frameon=False, fontsize=10.5, loc="lower right")
-fig.suptitle("Anomaly score per BSM candidate (object level): signal vs QCD  "
-             "(equal candidate yields)", fontsize=14, fontweight="bold", y=1.0)
+fig.suptitle("Anomaly score, maximum of the two BSM candidates: signal vs QCD  "
+             "(equal event yields)", fontsize=14, fontweight="bold", y=1.0)
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/ae_loss_percand_purity_f1.png"
 fig.savefig(out, dpi=200, bbox_inches="tight")
@@ -130,19 +130,19 @@ def roc(sig, bkg):
 
 fig, ax = plt.subplots(figsize=(6.8, 6.2))
 for f, lab, col in SIGNALS:
-    fpr, tpr, auc = roc(d[f].reshape(-1), bkg)
+    fpr, tpr, auc = roc(d[f].max(axis=1), bkg)
     ax.plot(fpr, tpr, "-", lw=1.8, color=col, label=f"{lab}  (AUC {auc:.3f})")
 ax.plot([0, 1], [0, 1], ls="--", lw=1, color="#888")
 ax.set_xlim(0, 1); ax.set_ylim(0, 1.02)
-ax.set_xlabel("QCD candidate efficiency  (false positive rate)", fontsize=13)
-ax.set_ylabel("signal candidate efficiency  (true positive rate)", fontsize=13)
+ax.set_xlabel("QCD event efficiency  (false positive rate)", fontsize=13)
+ax.set_ylabel("signal event efficiency  (true positive rate)", fontsize=13)
 ax.xaxis.set_minor_locator(AutoMinorLocator(4))
 ax.yaxis.set_minor_locator(AutoMinorLocator(4))
 ax.tick_params(which="both", direction="in", right=True, top=True)
 ax.grid(alpha=.12)
 ax.legend(frameon=False, fontsize=10.5, loc="lower right")
-ax.set_title("Per-candidate ROC: AE loss of a single BSM candidate\n"
-             "(signal vs QCD candidates, retrained model)", fontsize=12.5)
+ax.set_title("Event ROC: maximum candidate AE loss\n"
+             "(signal vs QCD events, retrained model)", fontsize=12.5)
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/ae_loss_percand_auc.png"
 fig.savefig(out, dpi=200, bbox_inches="tight")
