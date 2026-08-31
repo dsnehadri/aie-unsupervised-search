@@ -100,7 +100,8 @@ def fig_blocks_and_scaling():
     axs.set_xticks(tiles)
     axs.set_xlim(0, tiles.max() * 1.05)
     axs.set_xlabel("AI Engine tiles", fontsize=12.5)
-    axs.set_ylabel("Throughput [events / s]", fontsize=12.5)
+    axs.set_ylabel("Object attention block throughput [events / s]",
+                   fontsize=12.5)
     axs.set_ylim(0, meas.max() * 1.12)
     axs.legend(fontsize=11, loc="upper left", frameon=False)
 
