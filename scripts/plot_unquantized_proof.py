@@ -12,11 +12,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 SAVE = "/home/snehadri/aie_scratch_save_20260810"
-N = 100
-gold = np.load(f"{SAVE}/torch_obj100.npy")            # PyTorch float32
-mask = np.load(f"{SAVE}/mask100.npy")
-fx  = np.fromfile(f"{SAVE}/fx_stage3.bin",  dtype=np.float32).reshape(N, 12, 16)
-flt = np.fromfile(f"{SAVE}/flt_stage3.bin", dtype=np.float32).reshape(N, 12, 16)
+N = 2000
+gold = np.load(f"{SAVE}/m_obj2000.npy")               # PyTorch float32
+mask = np.load(f"{SAVE}/m_mask2000.npy")
+fx  = np.fromfile(f"{SAVE}/M_fx_s3.bin",  dtype=np.float32).reshape(N, 12, 16)
+flt = np.fromfile(f"{SAVE}/M_flt_s3.bin", dtype=np.float32).reshape(N, 12, 16)
 rms = np.sqrt(np.mean(gold**2))
 
 def per_event(arr):
@@ -47,7 +47,7 @@ ax.text(0.015, 0.965,
 ax.set_xlabel("Event Index", fontsize=12)
 ax.set_ylabel("per-event max |error| vs PyTorch  [% of activation RMS]", fontsize=11)
 ax.set_title("Unquantized Reference: same obj-attention source, two arithmetics, vs PyTorch\n"
-             "(obj self-attention block output, retrained weights, 100 events)", fontsize=12.5)
+             "(obj self-attention block output, retrained weights, 2000 events)", fontsize=12.5)
 ax.grid(ls="--", alpha=0.4)
 ax.legend(loc="center right", fontsize=10)
 
