@@ -80,14 +80,12 @@ for f, lab, col in SIGNALS:
     ax.plot(centers[ok] / 1000, a[ok], "o-", lw=1.8, ms=5, color=col, label=lab)
     ax.plot(centers[ok] / 1000, m[ok], "s--", lw=1.3, ms=4, color=col, alpha=0.55)
 from matplotlib.lines import Line2D
-style_handles = [Line2D([], [], color="#444", marker="o", ls="-", label="AE loss"),
+style_handles = [Line2D([], [], color="#444", marker="o", ls="-", label="Autoencoder loss"),
                  Line2D([], [], color="#444", marker="s", ls="--", alpha=0.55,
-                        label=r"min-asym $m_{avg}$")]
-ax.axhline(0.5, color="#888", ls="--", lw=1)
-ax.text(1.05, 0.512, "no discrimination", fontsize=9, color="#666", ha="left")
+                        label=r"Minimum mass asymmetry, $m_\mathrm{avg}$")]
 ax.set_xlim(1.0, 3.0); ax.set_ylim(0.4, 1.02)
-ax.set_xlabel(r"$H_T$ bin  [TeV]", fontsize=13)
-ax.set_ylabel("anomaly-score AUC within bin", fontsize=13)
+ax.set_xlabel(r"$H_T$ [TeV]", fontsize=13)
+ax.set_ylabel("AUC", fontsize=13)
 ax.xaxis.set_minor_locator(AutoMinorLocator(5))
 ax.yaxis.set_minor_locator(AutoMinorLocator(5))
 ax.tick_params(which="both", direction="in", right=True, top=True)
@@ -95,9 +93,6 @@ ax.grid(alpha=.12)
 leg1 = ax.legend(frameon=False, fontsize=10, loc="lower right")
 ax.add_artist(leg1)
 ax.legend(handles=style_handles, frameon=False, fontsize=9, loc="upper left")
-ax.set_title("Anomaly-score discrimination at fixed event energy\n"
-             r"(AUC vs QCD within $H_T$ bins; bins with $\geq$30 events per class)",
-             fontsize=12)
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/ae_auc_vs_ht.png"
 fig.savefig(out, dpi=200, bbox_inches="tight")
