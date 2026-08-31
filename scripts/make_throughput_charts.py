@@ -76,7 +76,8 @@ def fig_blocks_and_scaling():
     fig, (axb, axs) = plt.subplots(1, 2, figsize=(13.2, 4.9))
 
     # --- (a) single attention block, PL vs AIE ---
-    blocks = ["Object", "Candidate", "Cross"]
+    blocks = ["Object\nattention block", "Candidate\nattention block",
+              "Cross\nattention block"]
     pl_v = np.array([6334, 25458, 7307], float)
     aie_v = np.array([4738, 14808, 5212], float)
     xs = np.arange(len(blocks))
@@ -84,8 +85,7 @@ def fig_blocks_and_scaling():
     axb.bar(xs - w/2, pl_v,  width=w, color=PL_C,  label="PL block")
     axb.bar(xs + w/2, aie_v, width=w, color=AIE_C, label="AIE block")
     axb.set_xticks(xs)
-    axb.set_xticklabels(blocks, fontsize=12)
-    axb.set_xlabel("Attention block", fontsize=12.5)
+    axb.set_xticklabels(blocks, fontsize=11.5)
     axb.set_ylabel("Throughput [events / s]", fontsize=12.5)
     axb.set_ylim(0, pl_v.max() * 1.12)
     axb.legend(fontsize=11, frameon=False)
@@ -96,7 +96,7 @@ def fig_blocks_and_scaling():
     axs.plot(tiles, meas, "o-", color=AIE_C, lw=2, ms=7,
              markeredgecolor="k", markeredgewidth=0.4, label="AIE object block")
     axs.axhline(6334, color=PL_C, lw=2, ls="--",
-                label="PL object block, single instance")
+                label="PL object block")
     axs.set_xscale("log", base=2)
     axs.set_xticks(tiles)
     axs.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
