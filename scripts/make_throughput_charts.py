@@ -97,9 +97,8 @@ def fig_blocks_and_scaling():
              markeredgecolor="k", markeredgewidth=0.4, label="AIE object block")
     axs.axhline(6334, color=PL_C, lw=2, ls="--",
                 label="PL object block")
-    axs.set_xscale("log", base=2)
     axs.set_xticks(tiles)
-    axs.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
+    axs.set_xlim(0, tiles.max() * 1.05)
     axs.set_xlabel("AI Engine tiles", fontsize=12.5)
     axs.set_ylabel("Throughput [events / s]", fontsize=12.5)
     axs.set_ylim(0, meas.max() * 1.12)
