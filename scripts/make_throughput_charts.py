@@ -71,60 +71,43 @@ def fig_endtoend():
 # ---------------------------------------------------------------------------
 # 2. Per-block single-instance throughput, PL vs AIE (runtime @100 MHz)
 # ---------------------------------------------------------------------------
-def fig_per_block():
-    blocks = ["obj self-attn", "cand self-attn", "cross attn"]
-    pl_v  = np.array([6334, 25458, 7307], float)
+def fig_blocks_and_scaling():
+    """Two panels: single-block PL vs AIE, and AIE tile replication."""
+    fig, (axb, axs) = plt.subplots(1, 2, figsize=(13.2, 4.9))
+
+    # --- (a) single attention block, PL vs AIE ---
+    blocks = ["Object", "Candidate", "Cross"]
+    pl_v = np.array([6334, 25458, 7307], float)
     aie_v = np.array([4738, 14808, 5212], float)
     xs = np.arange(len(blocks))
     w = 0.36
+    axb.bar(xs - w/2, pl_v,  width=w, color=PL_C,  label="PL block")
+    axb.bar(xs + w/2, aie_v, width=w, color=AIE_C, label="AIE block")
+    axb.set_xticks(xs)
+    axb.set_xticklabels(blocks, fontsize=12)
+    axb.set_xlabel("Attention block", fontsize=12.5)
+    axb.set_ylabel("Throughput [events / s]", fontsize=12.5)
+    axb.set_ylim(0, pl_v.max() * 1.12)
+    axb.legend(fontsize=11, frameon=False)
 
-    fig, ax = plt.subplots(figsize=(7.6, 4.6))
-    ax.bar(xs - w/2, pl_v,  width=w, color=PL_C,  label="PL block (1 instance)")
-    ax.bar(xs + w/2, aie_v, width=w, color=AIE_C, label="AIE block (1 instance, 13 tiles)")
-    for x, v in zip(xs - w/2, pl_v):
-        ax.text(x, v + 300, f"{v:,.0f}", ha="center", fontsize=10, weight="bold")
-    for x, v in zip(xs + w/2, aie_v):
-        ax.text(x, v + 300, f"{v:,.0f}", ha="center", fontsize=10, weight="bold")
-    ax.set_xticks(xs)
-    ax.set_xticklabels(blocks, fontsize=11)
-    ax.set_ylabel("throughput  [events / s]")
-    ax.set_ylim(0, pl_v.max() * 1.18)
-    ax.set_title("Single attention block: PL vs AIE (measured runtime)",
-                 fontsize=12.5, pad=10)
-    ax.legend(fontsize=10)
-    save(fig, "throughput_per_block")
-
-
-# ---------------------------------------------------------------------------
-# 3. AIE tile-replication scaling of the obj block (measured 5-point sweep)
-# ---------------------------------------------------------------------------
-def fig_scaling():
+    # --- (b) AIE tile replication ---
     tiles = np.array([13, 26, 52, 104, 208], float)
-    meas  = np.array([4648, 8701, 15226, 24966, 36659], float)
-    ideal = meas[0] * tiles / tiles[0]
+    meas = np.array([4648, 8701, 15226, 24966, 36659], float)
+    axs.plot(tiles, meas, "o-", color=AIE_C, lw=2, ms=7,
+             markeredgecolor="k", markeredgewidth=0.4, label="AIE object block")
+    axs.axhline(6334, color=PL_C, lw=2, ls="--",
+                label="PL object block, single instance")
+    axs.set_xscale("log", base=2)
+    axs.set_xticks(tiles)
+    axs.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
+    axs.set_xlabel("AI Engine tiles", fontsize=12.5)
+    axs.set_ylabel("Throughput [events / s]", fontsize=12.5)
+    axs.set_ylim(0, meas.max() * 1.12)
+    axs.legend(fontsize=11, loc="upper left", frameon=False)
 
-    fig, ax = plt.subplots(figsize=(7.6, 4.8))
-    ax.plot(tiles, ideal, "--", color="gray", lw=1.5, label="ideal linear")
-    ax.plot(tiles, meas, "o-", color=AIE_C, lw=2, ms=7,
-            markeredgecolor="k", markeredgewidth=0.4, label="AIE obj block (measured)")
-    ax.axhline(6334, color=PL_C, lw=2, ls="-", alpha=0.85,
-               label="PL obj block, 1 instance (DSP-limited)")
-    for t, v in zip(tiles, meas):
-        ax.annotate(f"{v:,.0f}", (t, v), textcoords="offset points",
-                    xytext=(0, 9), ha="center", fontsize=9.5, weight="bold")
-    ax.set_xscale("log", base=2)
-    ax.set_xticks(tiles)
-    ax.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
-    ax.set_xlabel("AIE tiles (1x .. 16x replication)")
-    ax.set_ylabel("throughput  [events / s]")
-    ax.set_ylim(0, ideal.max() * 1.06)
-    ax.set_title("AIE obj-block throughput vs tile replication (measured)",
-                 fontsize=12.5, pad=10)
-    ax.legend(fontsize=10, loc="upper left")
-    save(fig, "throughput_scaling")
+    save(fig, "throughput_blocks_and_scaling")
 
 
 if __name__ == "__main__":
     fig_endtoend()
-    fig_per_block()
-    fig_scaling()
+    fig_blocks_and_scaling()
