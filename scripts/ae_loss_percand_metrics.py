@@ -17,13 +17,14 @@ from matplotlib.ticker import AutoMinorLocator
 
 CACHE = "/home/snehadri/aie_scratch_save_20260810/ae_losses_cand.npz"
 CKPT = "/home/snehadri/repos/unsupervised-search/experiments/retrained_noncollapse/finalWeights.ckpt"
-N_BKG = 20000
+N_BKG = 200000
 
 SIGNALS = [
     ("gluino_rpv_6j",      r"$\tilde g\tilde g\to 2\times j(jj)$",   "#1f77b4"),
     ("gluino_rpv_10j",     r"$\tilde g\tilde g\to 2\times jj(jjj)$", "#ff7f0e"),
     ("stop_rpv_12j",       r"$\tilde t\tilde t\to 2\times jjj(jjj)$","#2ca02c"),
     ("squark_rpv_8j_2000", r"$\tilde q\tilde q\to 2\times j(jjj)$",  "#9467bd"),
+    ("squark_rpv_8j_WZH_2000", r"$\tilde q\tilde q\to 2\times jj(jj)$",  "#d62728"),
 ]
 
 if not os.path.isfile(CACHE):

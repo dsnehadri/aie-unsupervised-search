@@ -3,9 +3,8 @@
 as plot_board_power_temp.py: board power on top, die temperatures below,
 white background, black text, no title, shaded load-ON region.
 
-Sixteen ON/OFF cycles are folded onto one common cycle axis and averaged,
-which cancels ambient drift; the same 30-sample rolling mean as the time
-series is then applied.
+Two hundred ON/OFF cycles are folded onto one common cycle axis and averaged,
+which cancels ambient drift; only light smoothing is then applied.
 """
 import csv
 import numpy as np
@@ -47,9 +46,12 @@ def fold(key):
     mean = np.array([np.mean(a) if a else np.nan for a in acc])
     return centers, mean
 
-def roll(xs, k=30):
-    """Centered rolling mean: a trailing window would drag the sharp ON/OFF
-    step across ~k seconds and misstate when the transition happened."""
+def roll(xs, k=5):
+    """Light centered smoothing only. Folding 200 cycles already averages ~200
+    samples into every 1 s bin, so heavy smoothing buys nothing and actively
+    misleads: a centered +/-15 s window drags the sharp ON->OFF step 15 s
+    earlier than it happens, making power look like it sags before the load
+    stops. The raw fold is flat until the ON window ends."""
     h = k // 2
     return [np.nanmean(xs[max(0, i - h):min(len(xs), i + h + 1)])
             for i in range(len(xs))]

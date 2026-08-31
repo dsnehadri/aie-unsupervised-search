@@ -19,10 +19,11 @@ import numpy as np
 CACHE = "/home/snehadri/aie_scratch_save_20260810/anomaly_baselines.npz"
 AE_CACHE = "/home/snehadri/aie_scratch_save_20260810/ae_losses.npz"
 OUT_JSON = "/home/snehadri/aie_scratch_save_20260810/anomaly_baseline_aucs.json"
-N_BKG = 20000
+N_BKG = 200000
 
 SAMPLES = ["qcd_background", "gluino_rpv_6j", "gluino_rpv_10j",
-           "stop_rpv_12j", "squark_rpv_8j_2000"]
+           "stop_rpv_12j", "squark_rpv_8j_2000",
+           "squark_rpv_8j_WZH_2000"]
 
 if not os.path.isfile(CACHE):
     import itertools, torch, h5py
@@ -57,18 +58,23 @@ if not os.path.isfile(CACHE):
             masks = np.array(combos)
             sel = np.where(njet == n)[0]
             if len(sel) == 0: continue
-            jets = jp4[sel][:, :n, :]
-            A = np.einsum('pn,enf->epf', masks.astype(float), jets)
-            B = jets.sum(1)[:, None, :] - A
+            mf = masks.astype(float)
             def m(p):
                 m2 = p[..., 0]**2 - p[..., 1]**2 - p[..., 2]**2 - p[..., 3]**2
                 return np.sqrt(np.clip(m2, 0, None))
-            mA, mB = m(A), m(B)
-            valid = (mA + mB) > 0
-            asym = np.where(valid, np.abs(mA - mB) / (mA + mB + 1e-9), np.inf)
-            best = asym.argmin(1)
-            ei = np.arange(len(sel))
-            out[sel] = 0.5 * (mA[ei, best] + mB[ei, best])
+            # chunk over events: the (E,P,4) intermediate is ~13 GB at 200k
+            CH = 2000
+            for c0 in range(0, len(sel), CH):
+                idx = sel[c0:c0 + CH]
+                jets = jp4[idx][:, :n, :]
+                A = np.einsum('pn,enf->epf', mf, jets)
+                B = jets.sum(1)[:, None, :] - A
+                mA, mB = m(A), m(B)
+                valid = (mA + mB) > 0
+                asym = np.where(valid, np.abs(mA - mB) / (mA + mB + 1e-9), np.inf)
+                best = asym.argmin(1)
+                ei = np.arange(len(idx))
+                out[idx] = 0.5 * (mA[ei, best] + mB[ei, best])
         return out
 
     arrs = {}
