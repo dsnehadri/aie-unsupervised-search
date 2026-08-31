@@ -48,38 +48,36 @@ def worst_block_pct(errs):
     return out
 
 p_fx, p_flt = worst_block_pct(e_fx), worst_block_pct(e_flt)
-x = np.arange(N)
 
-fig, ax = plt.subplots(figsize=(11, 6))
-ax.plot(x, p_fx, "o", color="#3b3bcc", ms=6, alpha=0.85,
-        markeredgecolor="k", markeredgewidth=0.3, label="int16 fixed-point (deployed)")
-ax.plot(x, p_flt, "o", color="#1baf7a", ms=6, alpha=0.85,
-        markeredgecolor="k", markeredgewidth=0.3, label="float32 build (same source)")
+GROUPS = [("AIE\nfloat32", p_flt, "#1f77b4", "none"),
+          ("AIE\nint16",   p_fx,  "#1f77b4", "full")]
+YLABEL = ("Per-event maximum error vs PyTorch\n"
+          "worst of six attention blocks  [% of activation RMS]")
+OUT = "/home/snehadri/repos/aie-unsupervised-search/figs/aie_unquantized_proof.png"
+
+# ---- error-bar plot in the validation-summary style ----------------------
+fig, ax = plt.subplots(figsize=(5.2, 5.2))
+for gi, (label, vals, color, fill) in enumerate(GROUPS):
+    med = np.median(vals)
+    lo, hi = np.percentile(vals, [2.5, 97.5])
+    ax.errorbar(gi, med, yerr=[[med - lo], [hi - med]],
+                fmt="o", ms=9, capsize=6, capthick=1.6, elinewidth=1.6,
+                color=color, markerfacecolor=(color if fill == "full" else "white"),
+                markeredgecolor=color, markeredgewidth=1.8, zorder=3)
 ax.set_yscale("log")
-
-ax.axhline(np.median(p_fx), color="#3b3bcc", lw=1, ls=":", alpha=0.7)
-ax.axhline(np.median(p_flt), color="#1baf7a", lw=1, ls=":", alpha=0.7)
-ax.text(0.015, 0.965,
-        f"median per-event worst-block error:  int16 {np.median(p_fx):.2f}%   "
-        f"float32 {np.median(p_flt):.1e}%   (~{np.median(p_fx)/np.median(p_flt):,.0f}× apart)\n"
-        "float32 level = op-reordering noise vs PyTorch → AIE kernel logic exact; "
-        "all int16 deviation is quantization",
-        transform=ax.transAxes, va="top", fontsize=9.5,
-        bbox=dict(facecolor="white", edgecolor="gray"))
-ax.set_xlabel("Event Index", fontsize=12)
-ax.set_ylabel("per-event max |error| vs PyTorch  [% of activation RMS]", fontsize=11)
-ax.set_title("Unquantized Reference: same AIE kernels, two arithmetics, vs PyTorch\n"
-             "(worst of the 6 attention blocks per event, x86sim, retrained weights, "
-             f"{N} events)", fontsize=12.5)
-ax.grid(ls="--", alpha=0.4)
-ax.legend(loc="center right", fontsize=10)
-
+ax.set_ylim(1e-5, 50)
+ax.set_xticks(range(len(GROUPS)))
+ax.set_xticklabels([g[0] for g in GROUPS], fontsize=12)
+ax.set_xlim(-0.6, len(GROUPS) - 0.4)
+ax.set_ylabel(YLABEL, fontsize=12)
+ax.grid(axis="y", ls="--", alpha=0.4)
+ax.grid(axis="x", visible=False)
+ax.tick_params(which="both", direction="in", right=True, top=True)
 fig.tight_layout()
-out = "/home/snehadri/repos/aie-unsupervised-search/figs/aie_unquantized_proof.png"
-fig.savefig(out, dpi=200, bbox_inches="tight")
-fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight")
-print("saved", out)
-print(f"int16:  median {np.median(p_fx):.3f}%  max {p_fx.max():.2f}%")
-print(f"float:  median {np.median(p_flt):.2e}%  max {p_flt.max():.2e}%")
-for b in blocks:
-    print(f"  {b:<10s} int16 max_abs={max(e_fx[b]):.4f}  float max_abs={max(e_flt[b]):.2e}")
+fig.savefig(OUT, dpi=200, bbox_inches="tight")
+fig.savefig(OUT.replace(".png", ".pdf"), bbox_inches="tight")
+print("saved", OUT)
+for label, vals, *_ in GROUPS:
+    lo, hi = np.percentile(vals, [2.5, 97.5])
+    print(f"{label.replace(chr(10),' '):16s} median {np.median(vals):.3g}%  "
+          f"95% [{lo:.3g}, {hi:.3g}]  max {vals.max():.3g}%")
