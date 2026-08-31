@@ -94,9 +94,9 @@ def fig_blocks_and_scaling():
     tiles = np.array([13, 26, 52, 104, 208], float)
     meas = np.array([4648, 8701, 15226, 24966, 36659], float)
     axs.plot(tiles, meas, "o-", color=AIE_C, lw=2, ms=7,
-             markeredgecolor="k", markeredgewidth=0.4, label="AIE object block")
+             markeredgecolor="k", markeredgewidth=0.4, label="AIE")
     axs.axhline(6334, color=PL_C, lw=2, ls="--",
-                label="PL object block")
+                label="PL baseline")
     axs.set_xticks(tiles)
     axs.set_xlim(0, tiles.max() * 1.05)
     axs.set_xlabel("AI Engine tiles", fontsize=12.5)
