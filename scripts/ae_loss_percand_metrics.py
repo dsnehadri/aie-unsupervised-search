@@ -95,24 +95,18 @@ for f, lab, col in SIGNALS:
 
 plt.rcParams.update({"font.size": 12})
 fig, axes = plt.subplots(1, 3, figsize=(16.8, 5.0), sharex=True)
-panels = ["(a) purity  —  fired signal events / all fired events",
-          "(b) efficiency  —  fired signal events / all signal events",
-          "(c) F1"]
-ylabels = ["event purity", "event efficiency", "event F1"]
-for ax, title, yl, idx in zip(axes, panels, ylabels, range(3)):
+ylabels = ["Event purity", "Event efficiency", "Event $F_1$"]
+for ax, yl, idx in zip(axes, ylabels, range(3)):
     for lab, col, pur, eff, f1 in curves:
         ax.plot(T_SCAN, (pur, eff, f1)[idx], "-", lw=1.8, color=col, label=lab)
     ax.set_xlim(T_SCAN[0], T_SCAN[-1]); ax.set_ylim(0, 1.03)
-    ax.set_xlabel("maximum-candidate AE loss threshold", fontsize=13)
+    ax.set_xlabel("Maximum-candidate autoencoder loss threshold", fontsize=13)
     ax.set_ylabel(yl, fontsize=13)
     ax.xaxis.set_minor_locator(AutoMinorLocator(4))
     ax.yaxis.set_minor_locator(AutoMinorLocator(5))
     ax.tick_params(which="both", direction="in", right=True, top=True)
     ax.grid(alpha=.12)
-    ax.set_title(title, fontsize=12.5, loc="left")
 axes[0].legend(frameon=False, fontsize=10.5, loc="lower right")
-fig.suptitle("Anomaly score, maximum of the two BSM candidates: signal vs QCD  "
-             "(equal event yields)", fontsize=14, fontweight="bold", y=1.0)
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/ae_loss_percand_purity_f1.png"
 fig.savefig(out, dpi=200, bbox_inches="tight")
