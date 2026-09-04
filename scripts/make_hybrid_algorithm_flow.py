@@ -105,7 +105,7 @@ arrow((5.10, 0.98+Y0), (4.78, 0.98+Y0))
 txt(4.94, 1.12+Y0, "2×14", size=7.5, bbox=True)
 
 box(3.48, 0.60+Y0, 4.78, 1.36+Y0, fc=PLC)
-txt(4.13, 0.98+Y0, "Autoencoder\nshared weights\n× 2 candidates")
+txt(4.13, 0.98+Y0, "Autoencoder")
 arrow((3.48, 0.98+Y0), (3.08, 0.98+Y0))
 txt(3.28, 1.12+Y0, "2×14", size=7.5, bbox=True)
 
