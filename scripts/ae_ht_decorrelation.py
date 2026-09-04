@@ -32,6 +32,21 @@ def auc(bkg, sig):
     nb, ns = len(bkg), len(sig)
     return (r[nb:].sum() - ns * (ns + 1) / 2) / (nb * ns)
 
+RNG = np.random.default_rng(12345)
+N_BOOT = 1000
+
+def auc_boot(bkg, sig, nboot=N_BOOT):
+    """Bootstrap standard error of the AUC: resample both classes with
+    replacement (the events, not the pairs) and take the spread of the
+    resulting AUCs. Dominated by whichever class has fewer events in the bin."""
+    nb, ns = len(bkg), len(sig)
+    if nb < 2 or ns < 2:
+        return np.nan
+    vals = np.empty(nboot)
+    for b in range(nboot):
+        vals[b] = auc(bkg[RNG.integers(0, nb, nb)], sig[RNG.integers(0, ns, ns)])
+    return vals.std(ddof=1)
+
 bkg_ht, bkg_loss = bl["qcd_background_ht"], ae["qcd_background"]
 MIN_N = 30
 edges = np.arange(1000, 4001, 250)          # GeV
@@ -42,18 +57,24 @@ results = {}
 bkg_mavg = bl["qcd_background_mavg"]
 for f, lab, col in SIGNALS:
     s_ht, s_loss, s_mavg = bl[f"{f}_ht"], ae[f], bl[f"{f}_mavg"]
-    aucs, m_aucs, ns = [], [], []
+    aucs, m_aucs, ns, errs, m_errs = [], [], [], [], []
     for lo, hi in zip(edges[:-1], edges[1:]):
         bi = (bkg_ht >= lo) & (bkg_ht < hi)
         si = (s_ht >= lo) & (s_ht < hi)
         if bi.sum() >= MIN_N and si.sum() >= MIN_N:
             aucs.append(auc(bkg_loss[bi], s_loss[si]))
+            errs.append(auc_boot(bkg_loss[bi], s_loss[si]))
             bm, sm = bkg_mavg[bi], s_mavg[si]
-            m_aucs.append(auc(bm[np.isfinite(bm)], sm[np.isfinite(sm)]))
+            bm, sm = bm[np.isfinite(bm)], sm[np.isfinite(sm)]
+            m_aucs.append(auc(bm, sm))
+            m_errs.append(auc_boot(bm, sm))
             ns.append((int(bi.sum()), int(si.sum())))
         else:
-            aucs.append(np.nan); m_aucs.append(np.nan); ns.append((int(bi.sum()), int(si.sum())))
-    results[f] = {"auc": aucs, "mavg_auc": m_aucs, "n": ns}
+            aucs.append(np.nan); m_aucs.append(np.nan)
+            errs.append(np.nan); m_errs.append(np.nan)
+            ns.append((int(bi.sum()), int(si.sum())))
+    results[f] = {"auc": aucs, "mavg_auc": m_aucs, "n": ns,
+                  "auc_err": errs, "mavg_err": m_errs}
 
 for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
     row = f"{lo:4.0f}-{hi:4.0f}      "
@@ -77,8 +98,11 @@ for f, lab, col in SIGNALS:
     a = np.array(results[f]["auc"])
     m = np.array(results[f]["mavg_auc"])
     ok = np.isfinite(a)
-    ax.plot(centers[ok] / 1000, a[ok], "o-", lw=1.8, ms=5, color=col, label=lab)
-    ax.plot(centers[ok] / 1000, m[ok], "s--", lw=1.3, ms=4, color=col, alpha=0.55)
+    e = np.array(results[f]["auc_err"]); me = np.array(results[f]["mavg_err"])
+    ax.errorbar(centers[ok] / 1000, a[ok], yerr=e[ok], fmt="o-", lw=1.8, ms=5,
+                color=col, label=lab, capsize=2.5, elinewidth=1.1)
+    ax.errorbar(centers[ok] / 1000, m[ok], yerr=me[ok], fmt="s--", lw=1.3, ms=4,
+                color=col, alpha=0.55, capsize=2, elinewidth=0.9)
 from matplotlib.lines import Line2D
 style_handles = [Line2D([], [], color="#444", marker="o", ls="-", label="Autoencoder loss"),
                  Line2D([], [], color="#444", marker="s", ls="--", alpha=0.55,
@@ -100,5 +124,13 @@ fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight")
 print("\nsaved", out)
 
 with open(f"{SAVE}/ae_ht_decorrelation.json", "w") as f_:
-    json.dump({k: {"auc": v["auc"], "mavg_auc": v["mavg_auc"], "n": v["n"]}
+    json.dump({k: {"auc": v["auc"], "mavg_auc": v["mavg_auc"], "n": v["n"],
+                   "auc_err": v["auc_err"], "mavg_err": v["mavg_err"]}
                for k, v in results.items()}, f_, indent=2, default=float)
+
+print(f"\nbootstrap AUC errors (N={N_BOOT}) on plotted bins:")
+for f, lab, col in SIGNALS:
+    e = np.array(results[f]["auc_err"], float)
+    inb = (centers / 1000 >= 1.0) & (centers / 1000 <= 3.0)
+    e = e[inb & np.isfinite(e)]
+    print(f"  {f:24s} min {e.min():.4f}  max {e.max():.4f}")
