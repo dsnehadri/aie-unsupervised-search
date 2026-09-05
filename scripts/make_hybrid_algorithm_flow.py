@@ -66,7 +66,7 @@ txt(2.065, 2.52+Y0, "12×16", size=7.5, bbox=True)
 # ABC layer container (instantiated twice)
 box(2.20, 1.88+Y0, 6.45, 2.88+Y0, fc="none", lw=1.0, ls=(0, (4, 3)))
 txt(2.30, 2.79+Y0, "ABC layer  × 2", FST, "bold", ha="left")
-txt(6.35, 2.79+Y0, "wᵢⱼ bias: layer 0 only", FS, ha="right")
+txt(6.35, 2.79+Y0, "wᵢⱼ bias: first layer only", FS, ha="right")
 
 stages = [(2.28, 3.14, "Object\nattention", AIEC),
           (3.24, 4.10, "Build\ncandidates", PLC),
