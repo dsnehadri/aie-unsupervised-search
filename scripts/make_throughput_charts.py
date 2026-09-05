@@ -75,20 +75,29 @@ def fig_blocks_and_scaling():
     """Two panels: single-block PL vs AIE, and AIE tile replication."""
     fig, (axb, axs) = plt.subplots(1, 2, figsize=(13.2, 4.9))
 
-    # --- (a) single attention block, PL vs AIE ---
-    blocks = ["Object\nattention block", "Candidate\nattention block",
-              "Cross\nattention block"]
-    pl_v = np.array([6334, 25458, 7307], float)
-    aie_v = np.array([4738, 14808, 5212], float)
+    # --- (a) attention-block cost inside the DEPLOYED designs ---
+    # Earlier isolated-vehicle bars were not comparable: the standalone PL
+    # blocks link at 100 MHz, but the full PL design closes timing only at
+    # 80 MHz (83% DSP), and the standalone AIE vehicle sends one event per
+    # invocation so its number was dominated by ~200 us of launch overhead.
+    # These are the per-event costs the blocks actually incur in the shipped
+    # pipelines: PL from the routed design at its real 80 MHz clock, and the
+    # hybrid's measured 111 us/event interval as the bound on every AIE block
+    # (each one passes every event, so none can be slower than the pipeline).
+    blocks = ["Object\nattention", "Candidate\nattention", "Cross\nattention"]
+    pl_us = np.array([210.3, 44.4, 163.8], float)      # 80 MHz, routed cycles
+    HYB_INTERVAL = 111.0
     xs = np.arange(len(blocks))
-    w = 0.36
-    axb.bar(xs - w/2, pl_v,  width=w, color=PL_C,  label="PL block")
-    axb.bar(xs + w/2, aie_v, width=w, color=AIE_C, label="AIE block")
+    axb.bar(xs, pl_us, width=0.55, color=PL_C, label="PL block, in the all-PL design")
+    for x, v in zip(xs, pl_us):
+        axb.text(x, v + 4, f"{v:.0f}", ha="center", fontsize=10.5)
+    axb.axhline(HYB_INTERVAL, color=AIE_C, lw=2, ls="--",
+                label="Hybrid interval: no AIE block exceeds this")
     axb.set_xticks(xs)
     axb.set_xticklabels(blocks, fontsize=11.5)
-    axb.set_ylabel("Throughput [events / s]", fontsize=12.5)
-    axb.set_ylim(0, pl_v.max() * 1.12)
-    axb.legend(fontsize=11, frameon=False)
+    axb.set_ylabel("Time per event [µs]", fontsize=12.5)
+    axb.set_ylim(0, pl_us.max() * 1.22)
+    axb.legend(fontsize=10, frameon=False, loc="upper right")
 
     # --- (b) AIE tile replication ---
     tiles = np.array([13, 26, 52, 104, 208], float)
@@ -96,10 +105,13 @@ def fig_blocks_and_scaling():
     axs.plot(tiles, meas, "o-", color=AIE_C, lw=2, ms=7,
              markeredgecolor="k", markeredgewidth=0.4, label="AIE")
     axs.axhline(6334, color=PL_C, lw=2, ls="--",
-                label="PL baseline")
+                label="PL block, isolated at 100 MHz")
     axs.set_xticks(tiles)
     axs.set_xlim(0, tiles.max() * 1.05)
     axs.set_xlabel("AI Engine tiles", fontsize=12.5)
+    axs.text(0.5, 0.06, "Isolated replication vehicle: one event per instance\n"
+             "per invocation, so every point carries ~200 µs of launch overhead",
+             transform=axs.transAxes, ha="center", fontsize=8.5, color="#555555")
     axs.set_ylabel("Object attention block throughput [events / s]",
                    fontsize=12.5)
     axs.set_ylim(0, meas.max() * 1.12)
