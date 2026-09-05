@@ -24,7 +24,8 @@ SERIES = [
     ("sweep_v2_64bit_100mhz.csv", "lb",   C["orange"], "PL loopback control"),
     ("sweep_v2_64bit_100mhz.csv", "ptw",  C["blue"],   "AIE round trip, 64-bit @ 100 MHz"),
     ("sweep_v3_hw.csv",           "p128", C["aqua"],   "AIE round trip, 128-bit @ 250 MHz"),
-    ("sweep_v3_hw.csv",           "q512", C["yellow"], "AIE 4×128-bit @ 250 MHz"),
+    ("sweep_v3_hw.csv",           "q512", C["yellow"], "AIE 4×128-bit @ 250 MHz, DDR round trip"),
+    ("sweep_noddr_hw.csv",        "qnod", "#2ca02c",   "AIE 4×128-bit @ 250 MHz, payload generated in PL"),
 ]
 
 def load(fname, key):
@@ -91,6 +92,10 @@ for mode, ax in (("latency", axL), ("bandwidth", axB)):
             ax.axhline(4000, color=INK2, linestyle="--", linewidth=1)
             ax.annotate("250 MHz 128-bit wire limit", xy=(2**6.2, 4060),
                         color=INK2, fontsize=8.5, va="bottom")
+            if any("payload" in l for _, _, l in loaded):
+                ax.axhline(16000, color=INK2, linestyle="--", linewidth=1)
+                ax.annotate("4 × 128-bit wire limit, 16 GB/s", xy=(2**6.2, 16300),
+                            color=INK2, fontsize=8.5, va="bottom")
             ax.set_yscale("log")
         else:
             ax.set_ylim(0, 900)
