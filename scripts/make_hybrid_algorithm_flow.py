@@ -110,7 +110,7 @@ arrow((3.48, 0.98+Y0), (3.08, 0.98+Y0))
 txt(3.28, 1.12+Y0, "2×14", size=7.5, bbox=True)
 
 box(1.75, 0.60+Y0, 3.08, 1.36+Y0, fc=PLC)
-txt(2.415, 0.98+Y0, "MSE losses\nreco + crossed")
+txt(2.415, 0.98+Y0, "Reconstruction\nMSE loss")
 arrow((1.75, 0.98+Y0), (0.85, 0.98+Y0))
 
 box(0.05, 0.60+Y0, 0.85, 1.36+Y0)                        # external memory
