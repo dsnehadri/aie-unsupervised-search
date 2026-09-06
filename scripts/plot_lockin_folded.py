@@ -75,7 +75,7 @@ for ax in (ax1, ax2):
 # --- power panel ---
 t, p = col("total_W")
 ax1.plot(t, p, color=BLUE, lw=2, label="AIE-PL hybrid image")
-ax1.set_ylabel("Board power (W)", color=BLACK, fontsize=10)
+ax1.set_ylabel("Supply power (W)", color=BLACK, fontsize=10)
 ax1.legend(frameon=False, fontsize=9, labelcolor=BLACK, loc="center right")
 
 # --- temperature panel ---
