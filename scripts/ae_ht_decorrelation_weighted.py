@@ -27,11 +27,12 @@ bl = np.load(f"{SAVE}/anomaly_baselines.npz")
 B_LOSS, B_HT, B_MAVG, B_W, B_SL = bw["loss"], bw["ht"], bw["mavg"], bw["w"], bw["slice_id"]
 
 SIGNALS = [
-    ("gluino_rpv_6j",      r"$\tilde g\tilde g\to 2\times j(jj)$",   "#1f77b4"),
-    ("gluino_rpv_10j",     r"$\tilde g\tilde g\to 2\times jj(jjj)$", "#ff7f0e"),
-    ("stop_rpv_12j",       r"$\tilde t\tilde t\to 2\times jjj(jjj)$","#2ca02c"),
-    ("squark_rpv_8j_2000", r"$\tilde q\tilde q\to 2\times j(jjj)$",  "#9467bd"),
-    ("squark_rpv_8j_WZH_2000", r"$\tilde q\tilde q\to 2\times jj(jj)$",  "#d62728"),
+    ("gluino_rpv_6j",      r"$XX^{1500}\to 2\times j(jj)$",   "#1f77b4"),
+    ("gluino_rpv_10j",     r"$XX^{1500}\to 2\times jj(jjj)$", "#ff7f0e"),
+    ("stop_rpv_12j",       r"$XX^{1500}\to 2\times jjj(jjj)$","#2ca02c"),
+    ("squark_rpv_8j_WZH_2000", r"$XX^{2000}\to 2\times jj(jj)$",  "#d62728"),
+
+    ("squark_rpv_8j_2000", r"$XX^{2000}\to 2\times j(jjj)$",  "#9467bd"),
 ]
 RNG = np.random.default_rng(20260905)
 N_BOOT = 1000

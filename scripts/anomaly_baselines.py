@@ -22,8 +22,8 @@ OUT_JSON = "/home/snehadri/aie_scratch_save_20260810/anomaly_baseline_aucs.json"
 N_BKG = 200000
 
 SAMPLES = ["qcd_background", "gluino_rpv_6j", "gluino_rpv_10j",
-           "stop_rpv_12j", "squark_rpv_8j_2000",
-           "squark_rpv_8j_WZH_2000"]
+           "stop_rpv_12j", "squark_rpv_8j_WZH_2000",
+           "squark_rpv_8j_2000"]
 
 if not os.path.isfile(CACHE):
     import itertools, torch, h5py
