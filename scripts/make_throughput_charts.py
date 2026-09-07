@@ -122,9 +122,20 @@ def fig_blocks_and_scaling():
     # per-invocation cost every instance pays (launch + block latency).
     # Throughput = 1/t = N/(t_c + N t_f) -> 1/t_f as N grows. Fit on the
     # invocation time T(N) = t_c + N t_f, which is linear in N.
-    TILES_PER = 13
-    tiles = np.array([13, 26, 52, 104, 208], float)
-    meas = np.array([4648, 8701, 15226, 24966, 36659], float)
+    # Prefer the sweep on the CURRENT 12-tile graph (obj24 vehicle, cores kept
+    # out of the gated column 0) when its CSV exists; fall back to the July
+    # 13-tile obj16 sweep otherwise.
+    import csv, os
+    _c0 = "/home/snehadri/aie_scratch_save_20260810/obj24_sweep_c0.csv"
+    if os.path.isfile(_c0):
+        _rows = [r for r in csv.DictReader(open(_c0))]
+        TILES_PER = 12
+        tiles = np.array([float(r["tiles"]) for r in _rows])
+        meas = np.array([float(r["agg_ev_s"]) for r in _rows])
+    else:
+        TILES_PER = 13
+        tiles = np.array([13, 26, 52, 104, 208], float)
+        meas = np.array([4648, 8701, 15226, 24966, 36659], float)
     n_inst = tiles / TILES_PER
     T_inv = n_inst / meas                                  # seconds per invocation
     t_f, t_c = np.polyfit(n_inst, T_inv, 1)                # slope = t_f, intercept = t_c
@@ -139,8 +150,9 @@ def fig_blocks_and_scaling():
              markeredgewidth=0.4, label="AIE, measured", zorder=5)
     axs.axhline(6334, color=PL_C, lw=2, ls="--",
                 label="PL block, isolated at 100 MHz")
-    axs.set_xticks(list(tiles) + [400])
-    axs.set_xticklabels([f"{int(v)}" for v in tiles] + ["400"])
+    _tk = [t for t in tiles if t != 60] + [400]          # 60 would collide with 48
+    axs.set_xticks(_tk)
+    axs.set_xticklabels([f"{int(v)}" for v in _tk])
     axs.set_xlim(0, 420)
     axs.set_xlabel("AI Engine tiles", fontsize=12.5)
     axs.set_ylabel("Object attention block throughput [events / s]",
