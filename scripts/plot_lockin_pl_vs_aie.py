@@ -21,10 +21,10 @@ import matplotlib.pyplot as plt
 
 FIGS = "/home/snehadri/repos/aie-unsupervised-search/figs"
 RUNS = [
-    ("PL-only  (idle 7.53 W)", "PL-only", "#eb6834",
+    ("PL-only  (idle 10.84 W)", "PL-only", "#eb6834",
      f"{FIGS}/board_thermal_lockin_pl_log.csv",
      f"{FIGS}/board_thermal_lockin_pl_phases.txt"),
-    ("AIE-PL hybrid  (idle 10.90 W)", "AIE-PL hybrid", "#2a78d6",
+    ("AIE-PL hybrid  (idle 11.12 W)", "AIE-PL hybrid", "#2a78d6",
      f"{FIGS}/board_thermal_lockin_log.csv",
      f"{FIGS}/board_thermal_lockin_phases.txt"),
 ]
@@ -49,7 +49,11 @@ def load(csv_path, phase_path):
 
 
 def fold(rows, epochs, ons, period, key):
-    vals = np.array([float(r[key]) for r in rows])
+    if key == "total_W":   # VCCINT INA226 senses one of six phases and reads negative under
+        vals = np.array([float(r["total_W"]) - float(r["VCCINT_W"]) + abs(float(r["VCCINT_W"]))   # phase shedding
+                         for r in rows])
+    else:
+        vals = np.array([float(r[key]) for r in rows])
     nb = int(np.ceil(period / BIN))
     starts = np.array([cs for cs, _ in ons])
     # assign every sample to its cycle, then to a bin within that cycle

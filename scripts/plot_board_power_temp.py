@@ -28,6 +28,9 @@ def roll(xs, k=30):
             for i in range(len(xs))]
 
 def col(rows, n):
+    if n == "total_W":       # VCCINT INA226 senses one of six phases; it reads negative under
+        return [float(r["total_W"]) - float(r["VCCINT_W"]) + abs(float(r["VCCINT_W"]))   # phase shedding
+                for r in rows]
     return [float(r[n]) for r in rows]
 
 pl_rows, pl_t, pl_end = load_run(f"{DATA}/thermal_log.csv", f"{DATA}/phase_log.txt")

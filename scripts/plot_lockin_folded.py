@@ -34,7 +34,11 @@ on_len = np.median([e - s for s, e in ons])
 
 def fold(key):
     """Mean over cycles, per folded time bin."""
-    vals = np.array([float(r[key]) for r in rows])
+    if key == "total_W":   # VCCINT INA226 senses one of six phases and reads negative under
+        vals = np.array([float(r["total_W"]) - float(r["VCCINT_W"]) + abs(float(r["VCCINT_W"]))   # phase shedding
+                         for r in rows])
+    else:
+        vals = np.array([float(r[key]) for r in rows])
     nb = int(np.ceil(period / BIN))
     acc = [[] for _ in range(nb)]
     for cs, _ in ons:
