@@ -99,23 +99,37 @@ def fig_blocks_and_scaling():
     axb.set_ylim(0, pl_us.max() * 1.22)
     axb.legend(fontsize=10, frameon=False, loc="upper right")
 
-    # --- (b) AIE tile replication ---
+    # --- (b) AIE tile replication, with the shared-feeder model ---
+    # One PL feeder dispatches events to the N instances in turn, so the time
+    # per event is t = t_f + t_c/N: t_f = feeder time per event, t_c = the
+    # per-invocation cost every instance pays (launch + block latency).
+    # Throughput = 1/t = N/(t_c + N t_f) -> 1/t_f as N grows. Fit on the
+    # invocation time T(N) = t_c + N t_f, which is linear in N.
+    TILES_PER = 13
     tiles = np.array([13, 26, 52, 104, 208], float)
     meas = np.array([4648, 8701, 15226, 24966, 36659], float)
-    axs.plot(tiles, meas, "o-", color=AIE_C, lw=2, ms=7,
-             markeredgecolor="k", markeredgewidth=0.4, label="AIE")
+    n_inst = tiles / TILES_PER
+    T_inv = n_inst / meas                                  # seconds per invocation
+    t_f, t_c = np.polyfit(n_inst, T_inv, 1)                # slope = t_f, intercept = t_c
+    n_model = np.linspace(0.6, 400 / TILES_PER, 400)
+    thr_model = n_model / (t_c + n_model * t_f)
+    axs.plot(n_model * TILES_PER, thr_model, "-", color=AIE_C, lw=1.6, alpha=.8,
+             label=(r"Model $t = t_f + t_c/N$"
+                    f"  ($t_f$ = {t_f*1e6:.1f} µs, $t_c$ = {t_c*1e6:.0f} µs)"))
+    axs.axhline(1 / t_f, color=AIE_C, lw=1.2, ls=":",
+                label=f"Feeder limit $1/t_f$ = {1/t_f/1000:.0f}k events / s")
+    axs.plot(tiles, meas, "o", color=AIE_C, ms=7, markeredgecolor="k",
+             markeredgewidth=0.4, label="AIE, measured", zorder=5)
     axs.axhline(6334, color=PL_C, lw=2, ls="--",
                 label="PL block, isolated at 100 MHz")
-    axs.set_xticks(tiles)
-    axs.set_xlim(0, tiles.max() * 1.05)
+    axs.set_xticks(list(tiles) + [400])
+    axs.set_xticklabels([f"{int(v)}" for v in tiles] + ["400"])
+    axs.set_xlim(0, 420)
     axs.set_xlabel("AI Engine tiles", fontsize=12.5)
-    axs.text(0.5, 0.06, "Isolated replication vehicle: one event per instance\n"
-             "per invocation, so every point carries ~200 µs of launch overhead",
-             transform=axs.transAxes, ha="center", fontsize=8.5, color="#555555")
     axs.set_ylabel("Object attention block throughput [events / s]",
                    fontsize=12.5)
-    axs.set_ylim(0, meas.max() * 1.12)
-    axs.legend(fontsize=11, loc="upper left", frameon=False)
+    axs.set_ylim(0, 1 / t_f * 1.10)
+    axs.legend(fontsize=9.5, loc="upper left", bbox_to_anchor=(0.02, 0.92), frameon=False)
 
     save(fig, "throughput_blocks_and_scaling")
 
