@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""One figure: (a) steady-state invocation time vs batch size for both designs,
+"""Two figures from one data set: latency_batch_sweep = steady-state invocation time vs batch size for both designs,
 whose slopes are the per-event intervals; (b),(c) per-stage time for one event
 in each design, with that same interval drawn as the dashed reference line.
 Data and conventions identical to make_latency_chart.py and
@@ -41,10 +41,10 @@ ROWS = [
  ("Embedding",                 cyc(4483, PL_CLK),  cyc(5874, HYB_CLK),                0),
  ("Pairwise $w_{ij}$",         cyc(3028, PL_CLK),  cyc(836, HYB_CLK),                 0),
  ("Object attention L0",       cyc(16269, PL_CLK), cyc(614+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
- ("Candidate build + attention L0", cyc(3499, PL_CLK), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
+ ("Build candidates + candidate attention L0", cyc(3499, PL_CLK), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
  ("Cross attention L0",        cyc(13102, PL_CLK), cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
  ("Object attention L1",       cyc(16824, PL_CLK), cyc(267+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
- ("Candidate build + attention L1", cyc(3551, PL_CLK), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
+ ("Build candidates + candidate attention L1", cyc(3551, PL_CLK), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
  ("Cross attention L1",        cyc(13102, PL_CLK), cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
  ("Candidate build* + mass",   cyc(747, PL_CLK),   cyc(747, HYB_CLK),                 0),
  ("Autoencoder + MSE",         cyc(792, PL_CLK),   cyc(1162, HYB_CLK),                0),
@@ -54,9 +54,9 @@ labs = [r[0] for r in ROWS]
 y = np.arange(len(labs))[::-1]
 
 plt.rcParams.update({"font.size": 11})
-fig = plt.figure(figsize=(12.6, 10.2))
-gs = gridspec.GridSpec(2, 2, height_ratios=[1.0, 1.15], hspace=0.28, wspace=0.62)
-axa = fig.add_subplot(gs[0, :]); axb = fig.add_subplot(gs[1, 0]); axc = fig.add_subplot(gs[1, 1])
+figa, axa = plt.subplots(figsize=(7.2, 5.0))
+fig, (axb, axc) = plt.subplots(1, 2, figsize=(12.6, 5.6))
+fig.subplots_adjust(wspace=0.62)
 
 fits = {}
 for name, pts in SWEEP.items():
@@ -73,7 +73,10 @@ axa.set_ylabel("Invocation time [ms]", fontsize=12.5)
 axa.legend(frameon=False, fontsize=10.5, loc="upper left")
 axa.tick_params(which="both", direction="in", right=True, top=True)
 axa.grid(alpha=.13); axa.set_axisbelow(True)
-axa.text(0.985, 0.05, "(a)", transform=axa.transAxes, fontsize=12, fontweight="bold", ha="right")
+figa.tight_layout()
+figa.savefig("/home/snehadri/repos/aie-unsupervised-search/figs/latency_batch_sweep.png", dpi=200, bbox_inches="tight")
+figa.savefig("/home/snehadri/repos/aie-unsupervised-search/figs/latency_batch_sweep.pdf", bbox_inches="tight")
+print("saved figs/latency_batch_sweep.png")
 
 # (b) PL-only
 pl_us = np.array([r[1] for r in ROWS])
@@ -87,7 +90,7 @@ axc.barh(y, ha, left=hp, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=0.
 for yy, p, a in zip(y, hp, ha):
     axc.text(p + a + 3, yy, f"{p+a:.0f}" if a == 0 else f"{p:.0f} + {a:.0f}", va="center", fontsize=8.6, color=INK)
 
-for ax, meas, letter in ((axb, fits["PL-only"], "(b)"), (axc, fits["AIE-PL hybrid"], "(c)")):
+for ax, meas, letter in ((axb, fits["PL-only"], "(a)"), (axc, fits["AIE-PL hybrid"], "(b)")):
     ax.axvline(meas, color="#c0392b", ls="--", lw=1.6, zorder=5)
     ax.text(meas, len(labs) - 0.35, f"  Measured interval, {meas:.0f} µs", color="#c0392b",
             fontsize=9.5, va="top", ha="left")
@@ -100,7 +103,7 @@ for ax, meas, letter in ((axb, fits["PL-only"], "(b)"), (axc, fits["AIE-PL hybri
     ax.text(0.97, 0.03, letter, transform=ax.transAxes, fontsize=12, fontweight="bold", ha="right")
 axc.legend(frameon=False, fontsize=8.8, loc="lower right", bbox_to_anchor=(1.0, 0.08))
 
-out = "/home/snehadri/repos/aie-unsupervised-search/figs/latency_and_stages.png"
+out = "/home/snehadri/repos/aie-unsupervised-search/figs/stage_time_breakdown.png"
 fig.savefig(out, dpi=200, bbox_inches="tight")
 fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight")
 print("saved", out)
