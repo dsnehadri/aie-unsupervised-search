@@ -36,7 +36,7 @@ def curves(data, flat):
     return T, out
 
 rows = [("Autoencoder loss threshold",                   curves(ev,   lambda a: a)),
-        ("Maximum-candidate autoencoder loss threshold", curves(cand, lambda a: a.max(axis=1)))]
+        ("Autoencoder loss threshold",                   curves(cand, lambda a: a.max(axis=1)))]
 ylabels = ["Event purity", "Event efficiency", "Event $F_1$"]
 letters = "abcdef"
 
