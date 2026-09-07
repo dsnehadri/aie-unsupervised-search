@@ -57,7 +57,12 @@ for r, (xlab, (T, cv)) in enumerate(rows):
         ax.text(0.02, 0.05, f"({letters[3*r+c]})", transform=ax.transAxes,
                 fontsize=12, fontweight="bold", va="bottom")
 axes[0, 0].legend(frameon=False, fontsize=10.5, loc="lower right")
-fig.tight_layout(h_pad=2.0)
+fig.tight_layout(h_pad=2.0, rect=(0.022, 0, 1, 1))
+# row labels: rotated, centred on each row, outside the y-axis labels
+for r, name in enumerate(("Event-level", "Object-level")):
+    b0, b1 = axes[r, 0].get_position(), axes[r, 2].get_position()
+    fig.text(0.008, 0.5 * (b0.y0 + b0.y1), name, rotation=90, va="center", ha="center",
+             fontsize=14.5, fontweight="bold")
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/ae_loss_purity_f1_combined.png"
 fig.savefig(out, dpi=200, bbox_inches="tight")
 fig.savefig(out.replace(".png", ".pdf"), bbox_inches="tight")
