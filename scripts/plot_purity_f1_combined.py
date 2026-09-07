@@ -7,7 +7,7 @@ as the separate figures (ae_loss_metrics.py / ae_loss_percand_metrics.py).
 """
 import numpy as np, matplotlib
 matplotlib.use("Agg"); import matplotlib.pyplot as plt
-from matplotlib.ticker import AutoMinorLocator
+from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 
 SAVE = "/home/snehadri/aie_scratch_save_20260810"
 ev = np.load(f"{SAVE}/ae_losses.npz")
@@ -40,6 +40,8 @@ rows = [("Autoencoder loss threshold",                   curves(ev,   lambda a: 
 ylabels = ["Event purity", "Event efficiency", "Event $F_1$"]
 letters = "abcdef"
 
+XMAX = max(T[-1] for _, (T, _) in rows)      # one x-range and tick set for both rows
+
 plt.rcParams.update({"font.size": 12})
 fig, axes = plt.subplots(2, 3, figsize=(16.8, 9.4))
 for r, (xlab, (T, cv)) in enumerate(rows):
@@ -47,7 +49,8 @@ for r, (xlab, (T, cv)) in enumerate(rows):
         ax = axes[r, c]
         for lab, col, pur, eff, f1 in cv:
             ax.plot(T, (pur, eff, f1)[c], "-", lw=1.8, color=col, label=lab)
-        ax.set_xlim(T[0], T[-1]); ax.set_ylim(0, 1.03)
+        ax.set_xlim(0, XMAX); ax.set_ylim(0, 1.03)
+        ax.xaxis.set_major_locator(MultipleLocator(25))
         ax.set_xlabel(xlab, fontsize=13)
         ax.set_ylabel(ylabels[c], fontsize=13)
         ax.xaxis.set_minor_locator(AutoMinorLocator(4))
