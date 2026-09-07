@@ -28,52 +28,27 @@ SWEEP = {
 COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C}
 
 plt.rcParams.update({"font.size": 12})
-fig, (axa, axb) = plt.subplots(1, 2, figsize=(12.4, 5.0))
-
+# Steady state only: batches large enough that the pipeline is full (N >= 8).
+# The slope of invocation time vs batch size is the per-event interval in
+# continuous operation; nothing about single-event or fill/drain cost is shown.
+NMIN = 8
+fig, ax = plt.subplots(figsize=(7.2, 5.0))
 fits = {}
 for name, pts in SWEEP.items():
-    n = np.array([a for a, _ in pts], float)
-    t = np.array([b for _, b in pts], float)
-    m = n >= 8                                   # steady-state region
-    A = np.vstack([n[m], np.ones(m.sum())]).T
-    (slope, icept), *_ = np.linalg.lstsq(A, t[m], rcond=None)
+    n = np.array([a for a, _ in pts], float); t = np.array([b for _, b in pts], float)
+    m = n >= NMIN
+    slope, icept = np.polyfit(n[m], t[m], 1)
     fits[name] = (slope, icept)
-
-    axa.plot(n, t, "o", ms=6, color=COL[name], zorder=4,
-             label=f"{name}: {slope*1000:.0f} µs/event")
     xs = np.linspace(0, 270, 50)
-    axa.plot(xs, icept + slope * xs, "-", lw=1.4, color=COL[name], alpha=.75, zorder=3)
-    axa.plot([0], [icept], "s", ms=6, mfc="white", mec=COL[name], mew=1.6, zorder=5)
-
-    axb.plot(n, t * 1000 / n, "o-", ms=5.5, lw=1.6, color=COL[name], label=name)
-    axb.axhline(slope * 1000, ls="--", lw=1.2, color=COL[name], alpha=.65)
-
-axa.set_xlim(0, 270); axa.set_ylim(0, 56)
-axa.set_xlabel("Events per invocation", fontsize=13)
-axa.set_ylabel("Invocation time [ms]", fontsize=13)
-axa.legend(frameon=False, fontsize=10.5, loc="upper left")
-# the two intercepts differ by only 25 us, so label them once
-_i_pl = fits["PL-only"][1] * 1000
-_i_hy = fits["AIE-PL hybrid"][1] * 1000
-axa.annotate(f"Fixed cost {_i_hy:.0f}–{_i_pl:.0f} µs\n(pipeline fill/drain + launch)",
-             xy=(0, fits["PL-only"][1]), xytext=(46, 7.4),
-             fontsize=9.5, color="#333333",
-             arrowprops=dict(arrowstyle="->", color="#333333", lw=1.0))
-
-axb.set_xscale("log", base=2); axb.set_xlim(0.8, 320); axb.set_ylim(0, 950)
-axb.set_xticks([1, 2, 4, 8, 16, 32, 64, 128, 256])
-axb.set_xticklabels([str(v) for v in (1, 2, 4, 8, 16, 32, 64, 128, 256)])
-axb.set_xlabel("Events per invocation", fontsize=13)
-axb.set_ylabel("Time per event [µs]", fontsize=13)
-axb.legend(frameon=False, fontsize=10.5, loc="upper right")
-axb.text(1.05, fits["PL-only"][0]*1000 + 28, "Steady state 205 µs",
-         fontsize=9.5, color=PL_C)
-axb.text(1.05, fits["AIE-PL hybrid"][0]*1000 - 62, "Steady state 111 µs",
-         fontsize=9.5, color=AIE_C)
-
-for ax in (axa, axb):
-    ax.tick_params(which="both", direction="in", right=True, top=True)
-    ax.grid(alpha=.13); ax.set_axisbelow(True)
+    ax.plot(xs, icept + slope * xs, "-", lw=1.4, color=COL[name], alpha=.8, zorder=3)
+    ax.plot(n[m], t[m], "o", ms=6.5, color=COL[name], zorder=4,
+            label=f"{name}: {slope*1000:.0f} µs per event  ({1000/slope:,.0f} events / s)")
+ax.set_xlim(0, 270); ax.set_ylim(0, 56)
+ax.set_xlabel("Events per invocation", fontsize=13)
+ax.set_ylabel("Invocation time [ms]", fontsize=13)
+ax.legend(frameon=False, fontsize=10.5, loc="upper left")
+ax.tick_params(which="both", direction="in", right=True, top=True)
+ax.grid(alpha=.13); ax.set_axisbelow(True)
 
 fig.tight_layout()
 out = "/home/snehadri/repos/aie-unsupervised-search/figs/latency_batch_sweep.png"
