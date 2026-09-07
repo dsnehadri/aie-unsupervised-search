@@ -10,7 +10,7 @@ which cancels ambient drift, then the same 30-sample centered rolling mean.
 Both campaigns used a matched ~90 s ON / 90 s OFF cadence, so the two folds are
 directly comparable.
 
-  all-PL   = BOOT.BIN.plstream_batched2  (true-batched dataflow, 4,869 ev/s)
+  PL-only   = BOOT.BIN.plstream_batched2  (true-batched dataflow, 4,869 ev/s)
   AIE-PL   = BOOT.BIN.aie_maskfix        (72-tile hybrid,        8,962 ev/s)
 """
 import csv
@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 FIGS = "/home/snehadri/repos/aie-unsupervised-search/figs"
 RUNS = [
-    ("all-PL  (idle 7.53 W)", "all-PL", "#eb6834",
+    ("PL-only  (idle 7.53 W)", "PL-only", "#eb6834",
      f"{FIGS}/board_thermal_lockin_pl_log.csv",
      f"{FIGS}/board_thermal_lockin_pl_phases.txt"),
     ("AIE-PL hybrid  (idle 10.90 W)", "AIE-PL hybrid", "#2a78d6",
@@ -129,11 +129,13 @@ for ax in (ax1, ax2):
     ax.grid(axis="y", color=GRID, linewidth=0.7)
     ax.set_axisbelow(True)
 
-ax1.set_ylabel("Board power above idle (W)", color=BLACK, fontsize=10)
+ax1.set_ylabel("Supply power above idle (W)", color=BLACK, fontsize=10)
+ax1.text(0.012, 0.93, "(a)", transform=ax1.transAxes, fontsize=11, fontweight="bold", va="top", color=BLACK)
 # headroom so the top-right legend clears the ON plateau
 ax1.set_ylim(top=ax1.get_ylim()[1] * 1.32)
 ax1.legend(frameon=False, fontsize=9, labelcolor=BLACK, loc="upper right")
 ax2.set_ylabel("Die temperature above idle (°C)", color=BLACK, fontsize=10)
+ax2.text(0.012, 0.93, "(b)", transform=ax2.transAxes, fontsize=11, fontweight="bold", va="top", color=BLACK)
 ax2.set_xlabel("Time within cycle (s)", color=BLACK, fontsize=10)
 # headroom so the four-entry legend clears the ON plateau and its falling edge
 ax2.set_ylim(top=ax2.get_ylim()[1] * 1.65)
