@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Lock-in power/temperature campaign with 120 s ON / 120 s OFF half-cycles.
 # The 90 s runs (board_thermal_lockin.sh) show die temperature still rising at
 # the end of the ON window; 120 s gives the thermal response room to plateau.
@@ -15,7 +15,11 @@ XCLBIN=${2:-aie_stream_retrained.xclbin}
 ITERS=${3:-520}
 HOST=${4:-host_aie_timed}
 OFF_S=${OFF_S:-120}
+cd /root
+rm -f mod_log.csv mod_phase.txt mod_load.log
 echo "run_start $(date +%s) cycles=$CYCLES xclbin=$XCLBIN iters=$ITERS host=$HOST off_s=$OFF_S" >> mod_phase.txt
+python3 /root/power_sampler.py /root/mod_log.csv &
+SAMPLER=$!
 sleep 60
 i=0
 while [ $i -lt "$CYCLES" ]; do
@@ -35,4 +39,5 @@ while [ $i -lt "$CYCLES" ]; do
   i=$((i+1))
 done
 sleep 30
+kill $SAMPLER
 echo "run_end $(date +%s)" >> mod_phase.txt
