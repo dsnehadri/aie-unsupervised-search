@@ -34,6 +34,24 @@ HYB = [("Read input", 149), ("Fork", 153), ("Embedding", 5874), ("Pairwise $w_{i
        ("Autoencoder + MSE", 1162), ("Write DDR", 81)]
 PL_MEAS, HYB_MEAS = 205.2, 111.0      # measured per-event interval (batch sweep)
 
+# Measured AIE block intervals (per-block batch sweeps, fit_block_sweeps.py).
+# Inserted into the hybrid panel as their own rows so the attention compute
+# does not vanish from the picture when it moves off the fabric.
+import json, os
+_bi = "/home/snehadri/aie_scratch_save_20260810/block_intervals.json"
+AIE_ROWS = []
+if os.path.isfile(_bi):
+    _d = json.load(open(_bi))
+    for lab in ("Object attention", "Candidate attention", "Cross attention"):
+        if lab in _d:
+            AIE_ROWS.append((f"{lab} (AIE)", _d[lab]["slope_us"]))
+    # place the AIE rows right after the streaming rows they belong to
+    _ins = {"Object attention (AIE)": "Object receive", "Candidate attention (AIE)": "Candidate send/receive",
+            "Cross attention (AIE)": "Cross send/receive"}
+    for lab, us in AIE_ROWS:
+        idx = [i for i, (l, _) in enumerate(HYB) if l == _ins[lab]][0] + 1
+        HYB.insert(idx, (lab, us * HYB_CLK / 1e6))     # store as "cycles" so the common path works
+
 plt.rcParams.update({"font.size": 11})
 fig, axes = plt.subplots(1, 2, figsize=(12.6, 5.4))
 
@@ -43,7 +61,8 @@ for ax, data, clk, meas, col, meas_lab in (
     labs = [d[0] for d in data]
     us = np.array([d[1] / clk * 1e6 for d in data])
     y = np.arange(len(labs))[::-1]
-    ax.barh(y, us, color=col, edgecolor=INK, linewidth=0.8, height=0.72)
+    cols = ["#5b8fc9" if "(AIE)" in l else col for l in labs]      # darker blue = runs on the AIE array
+    ax.barh(y, us, color=cols, edgecolor=INK, linewidth=0.8, height=0.72)
     ax.axvline(meas, color="#c0392b", ls="--", lw=1.6, zorder=5)
     ax.text(meas, len(labs) - 0.35, "  " + meas_lab, color="#c0392b",
             fontsize=9.5, va="top", ha="left")

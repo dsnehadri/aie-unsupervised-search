@@ -88,11 +88,28 @@ def fig_blocks_and_scaling():
     pl_us = np.array([210.3, 44.4, 163.8], float)      # 80 MHz, routed cycles
     HYB_INTERVAL = 111.0
     xs = np.arange(len(blocks))
-    axb.bar(xs, pl_us, width=0.55, color=PL_C, label="PL block, in the all-PL design")
-    for x, v in zip(xs, pl_us):
-        axb.text(x, v + 4, f"{v:.0f}", ha="center", fontsize=10.5)
-    axb.axhline(HYB_INTERVAL, color=AIE_C, lw=2, ls="--",
-                label="Hybrid interval: no AIE block exceeds this")
+    import json, os
+    _bi = "/home/snehadri/aie_scratch_save_20260810/block_intervals.json"
+    aie_us = None
+    if os.path.isfile(_bi):
+        _d = json.load(open(_bi))
+        keys = ["Object attention", "Candidate attention", "Cross attention"]
+        if all(k in _d for k in keys):
+            aie_us = np.array([_d[k]["slope_us"] for k in keys], float)
+    if aie_us is None:
+        axb.bar(xs, pl_us, width=0.55, color=PL_C, label="PL block, in the all-PL design")
+        for x, v in zip(xs, pl_us):
+            axb.text(x, v + 4, f"{v:.0f}", ha="center", fontsize=10.5)
+        axb.axhline(HYB_INTERVAL, color=AIE_C, lw=2, ls="--",
+                    label="Hybrid interval: no AIE block exceeds this")
+    else:
+        w = 0.36
+        axb.bar(xs - w/2, pl_us, width=w, color=PL_C, label="PL block, in the all-PL design")
+        axb.bar(xs + w/2, aie_us, width=w, color=AIE_C, label="AIE block, measured per-event interval")
+        for x, v in zip(xs - w/2, pl_us):
+            axb.text(x, v + 4, f"{v:.0f}", ha="center", fontsize=10)
+        for x, v in zip(xs + w/2, aie_us):
+            axb.text(x, v + 4, f"{v:.0f}", ha="center", fontsize=10)
     axb.set_xticks(xs)
     axb.set_xticklabels(blocks, fontsize=11.5)
     axb.set_ylabel("Time per event [µs]", fontsize=12.5)
