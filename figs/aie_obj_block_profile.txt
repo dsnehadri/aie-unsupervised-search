@@ -1,0 +1,12 @@
+# aiesimulator --profile, deployed object-attention block (ObjAttnGraphL<0>, 12 kernels, 4 events), 2026-09-08
+# cycles per event per kernel at 1.25 GHz; "softfloat" = share of the kernel's cycles spent in the software
+# float library (f32_*, float_sqrtf, softfloat_*); "layernorm" = share in layernorm_row
+kernel                      tile  us/event  softfloat  layernorm
+obj_post_c_L0               22_0     50.5       88%       75%
+obj_post_a_proj_L0          24_2     29.9       75%        0%
+obj_post_b2_L0              22_1     27.9       79%        0%
+obj_post_b1_L0              22_2     27.9       79%        0%
+obj_attn_head_post_h{0..3}  x4       11.7        0%        0%
+obj_attn_head_pre_h{0..3}   x4        8.1        0%        0%
+# slowest kernel 50.5 us  -> measured block interval 54.6 us (kernel + window handoff)
+# sum of the chain 215 us -> block latency (no handoffs); isolated-sweep fixed cost ~127 us incl. launch
