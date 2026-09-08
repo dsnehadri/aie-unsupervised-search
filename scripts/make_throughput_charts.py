@@ -144,8 +144,6 @@ def fig_blocks_and_scaling():
     axs.plot(n_model * TILES_PER, thr_model, "-", color=AIE_C, lw=1.6, alpha=.8,
              label=(r"Model $t = t_f + t_c/N$"
                     f"  ($t_f$ = {t_f*1e6:.1f} µs, $t_c$ = {t_c*1e6:.0f} µs)"))
-    axs.axhline(1 / t_f, color=AIE_C, lw=1.2, ls=":",
-                label=f"Feeder limit $1/t_f$ = {1/t_f/1000:.0f}k events / s")
     axs.plot(tiles, meas, "o", color=AIE_C, ms=7, markeredgecolor="k",
              markeredgewidth=0.4, label="AIE, measured", zorder=5)
     axs.axhline(6334, color=PL_C, lw=2, ls="--",
@@ -157,7 +155,7 @@ def fig_blocks_and_scaling():
     axs.set_xlabel("AI Engine tiles", fontsize=12.5)
     axs.set_ylabel("Object attention block throughput [events / s]",
                    fontsize=12.5)
-    axs.set_ylim(0, 1 / t_f * 1.10)
+    axs.set_ylim(0, thr_model.max() * 1.15)
     axs.legend(fontsize=9.5, loc="upper left", bbox_to_anchor=(0.02, 0.92), frameon=False)
 
     save(fig, "throughput_blocks_and_scaling")
