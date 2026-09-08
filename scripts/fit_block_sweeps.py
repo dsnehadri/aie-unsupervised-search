@@ -11,7 +11,10 @@ import numpy as np
 SAVE = "/home/snehadri/aie_scratch_save_20260810"
 FILES = {"Object attention": "block_sweep_obj.csv",
          "Candidate attention": "block_sweep_cand.csv",
-         "Cross attention": "block_sweep_cross.csv"}
+         "Cross attention": "block_sweep_cross.csv",
+         "PL Object attention": "block_sweep_pl_obj.csv",        # isolated PL blocks (pl_attn, 100 MHz)
+         "PL Candidate attention": "block_sweep_pl_cand.csv",
+         "PL Cross attention": "block_sweep_pl_cross.csv"}
 
 def fit(path, nmin=8):
     n, t = [], []

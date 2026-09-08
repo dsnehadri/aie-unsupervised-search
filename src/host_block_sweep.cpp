@@ -2,6 +2,7 @@
 // block. Fits t(N) = L + N/T: slope = the block's steady-state per-event
 // interval with launch overhead removed. Generic over the block's word counts.
 // usage: ./host_block_sweep <xclbin> <kernel> <words_in> <words_out> [iters]
+// Kernels named *_pl_top have no AIE graph and are run without opening one.
 #include <cstdio>
 #include <cstdint>
 #include <string>
@@ -23,7 +24,9 @@ int main(int argc, char** argv) {
   const int NPTS = sizeof(NLIST) / sizeof(NLIST[0]), NMAX = NLIST[NPTS - 1];
   auto dev = xrt::device(0);
   auto uuid = dev.load_xclbin(xclbin);
-  auto g = xrt::graph(dev, uuid, "aie_graph"); g.reset(); g.run(-1);
+  const bool has_graph = kname.find("_pl_") == std::string::npos;
+  xrt::graph* g = nullptr;
+  if (has_graph) { g = new xrt::graph(dev, uuid, "aie_graph"); g->reset(); g->run(-1); }
   auto k = xrt::kernel(dev, uuid, kname, xrt::kernel::cu_access_mode::exclusive);
   auto ib = xrt::bo(dev, (size_t)NMAX * WIN * 4, k.group_id(0));
   auto ob = xrt::bo(dev, (size_t)NMAX * WOUT * 4, k.group_id(1));

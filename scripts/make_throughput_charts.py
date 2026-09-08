@@ -96,6 +96,15 @@ def fig_blocks_and_scaling():
         keys = ["Object attention", "Candidate attention", "Cross attention"]
         if all(k in _d for k in keys):
             aie_us = np.array([_d[k]["slope_us"] for k in keys], float)
+    pl_iso = None
+    if os.path.isfile(_bi):
+        _d = json.load(open(_bi))
+        pk = ["PL Object attention", "PL Candidate attention", "PL Cross attention"]
+        if all(k in _d for k in pk):
+            pl_iso = np.array([_d[k]["slope_us"] for k in pk], float)
+    pl_label = "PL block, in the all-PL design"
+    if pl_iso is not None:            # like-for-like: both sides isolated, batch-measured
+        pl_us, pl_label = pl_iso, "PL block, isolated at 100 MHz"
     if aie_us is None:
         axb.bar(xs, pl_us, width=0.55, color=PL_C, label="PL block, in the all-PL design")
         for x, v in zip(xs, pl_us):
@@ -104,8 +113,8 @@ def fig_blocks_and_scaling():
                     label="Hybrid interval: no AIE block exceeds this")
     else:
         w = 0.36
-        axb.bar(xs - w/2, pl_us, width=w, color=PL_C, label="PL block, in the all-PL design")
-        axb.bar(xs + w/2, aie_us, width=w, color=AIE_C, label="AIE block, measured per-event interval")
+        axb.bar(xs - w/2, pl_us, width=w, color=PL_C, label=pl_label)
+        axb.bar(xs + w/2, aie_us, width=w, color=AIE_C, label="AIE block, isolated, measured")
         for x, v in zip(xs - w/2, pl_us):
             axb.text(x, v + 4, f"{v:.0f}", ha="center", fontsize=10)
         for x, v in zip(xs + w/2, aie_us):
@@ -113,7 +122,7 @@ def fig_blocks_and_scaling():
     axb.set_xticks(xs)
     axb.set_xticklabels(blocks, fontsize=11.5)
     axb.set_ylabel("Time per event [µs]", fontsize=12.5)
-    axb.set_ylim(0, pl_us.max() * 1.22)
+    axb.set_ylim(0, max(pl_us.max(), 210) * 1.22)
     axb.legend(fontsize=10, frameon=False, loc="upper right")
 
     # --- (b) AIE tile replication, with the shared-feeder model ---
