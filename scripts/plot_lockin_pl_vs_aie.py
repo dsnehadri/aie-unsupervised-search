@@ -13,20 +13,22 @@ directly comparable.
   PL-only   = BOOT.BIN.plstream_batched2  (true-batched dataflow, 4,869 ev/s)
   AIE-PL   = BOOT.BIN.aie_maskfix        (72-tile hybrid,        8,962 ev/s)
 """
-import csv
+import csv, os
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import os
+SUF = os.environ.get("LOCKIN_SUFFIX", "")   # "" = 90 s campaigns, "120" = 120 s campaigns
 
 FIGS = "/home/snehadri/repos/aie-unsupervised-search/figs"
 RUNS = [
     ("PL-only  (idle 10.84 W)", "PL-only", "#eb6834",
-     f"{FIGS}/board_thermal_lockin_pl_log.csv",
-     f"{FIGS}/board_thermal_lockin_pl_phases.txt"),
+     f"{FIGS}/board_thermal_lockin" + SUF + "_pl_log.csv",
+     f"{FIGS}/board_thermal_lockin" + SUF + "_pl_phases.txt"),
     ("AIE-PL hybrid  (idle 11.12 W)", "AIE-PL hybrid", "#2a78d6",
-     f"{FIGS}/board_thermal_lockin_log.csv",
-     f"{FIGS}/board_thermal_lockin_phases.txt"),
+     f"{FIGS}/board_thermal_lockin" + SUF + "_log.csv",
+     f"{FIGS}/board_thermal_lockin" + SUF + "_phases.txt"),
 ]
 BLACK, GRID = "#1a1a1a", "#dddddd"
 BIN = 1.0
@@ -148,7 +150,7 @@ for ax in (ax1, ax2):
     ax.axhline(0, color=BLACK, lw=0.8, alpha=0.35, zorder=1)
 
 fig.tight_layout()
-out = f"{FIGS}/board_lockin_pl_vs_aie.png"
+out = f"{FIGS}/board_lockin_pl_vs_aie" + ("_" + SUF + "s" if SUF else "") + ".png"
 fig.savefig(out, facecolor="white")
 fig.savefig(out.replace(".png", ".pdf"), facecolor="white")
 print("saved", out)
