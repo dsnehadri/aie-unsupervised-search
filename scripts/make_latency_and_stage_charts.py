@@ -20,8 +20,11 @@ SWEEP = {
                 (32,7.26646),(64,13.83435),(128,26.96866),(256,53.24013)],
     "AIE-PL hybrid": [(1,0.81523),(2,0.87427),(4,1.02259),(8,1.59751),(16,2.43396),
                       (32,4.14259),(64,7.83402),(128,14.90631),(256,29.08464)],
+    # same hybrid with every inter-stage FIFO tripled (~6 events of slack), 2026-09-08
+    "AIE-PL hybrid, deep FIFOs": [(1,0.81589),(2,0.87701),(4,0.99126),(8,1.22430),(16,1.68613),
+                      (32,2.61286),(64,4.46752),(128,8.17432),(256,15.58807)],
 }
-COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C}
+COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C, "AIE-PL hybrid, deep FIFOs": "#2ca02c"}
 NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
@@ -94,6 +97,11 @@ for ax, meas, letter in ((axb, fits["PL-only"], "(a)"), (axc, fits["AIE-PL hybri
     ax.axvline(meas, color="#c0392b", ls="--", lw=1.6, zorder=5)
     ax.text(meas, len(labs) - 0.35, f"  Measured interval, {meas:.0f} µs", color="#c0392b",
             fontsize=9.5, va="top", ha="left")
+    if ax is axc:
+        deep = fits["AIE-PL hybrid, deep FIFOs"]
+        ax.axvline(deep, color="#2ca02c", ls="--", lw=1.6, zorder=5)
+        ax.text(deep, len(labs) - 1.25, f"  Deep FIFOs, {deep:.0f} µs", color="#2ca02c",
+                fontsize=9.5, va="top", ha="left")
     ax.set_yticks(y); ax.set_yticklabels(labs, fontsize=9.3)
     ax.set_xlabel("Time per event [µs]", fontsize=11.5)
     ax.set_xlim(0, 245)
