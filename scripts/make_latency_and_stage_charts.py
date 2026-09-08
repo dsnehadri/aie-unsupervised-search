@@ -93,15 +93,12 @@ axc.barh(y, ha, left=hp, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=0.
 for yy, p, a in zip(y, hp, ha):
     axc.text(p + a + 3, yy, f"{p+a:.0f}" if a == 0 else f"{p:.0f} + {a:.0f}", va="center", fontsize=8.6, color=INK)
 
-for ax, meas, letter in ((axb, fits["PL-only"], "(a)"), (axc, fits["AIE-PL hybrid"], "(b)")):
+# hybrid panel: the deep-FIFO build's interval (the pipeline with enough buffering
+# for its stages to overlap); the shallow-FIFO 111 us is a buffering artefact
+for ax, meas, letter in ((axb, fits["PL-only"], "(a)"), (axc, fits["AIE-PL hybrid, deep FIFOs"], "(b)")):
     ax.axvline(meas, color="#c0392b", ls="--", lw=1.6, zorder=5)
     ax.text(meas, len(labs) - 0.35, f"  Measured interval, {meas:.0f} µs", color="#c0392b",
             fontsize=9.5, va="top", ha="left")
-    if ax is axc:
-        deep = fits["AIE-PL hybrid, deep FIFOs"]
-        ax.axvline(deep, color="#2ca02c", ls="--", lw=1.6, zorder=5)
-        ax.text(deep, len(labs) - 1.25, f"  Deep FIFOs, {deep:.0f} µs", color="#2ca02c",
-                fontsize=9.5, va="top", ha="left")
     ax.set_yticks(y); ax.set_yticklabels(labs, fontsize=9.3)
     ax.set_xlabel("Time per event [µs]", fontsize=11.5)
     ax.set_xlim(0, 245)
