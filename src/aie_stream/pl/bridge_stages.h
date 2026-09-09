@@ -263,13 +263,21 @@ inline void obj_attn_recv(hls::stream<pkt64_t>& x_in_aie, hls::stream<data_t>& x
 // Masking stays here: the kernel embeds all N_MAX rows and the padded ones are
 // zeroed on the way back, which is what the fabric version did after its MLP.
 inline void embed_send(hls::stream<data_t>& jets_in_pl, hls::stream<pkt64_t>& jets_out_aie) {
+    // 12x5 = 60 int16 is 120 B, which the AIE compiler rounds up to a 128 B
+    // window; sending only 120 makes the kernel take 4 words from the next
+    // event. Pad to 64 words so the window is exactly what is sent.
     const int J_SZ = N_MAX * RAW_DIM;
-    data_t buf[J_SZ];
+    const int J_PAD = 64;
+    data_t buf[J_PAD];
     for (int i = 0; i < J_SZ; i++) {
         #pragma HLS PIPELINE II=1
         buf[i] = jets_in_pl.read();
     }
-    pack_buf_to_axi<J_SZ>(buf, jets_out_aie);
+    for (int i = J_SZ; i < J_PAD; i++) {
+        #pragma HLS PIPELINE II=1
+        buf[i] = (data_t)0;
+    }
+    pack_buf_to_axi<J_PAD>(buf, jets_out_aie);
 }
 
 inline void embed_recv(hls::stream<pkt64_t>& x_in_aie, hls::stream<bool>& mask_in_pl,

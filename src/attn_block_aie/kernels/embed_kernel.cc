@@ -38,6 +38,8 @@ void embed_mlp(input_window_int16* __restrict jets_in,
     for (int r = 0; r < EMBED_ROWS; r++)
         for (int c = 0; c < EMBED_IN; c++)
             a[pk_idx<EMBED_IN_PAD>(r, c)] = window_readincr(jets_in);
+    // consume the window's alignment padding so the next event starts clean
+    for (int i = EMBED_ROWS * EMBED_IN; i < EMBED_IN_WORDS; i++) (void)window_readincr(jets_in);
 
     alignas(16) int16 h[EMBED_ROWS * E_DIM];
     gemm_pk<EMBED_ROWS, EMBED_IN_PAD, E_DIM>(a, embed_W0, h, ACC_SHIFT);

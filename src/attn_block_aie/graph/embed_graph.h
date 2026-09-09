@@ -25,7 +25,7 @@ public:
         source(k_embed) = "kernels/embed_kernel.cc";
         runtime<ratio>(k_embed) = 0.9;
 
-        constexpr int in_bytes  = EMBED_ROWS * EMBED_IN * sizeof(int16);   // 120
+        constexpr int in_bytes  = EMBED_IN_WORDS * sizeof(int16);          // 128, 32B-aligned
         constexpr int out_bytes = EMBED_ROWS * E_DIM * sizeof(int16);      // 384
         connect<window<in_bytes>>(plio_jets_in.out[0], k_embed.in[0]);
         connect<window<out_bytes>>(k_embed.out[0], plio_embed_out.in[0]);

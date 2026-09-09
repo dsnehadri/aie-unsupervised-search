@@ -347,7 +347,7 @@ public:
         k_embed = kernel::create(embed_mlp);
         source(k_embed) = "kernels/embed_kernel.cc";
         runtime<ratio>(k_embed) = 0.9;
-        constexpr int in_sz  = EMBED_ROWS * EMBED_IN * sizeof(int16);
+        constexpr int in_sz  = EMBED_IN_WORDS * sizeof(int16);   // 128, 32B-aligned
         constexpr int out_sz = EMBED_ROWS * E_DIM * sizeof(int16);
         connect<window<in_sz>>(plio_jets_in.out[0], k_embed.in[0]);
         connect<window<out_sz>>(k_embed.out[0], plio_x_out.in[0]);
