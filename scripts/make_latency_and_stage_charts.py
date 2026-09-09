@@ -20,9 +20,10 @@ SWEEP = {
                 (32,7.26646),(64,13.83435),(128,26.96866),(256,53.24013)],
     "AIE-PL hybrid": [(1,0.81523),(2,0.87427),(4,1.02259),(8,1.59751),(16,2.43396),
                       (32,4.14259),(64,7.83402),(128,14.90631),(256,29.08464)],
-    # same hybrid with every inter-stage FIFO tripled (~6 events of slack), 2026-09-08
-    "AIE-PL hybrid, deep FIFOs": [(1,0.81589),(2,0.87701),(4,0.99126),(8,1.22430),(16,1.68613),
-                      (32,2.61286),(64,4.46752),(128,8.17432),(256,15.58807)],
+    # same hybrid with every inter-stage FIFO tripled (~6 events of slack), and the
+    # vector integer layer norm in the AI Engine kernels, 2026-09-08
+    "AIE-PL hybrid, deep FIFOs": [(1,0.39245),(2,0.45408),(4,0.56998),(8,0.80148),(16,1.26358),
+                      (32,2.19175),(64,4.04537),(128,7.75214),(256,15.16611)],
 }
 COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C, "AIE-PL hybrid, deep FIFOs": "#2ca02c"}
 NMIN = 8
@@ -91,10 +92,14 @@ hp = np.array([r[2] for r in ROWS]); ha = np.array([r[3] for r in ROWS])
 axc.barh(y, hp, color=AIEC, edgecolor=INK, linewidth=0.8, height=0.72, label="PL stage / PL–AIE streaming")
 axc.barh(y, ha, left=hp, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=0.72, label="AI Engine compute")
 for yy, p, a in zip(y, hp, ha):
-    axc.text(p + a + 3, yy, f"{p+a:.0f}" if a == 0 else f"{p:.0f} + {a:.0f}", va="center", fontsize=8.6, color=INK)
+    # white background so the measured-interval line does not cross the digits
+    axc.text(p + a + 3, yy, f"{p+a:.0f}" if a == 0 else f"{p:.0f} + {a:.0f}", va="center",
+             fontsize=8.6, color=INK, zorder=6,
+             bbox=dict(facecolor="white", edgecolor="none", pad=0.8))
 
 # hybrid panel: the deep-FIFO build's interval (the pipeline with enough buffering
-# for its stages to overlap); the shallow-FIFO 111 us is a buffering artefact
+# for its stages to overlap). With the vector integer layer norm the AI Engine
+# compute is well under the interval and the PL embedding stage sets the rate.
 for ax, meas, letter in ((axb, fits["PL-only"], "(a)"), (axc, fits["AIE-PL hybrid, deep FIFOs"], "(b)")):
     ax.axvline(meas, color="#c0392b", ls="--", lw=1.6, zorder=5)
     ax.text(meas, len(labs) - 0.35, f"  Measured interval, {meas:.0f} µs", color="#c0392b",

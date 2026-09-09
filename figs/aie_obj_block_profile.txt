@@ -51,3 +51,12 @@ obj_attn_head_pre_h2_L0     24_0       8.1         0%         0%       0%      0
 obj_attn_head_pre_h1_L0     24_1       8.1         0%         0%       0%      0%
 obj_attn_head_pre_h3_L0     24_5       8.1         0%         0%       0%      0%
 slowest obj_post_c_L0 = 14.3 us/event ; chain sum 125 us
+
+# HARDWARE CONFIRMATION (blocks3 batch sweeps, 2026-09-08)
+# isolated AIE block, us/event (events/s):   float LN            vector integer LN
+#   Object attention                          54.6 (18,326)       17.7 (56,468)
+#   Candidate attention                       13.3 (75,247)        4.0 (252,881)
+#   Cross attention                           54.6 (18,328)       17.1 (58,462)
+# end to end, AIE-PL hybrid with deep FIFOs:  57.9 us/event both ways -- the PL embedding
+#   stage (59 us) now sets the rate -- but one event takes 392 us instead of 816 us.
+# AUC on the 2000-event labelled set: 0.9818 both ways (rank correlation 0.9997).
