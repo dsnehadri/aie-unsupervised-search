@@ -73,3 +73,10 @@ slowest obj_post_c_L0 = 14.3 us/event ; chain sum 125 us
 # With 64 B of headroom the 24-instance vehicle hangs the CU at 7 instances and above:
 # past a core's stack lies a neighbour's buffer. Rebuilt with --stacksize=4096 it runs
 # all 24 instances: 288 tiles give 51,959 events/s (was 43,772 with the float kernels).
+# EMBEDDING KERNEL (aiesimulator profile of embed_mlp, one tile, 4 events, 2026-09-09):
+#   20,993 cycles/event = 16.8 us. Layer norm 27%, the zero-init of the padded input 6%,
+#   the three gemms almost free. Program memory 8,002 B, stack 1,664 B (4 KB stack).
+# Moving the stage there makes the object attention block (17.7 us) the longest stage,
+# so the projected interval is ~18 us (about 56,000 events/s), a 3.2x speed-up. Allowing
+# the ~3 us of window handoff the attention blocks show between simulation and hardware,
+# 18-21 us is the honest range until it is built and measured.

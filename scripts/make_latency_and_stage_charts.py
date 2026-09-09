@@ -60,7 +60,7 @@ y = np.arange(len(labs))[::-1]
 
 plt.rcParams.update({"font.size": 11})
 figa, axa = plt.subplots(figsize=(7.2, 5.0))
-fig, (axb, axc) = plt.subplots(1, 2, figsize=(12.6, 5.6))
+fig, (axb, axc, axd) = plt.subplots(1, 3, figsize=(18.0, 5.6))
 fig.subplots_adjust(wspace=0.62)
 
 fits = {}
@@ -109,13 +109,39 @@ for yy, p, a in zip(y, hp, ha):
         axc.text(a + 3, yy - hh/2, f"{a:.0f}", va="center", fontsize=8.2, color=INK, zorder=6,
                  bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
 
+# (d) the same hybrid with the embedding stage moved onto the array. Every bar
+# is measured except the embedding kernel's AI Engine cost, which comes from an
+# aiesimulator profile of the kernel (16.8 us/event) and is drawn hatched. The
+# projected interval is then the longest stage, the object attention block.
+EMBED_AIE_SIM = 16.8
+dp = hp.copy(); da = ha.copy()
+_emb = labs.index("Embedding")
+dp[_emb] = cyc(560, HYB_CLK)          # streaming 12x5 in and 12x16 back, as for the attention blocks
+da[_emb] = EMBED_AIE_SIM
+axd.barh(y + hh/2, dp, color=AIEC, edgecolor=INK, linewidth=0.8, height=hh)
+axd.barh(y - hh/2, da, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=hh)
+axd.barh(y[_emb] - hh/2, da[_emb], color=AIE_DARK, edgecolor=INK, linewidth=0.8,
+         height=hh, hatch="////", label="AI Engine compute, simulated")
+for yy, p_, a_ in zip(y, dp, da):
+    axd.text(p_ + 3, yy + hh/2, f"{p_:.0f}", va="center", fontsize=8.2, color=INK, zorder=6,
+             bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
+    if a_:
+        axd.text(a_ + 3, yy - hh/2, f"{a_:.0f}", va="center", fontsize=8.2, color=INK, zorder=6,
+                 bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
+proj = max(max(p_, a_) for p_, a_ in zip(dp, da))
+axd.axvline(proj, color="#c0392b", ls=":", lw=1.6, zorder=5)
+axd.text(proj, len(labs) - 0.35, f"  Projected interval, {proj:.0f} µs", color="#c0392b",
+         fontsize=9.5, va="top", ha="left")
+axd.legend(frameon=False, fontsize=8.8, loc="lower right", bbox_to_anchor=(1.0, 0.08))
+
 # hybrid panel: the deep-FIFO build's interval (the pipeline with enough buffering
 # for its stages to overlap). With the vector integer layer norm the AI Engine
 # compute is well under the interval and the PL embedding stage sets the rate.
-for ax, meas, letter in ((axb, fits["PL-only"], "(a)"), (axc, fits["AIE-PL hybrid"], "(b)")):
-    ax.axvline(meas, color="#c0392b", ls="--", lw=1.6, zorder=5)
-    ax.text(meas, len(labs) - 0.35, f"  Measured interval, {meas:.0f} µs", color="#c0392b",
-            fontsize=9.5, va="top", ha="left")
+for ax, meas, letter in ((axb, fits["PL-only"], "(a)"), (axc, fits["AIE-PL hybrid"], "(b)"), (axd, None, "(c)")):
+    if meas is not None:
+        ax.axvline(meas, color="#c0392b", ls="--", lw=1.6, zorder=5)
+        ax.text(meas, len(labs) - 0.35, f"  Measured interval, {meas:.0f} µs", color="#c0392b",
+                fontsize=9.5, va="top", ha="left")
     ax.set_yticks(y); ax.set_yticklabels(labs, fontsize=9.3)
     ax.set_xlabel("Time per event [µs]", fontsize=11.5)
     ax.set_xlim(0, 245)
