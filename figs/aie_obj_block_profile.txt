@@ -52,7 +52,8 @@ obj_attn_head_pre_h1_L0     24_1       8.1         0%         0%       0%      0
 obj_attn_head_pre_h3_L0     24_5       8.1         0%         0%       0%      0%
 slowest obj_post_c_L0 = 14.3 us/event ; chain sum 125 us
 
-# HARDWARE CONFIRMATION (blocks3 batch sweeps, 2026-09-08)
+# HARDWARE CONFIRMATION (blocks3 batch sweeps; final numbers are the 4 KB stack rebuild,
+# which reproduced the 2 KB run within noise: object 17.7, candidate 3.9 vs 4.0, cross 17.1)
 # isolated AIE block, us/event (events/s):   float LN            vector integer LN
 #   Object attention                          54.6 (18,326)       17.7 (56,468)
 #   Candidate attention                       13.3 (75,247)        4.0 (252,881)

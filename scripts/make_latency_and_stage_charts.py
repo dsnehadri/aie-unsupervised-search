@@ -18,13 +18,13 @@ PLC, AIEC, AIE_DARK, INK = "#e8d9a0", "#a9cdea", "#5b8fc9", "#1a1a1a"
 SWEEP = {
     "PL-only": [(1,0.90110),(2,1.10842),(4,1.51807),(8,2.33875),(16,3.98148),
                 (32,7.26646),(64,13.83435),(128,26.96866),(256,53.24013)],
-    # cross-event pipelined hybrid with the vector integer layer norm, 2026-09-09.
+    # cross-event pipelined hybrid, vector integer layer norm, 4 KB AIE stack, 2026-09-09.
     # Its FIFO depth no longer matters: shallow and deep both give 57.9 us/event
     # (shallow 0.39223..15.16503 ms). With the earlier float layer norm the same
     # two builds gave 111.0 and 57.9 us -- the deeper FIFOs were compensating for
     # a slow AI Engine stage, and once that stage is fast the buffering is idle.
-    "AIE-PL hybrid": [(1,0.39245),(2,0.45408),(4,0.56998),(8,0.80148),(16,1.26358),
-                      (32,2.19175),(64,4.04537),(128,7.75214),(256,15.16611)],
+    "AIE-PL hybrid": [(1,0.39255),(2,0.45413),(4,0.56779),(8,0.80058),(16,1.26401),
+                      (32,2.19006),(64,4.04590),(128,7.75216),(256,15.16600)],
 }
 COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C}
 NMIN = 8
