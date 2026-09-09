@@ -52,3 +52,12 @@
 #
 # Numerics: the integer path is within 1.01 LSB (max) and 0.34 LSB (mean) of the
 # float path it replaces over 640k random rows -- src/attn_block_pl/layernorm_fixed_test.cpp.
+#
+# ON HARDWARE (full design rebuilt with LN_MODE=5, 2026-09-09):
+#   PL-only, float layer norm  : 205.2 us/event, 4,872 ev/s, one event 901 us, AUC 0.9819
+#   PL-only, integer layer norm: 128.4 us/event, 7,788 ev/s, one event 527 us, AUC 0.9825
+#   1.60x, physics unchanged (rank correlation 0.9977 against the hybrid reference).
+#   Fit at 93.4% DSP (1838, up from 1630 -- ~9 instances use layernorm, not one),
+#   LUT 260,582 (down from 306,597), BRAM 100 (the table), timing closed at 80 MHz.
+# The standalone block synthesis predicted only 1.19x: it sees one block with no
+# memory contention, so treat a block-level estimate as a lower bound.
