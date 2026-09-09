@@ -120,8 +120,9 @@ for f, lab, col in SIGNALS:
 from matplotlib.lines import Line2D
 style_handles = [Line2D([], [], color="#444", marker="o", ls="-", label="Autoencoder loss"),
                  Line2D([], [], color="#444", marker="s", ls="--", alpha=0.55,
-                        label=r"Minimum mass asymmetry, $m_\mathrm{avg}$")]
-ax.set_xlim(1.0, 3.0); ax.set_ylim(0.4, 1.02)
+                        label=r"$\langle m\rangle_{\mathrm{MMA}}$")]
+ax.set_xlim(1.0, 3.0); ax.set_ylim(0.38, 1.02)   # y floor just below the 0.4
+                                                 # tick so it clears the corner x label
 ax.set_xlabel(r"$H_T$ [TeV]", fontsize=13); ax.set_ylabel("AUC", fontsize=13)
 ax.xaxis.set_minor_locator(AutoMinorLocator(5)); ax.yaxis.set_minor_locator(AutoMinorLocator(5))
 ax.tick_params(which="both", direction="in", right=True, top=True)

@@ -47,7 +47,7 @@ frac_hist(axm, d["qcd_background__mlast"], mbins, "black", "Background", lw=1.8)
 for key, lab, col in SIG:
     frac_hist(axm, d[key + "__mlast"], mbins, col, lab)
 axm.set_xlim(0, 3500); axm.set_ylim(0, None)
-axm.set_xlabel(r"$m_\mathrm{avg}$  [GeV]", fontsize=15, labelpad=6, ha="right", x=1.0)
+axm.set_xlabel(r"$\langle m\rangle_{\mathrm{ABC}}$  [GeV]", fontsize=15, labelpad=6, ha="right", x=1.0)
 axm.set_ylabel("Fraction of Events", fontsize=14, labelpad=6, ha="right", y=1.0)
 axm.xaxis.set_major_locator(MultipleLocator(500))
 axm.xaxis.set_minor_locator(AutoMinorLocator(5))
