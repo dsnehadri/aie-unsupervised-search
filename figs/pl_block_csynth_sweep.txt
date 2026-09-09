@@ -1,0 +1,24 @@
+# Object attention block alone, vitis_hls 2025.2, xcvc1902, 12.5 ns (80 MHz), 2026-09-09.
+# Sweep of the linear layers' k-partitioning (LIN_PARTITION): 8 = as built,
+# 16 = the full row, which the header comment says was ruled out because the
+# csynth DSP estimate reached 107% of the device.
+#
+#   LIN_PARTITION   block interval   DSP        LUT
+#   8               9202 cycles      181 (9%)   42,789 (4%)
+#   16              9202 cycles      181 (9%)   42,789 (4%)
+#
+# Identical: the linear layers are not the limit. Loop level:
+#   LIN_I_LIN_J (one linear, 192 row-outputs)   193 cycles   -> already II=1
+#   LN_ROW      (one layer norm, 12 rows)       660 cycles   -> 55 cycles/row
+# The layer norm costs 3.4x the matrix multiply it follows. Budget of the 9202:
+# ~7 linears = 1350 (15%), ~5 layer norms = 3300 (36%), softmax/context 751,
+# the rest in skip-and-norm, reshape and concat.
+#
+# Same pathology as the AI Engine kernels before the integer rewrite: the fabric
+# layer norm keeps its statistics in float32 (209 DSPFP32 slices in the routed
+# design) and does a float sqrt and divide per row. An integer version would take
+# the block to roughly 6200 cycles (~1.5x), i.e. PL-only near 135 us/event against
+# 205 today -- narrowing, not closing, the gap to the hybrid's 58 us.
+# NOT IMPLEMENTED: this is arithmetic on the report, not a measurement. The block
+# also costs 16,269 cycles in the routed full design against 9202 here, so treat
+# the standalone figure as a lower bound.

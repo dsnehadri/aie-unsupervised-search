@@ -33,8 +33,21 @@ void linear(
     // ~16 DSP per linear x 42 linears and blew the csynth DSP estimate to
     // 107% of the device; factor=8 keeps ~4x the old throughput at half
     // the multipliers.
-    #pragma HLS ARRAY_PARTITION variable=W dim=2 cyclic factor=8
-    #pragma HLS ARRAY_PARTITION variable=in dim=2 cyclic factor=8
+    // LIN_PARTITION lets the k-partitioning be swept without editing here:
+    // 8 (default) = 8 MACs/cycle at II=2; 16 = the full row, II=1, ~2x the
+    // multipliers. The csynth DSP estimate runs about 1.5x the implemented
+    // number, so the "107% of device" that ruled out complete partitioning
+    // was an estimate, not a placement result.
+// NB: the preprocessor does not expand macros inside #pragma, so the factor
+// has to go through _Pragma with stringification or the sweep silently does
+// nothing (both settings then synthesize identically).
+#ifndef LIN_PARTITION
+#define LIN_PARTITION 8
+#endif
+#define LIN_DO_PRAGMA(x) _Pragma(#x)
+#define LIN_PART_K(v, f) LIN_DO_PRAGMA(HLS ARRAY_PARTITION variable=v dim=2 cyclic factor=f)
+    LIN_PART_K(W, LIN_PARTITION)
+    LIN_PART_K(in, LIN_PARTITION)
     LIN_I:
     for (int i = 0; i < N_ROWS; i++) {
         LIN_J:
