@@ -88,15 +88,26 @@ pl_us = np.array([r[1] for r in ROWS])
 axb.barh(y, pl_us, color=PLC, edgecolor=INK, linewidth=0.8, height=0.72, label="PL stage")
 for yy, v in zip(y, pl_us):
     axb.text(v + 3, yy, f"{v:.0f}", va="center", fontsize=8.6, color=INK)
-# (c) hybrid, stacked
+# (c) hybrid. The fabric part and the AI Engine part of an attention stage
+# OVERLAP -- they are separate pipeline stages, so the rate follows the longer
+# of the two, not their sum. The measurement says so: before the kernel rewrite
+# the AI Engine object block took 54.6 us and the fabric part 13 us, yet the
+# interval stayed at 57.9 us, matching the embedding stage alone. Had they been
+# serialized the interval could not have been below 68 us. Hence side-by-side
+# bars, not a stack.
 hp = np.array([r[2] for r in ROWS]); ha = np.array([r[3] for r in ROWS])
-axc.barh(y, hp, color=AIEC, edgecolor=INK, linewidth=0.8, height=0.72, label="PL stage / PL–AIE streaming")
-axc.barh(y, ha, left=hp, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=0.72, label="AI Engine compute")
+hh = 0.36
+axc.barh(y + hh/2, hp, color=AIEC, edgecolor=INK, linewidth=0.8, height=hh,
+         label="PL stage / PL–AIE streaming")
+axc.barh(y - hh/2, ha, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=hh,
+         label="AI Engine compute")
 for yy, p, a in zip(y, hp, ha):
     # white background so the measured-interval line does not cross the digits
-    axc.text(p + a + 3, yy, f"{p+a:.0f}" if a == 0 else f"{p:.0f} + {a:.0f}", va="center",
-             fontsize=8.6, color=INK, zorder=6,
-             bbox=dict(facecolor="white", edgecolor="none", pad=0.8))
+    axc.text(p + 3, yy + hh/2, f"{p:.0f}", va="center", fontsize=8.2, color=INK, zorder=6,
+             bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
+    if a:
+        axc.text(a + 3, yy - hh/2, f"{a:.0f}", va="center", fontsize=8.2, color=INK, zorder=6,
+                 bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
 
 # hybrid panel: the deep-FIFO build's interval (the pipeline with enough buffering
 # for its stages to overlap). With the vector integer layer norm the AI Engine
