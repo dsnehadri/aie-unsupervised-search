@@ -66,6 +66,37 @@ void linear(
 
 // normalizes each row to have mean 0 and variance 1
 
+// LN_MODE selects the layer-norm implementation, so the three can be compared
+// by synthesis rather than by argument:
+//   0  as built: float32 statistics, row loop NOT pipelined (660 cycles/12 rows)
+//   1  same arithmetic, row loop pipelined
+//   2  integer statistics with the reciprocal-square-root table, row pipelined
+//   3  integer, row loop pipelined at II=4 so the element multipliers are
+//      shared 4 ways (PIPELINE II=1 fully unrolls inner loops whatever the
+//      UNROLL factor says, which is why 16 wide multipliers appeared)
+//   4  integer, row loop NOT pipelined -- the integer chain is far shorter
+//      than the float one, and this matches 2 exactly, so the whole win is the
+//      arithmetic, not the pipelining
+//   5  as 4 but the element loops unrolled by 4, to share the wide multipliers
+//      (only possible without PIPELINE on the row loop, which force-unrolls)
+// The block spends about 36% of its cycles here, 3.4x the linear layer it
+// follows, so this is where the fabric design's headroom is.
+#ifndef LN_MODE
+#define LN_MODE 0
+#endif
+
+// eps at the integer scale: 2^30 * 1e-5, matching var = V / 2^30
+#define LN_EPSV 10737
+#if LN_MODE == 5
+#define LN_UNROLL_PRAGMA LIN_DO_PRAGMA(HLS UNROLL factor=4)
+#else
+#define LN_UNROLL_PRAGMA _Pragma("HLS UNROLL")
+#endif
+#if LN_MODE >= 2
+typedef int int32;                       // the table is shared with the AI Engine kernel
+#include "../attn_block_aie/kernels/ln_rsqrt_lut.h"
+#endif
+
 template <int N_ROWS, int FEAT_DIM = E_DIM>
 void layernorm(
     data_t x[N_ROWS][FEAT_DIM],
@@ -81,6 +112,53 @@ void layernorm(
     // LayerNorm also keeps stats in float32 for the same reason.
     LN_ROW:
     for (int i = 0; i < N_ROWS; i++) {
+#if LN_MODE == 1 || LN_MODE == 2
+        #pragma HLS PIPELINE II=1
+#elif LN_MODE == 3
+        #pragma HLS PIPELINE II=4
+#endif
+#if LN_MODE >= 2
+        // integer path: exact mean (never rounded), 1/sqrt from a 385-entry
+        // Q16 table with linear interpolation. Scales: data 2^9, gamma/beta
+        // 2^12, so y_q = (g_q * d16 * R) >> (33 - e/2) + (b_q >> 3).
+        ap_int<21> isum = 0;
+        ap_int<16> xq[FEAT_DIM];
+        LN_SUM: for (int j = 0; j < FEAT_DIM; j++) {
+            LN_UNROLL_PRAGMA
+            xq[j] = x[i][j].range(15, 0);
+            isum += xq[j];
+        }
+        ap_int<22> d16[FEAT_DIM];
+        ap_uint<46> V = 0;
+        LN_D: for (int j = 0; j < FEAT_DIM; j++) {
+            LN_UNROLL_PRAGMA
+            d16[j] = ((ap_int<22>)xq[j] << 4) - isum;
+            V += (ap_uint<44>)((ap_int<44>)d16[j] * d16[j]);
+        }
+        ap_uint<46> Vp = V + (ap_uint<46>)LN_EPSV;
+        // normalize Vp to a 32-bit mantissa by an EVEN shift, so the square
+        // root splits into sqrt(mantissa) x 2^(shift/2) and the table covers
+        // the mantissa exactly. Vp >= LN_EPSV > 2^13, so the shift is bounded.
+        int L = 46 - (int)Vp.countLeadingZeros();       // bit length
+        int nsh = L - 32; if (nsh & 1) nsh++;           // keep it even
+        ap_uint<32> Vn = (nsh >= 0) ? (ap_uint<32>)(Vp >> nsh)
+                                    : (ap_uint<32>)(Vp << (-nsh));
+        int idx = (int)(Vn >> 23) - 128;                // table index, 0..384
+        ap_int<32> frac = (ap_int<32>)((Vn >> 7) & 0xFFFF);
+        ap_int<32> l0 = LN_RSQRT_LUT[idx], l1 = LN_RSQRT_LUT[idx + 1];
+        ap_int<32> R = l0 + (((l1 - l0) * frac) >> 16);      // Q16 1/sqrt
+        int sh = 33 + (nsh >> 1);                        // >= 24 in practice
+        LN_OUT: for (int j = 0; j < FEAT_DIM; j++) {
+            LN_UNROLL_PRAGMA
+            ap_int<16> gq = gamma[j].range(15, 0), bq = beta[j].range(15, 0);
+            ap_int<56> num = (ap_int<56>)gq * d16[j] * R;
+            ap_int<56> rnd = (ap_int<56>)1 << (sh - 1);   // round to nearest
+            ap_int<32> yq = (ap_int<32>)((num + rnd) >> sh) + (ap_int<32>)((bq + 4) >> 3);
+            if (yq > 32767) yq = 32767;
+            if (yq < -32768) yq = -32768;
+            x[i][j].range(15, 0) = yq.range(15, 0);
+        }
+#else
         float sum_f = 0.0f;
         LN_MEAN:
         for (int j = 0; j < FEAT_DIM; j++) {
@@ -105,6 +183,7 @@ void layernorm(
             float y_f = ((float)x[i][j] - mean_f) * inv_std_f;
             x[i][j] = (data_t)((float)gamma[j] * y_f + (float)beta[j]);
         }
+#endif
     }
 }
 

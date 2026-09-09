@@ -22,3 +22,33 @@
 # NOT IMPLEMENTED: this is arithmetic on the report, not a measurement. The block
 # also costs 16,269 cycles in the routed full design against 9202 here, so treat
 # the standalone figure as a lower bound.
+#
+# LAYER-NORM SWEEP (same block, same clock, 2026-09-09). LN_MODE:
+#   0  float32 statistics, row loop not pipelined (as built)
+#   1  same arithmetic, row loop pipelined
+#   2  integer statistics + rsqrt table, row pipelined
+#   3  as 2 but row loop at II=4 (shares the element multipliers)
+#   4  as 2 without the pipeline pragma
+#   5  as 4 with the element loops unrolled by 4
+#
+#   mode   block cycles   DSP        LUT       LN_ROW
+#   0      9202           181 (9%)   42,789    660
+#   1      6172           316 (16%)  117,432    44
+#   2      6027           334 (16%)  45,318     15
+#   3      6222           298 (15%)  46,218     54
+#   4      6027           334 (16%)  45,318     15   <- identical to 2
+#   5      7762           178 (9%)   31,582    372
+#
+# Two findings. First, 4 matches 2 exactly, so the whole 660 -> 15 win is the
+# integer arithmetic, not the pipelining; pipelining the float version (1) only
+# reaches 44 and costs 2.7x the LUTs. Second, PIPELINE II=1 force-unrolls the
+# inner loops whatever an UNROLL factor says, which is where the extra 153 DSP
+# per block come from; without it, factor=4 shares them (mode 5).
+#
+# Mode 5 is free -- same DSP, 26% fewer LUTs, 1.19x on the block -- and is what
+# the full design is built with. Modes 2/3 are 1.5x but need +117 to +153 DSP
+# per block; with six attention blocks and 338 DSP spare on the device, they do
+# not fit. On a larger part they would.
+#
+# Numerics: the integer path is within 1.01 LSB (max) and 0.34 LSB (mean) of the
+# float path it replaces over 640k random rows -- src/attn_block_pl/layernorm_fixed_test.cpp.
