@@ -1,12 +1,53 @@
-# aiesimulator --profile, deployed object-attention block (ObjAttnGraphL<0>, 12 kernels, 4 events), 2026-09-08
-# cycles per event per kernel at 1.25 GHz; "softfloat" = share of the kernel's cycles spent in the software
-# float library (f32_*, float_sqrtf, softfloat_*); "layernorm" = share in layernorm_row
-kernel                      tile  us/event  softfloat  layernorm
-obj_post_c_L0               22_0     50.5       88%       75%
-obj_post_a_proj_L0          24_2     29.9       75%        0%
-obj_post_b2_L0              22_1     27.9       79%        0%
-obj_post_b1_L0              22_2     27.9       79%        0%
-obj_attn_head_post_h{0..3}  x4       11.7        0%        0%
-obj_attn_head_pre_h{0..3}   x4        8.1        0%        0%
-# slowest kernel 50.5 us  -> measured block interval 54.6 us (kernel + window handoff)
-# sum of the chain 215 us -> block latency (no handoffs); isolated-sweep fixed cost ~127 us incl. launch
+# aiesimulator --profile, object attention block (ObjAttnGraphL<0>, 12 kernels, 4 events)
+# us/event per kernel at 1.25 GHz. "softfloat" = share of the kernel's cycles in the software
+# float library, "layernorm" = share in layernorm_row, "divide" = share in 64-bit integer divide.
+# The measured block interval on hardware follows the slowest kernel: 50.5 us -> 54.6 us measured
+# (float layer norm), 87.4 us -> 92.6 us measured (64-bit integer version).
+
+=== float layer norm (deployed) ===
+kernel                      tile  us/event  softfloat  layernorm   divide    gemm
+obj_post_c_L0               22_0      50.5        28%        24%       0%      0%
+obj_post_a_proj_L0          24_2      29.9        14%         0%       0%      0%
+obj_post_b2_L0              22_1      27.9        14%         0%       0%      0%
+obj_post_b1_L0              22_2      27.9        14%         0%       0%      0%
+obj_attn_head_post_h3_L0    23_1      11.7         0%         0%       0%      0%
+obj_attn_head_post_h0_L0    25_2      11.7         0%         0%       0%      0%
+obj_attn_head_post_h1_L0    23_3      11.7         0%         0%       0%      0%
+obj_attn_head_post_h2_L0    24_4      11.7         0%         0%       0%      0%
+obj_attn_head_pre_h1_L0     24_3       8.1         0%         0%       0%      0%
+obj_attn_head_pre_h2_L0     24_5       8.1         0%         0%       0%      0%
+obj_attn_head_pre_h3_L0     24_0       8.1         0%         0%       0%      0%
+obj_attn_head_pre_h0_L0     24_1       8.1         0%         0%       0%      0%
+slowest obj_post_c_L0 = 50.5 us/event ; chain sum 216 us
+
+=== integer layer norm, 64-bit sqrt and divide ===
+kernel                      tile  us/event  softfloat  layernorm   divide    gemm
+obj_post_c_L0               22_1      87.4         0%        40%      20%      0%
+obj_post_a_proj_L0          24_2      48.0         0%         0%      10%      0%
+obj_post_b1_L0              22_2      46.4         0%         0%      10%      0%
+obj_post_b2_L0              22_3      46.4         0%         0%      10%      0%
+obj_attn_head_post_h1_L0    24_3      11.7         0%         0%       0%      0%
+obj_attn_head_post_h0_L0    25_2      11.7         0%         0%       0%      0%
+obj_attn_head_post_h3_L0    23_3      11.7         0%         0%       0%      0%
+obj_attn_head_post_h2_L0    23_1      11.7         0%         0%       0%      0%
+obj_attn_head_pre_h0_L0     24_1       8.1         0%         0%       0%      0%
+obj_attn_head_pre_h2_L0     24_0       8.1         0%         0%       0%      0%
+obj_attn_head_pre_h1_L0     24_5       8.1         0%         0%       0%      0%
+obj_attn_head_pre_h3_L0     24_4       8.1         0%         0%       0%      0%
+slowest obj_post_c_L0 = 87.4 us/event ; chain sum 307 us
+
+=== integer layer norm, vector with rsqrt lookup ===
+kernel                      tile  us/event  softfloat  layernorm   divide    gemm
+obj_post_c_L0               22_0      14.3         0%        17%       0%      0%
+obj_attn_head_post_h0_L0    23_3      11.7         0%         0%       0%      0%
+obj_attn_head_post_h2_L0    23_1      11.7         0%         0%       0%      0%
+obj_attn_head_post_h3_L0    24_4      11.7         0%         0%       0%      0%
+obj_attn_head_post_h1_L0    25_2      11.7         0%         0%       0%      0%
+obj_post_a_proj_L0          24_2      11.6         0%         0%       0%      0%
+obj_post_b2_L0              22_1       9.7         0%         0%       0%      0%
+obj_post_b1_L0              22_2       9.7         0%         0%       0%      0%
+obj_attn_head_pre_h0_L0     24_3       8.1         0%         0%       0%      0%
+obj_attn_head_pre_h2_L0     24_0       8.1         0%         0%       0%      0%
+obj_attn_head_pre_h1_L0     24_1       8.1         0%         0%       0%      0%
+obj_attn_head_pre_h3_L0     24_5       8.1         0%         0%       0%      0%
+slowest obj_post_c_L0 = 14.3 us/event ; chain sum 125 us
