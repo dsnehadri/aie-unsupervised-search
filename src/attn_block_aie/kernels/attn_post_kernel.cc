@@ -186,43 +186,62 @@ void POST_C_FN(input_window_float* __restrict ffn_in,
 // vectorized tiled gemm: A packed 4x4-block-major, B row-major (gemm_utils.h)
 #include "gemm_utils.h"
 
+// ---------------------------------------------------------------------------
+// Integer layer norm. The previous version did the whole row in float; AIE1
+// has no scalar FPU, so every op was a softfloat call and this one function
+// was 75% of post_c's cycles (aiesim profile, 2026-09-08). Everything here is
+// int32/int64 with one integer square root and one integer divide per row.
+//
+// Derivation (x, gamma, beta all at PIPE_SCALE = 2^F; n_cols = 16):
+//   d_i    = x_i - mean                            (Q.F)
+//   V      = sum d_i^2 + EPS_V,  EPS_V = eps*16*2^(2F)  (so V = 16*2^(2F)*(var+eps))
+//   1/std  = 4*2^F / sqrt(V)
+//   y_q    = 4*g_q*d_q / sqrt(V) + b_q             (the 2^F factors cancel)
+// The mean is never rounded: work with d16_i = 16*x_i - sum (exact, = 16*d_i),
+// V' = sum d16_i^2 + 256*EPS_V = 256*V, so 4/sqrt(V) = 64/sqrt(V') and
+//   y_q = 4*g_q*d16_q / sqrt(V') + b_q.
+// With s = sqrt(V')*2^8 (integer sqrt of V'<<16) and inv = 2^45/s:
+//   4/sqrt(V') = 2^10/s = inv / 2^35  ->  y_q = ((g_q*d16_q*inv) >> 35) + b_q
+// Ranges: |d16| < 2^20, V' < 2^44, V'<<16 < 2^60, inv in [2^15, 2^31),
+// |g*d16*inv| < 2^61. Rounding the mean to one LSB (the obvious shortcut) is
+// NOT acceptable: on a low-spread row 1/std can exceed 100, and a half-LSB
+// mean error becomes a ~0.2 error in every output.
+// ---------------------------------------------------------------------------
+static inline uint32 isqrt64(uint64 v)
+{
+    // classic bit-pair restoring square root: 32 iterations, no division
+    uint64 rem = 0, root = 0;
+    for (int i = 0; i < 32; i++) {
+        root <<= 1;
+        rem = (rem << 2) | (v >> 62);
+        v <<= 2;
+        if (root + 1 <= rem) { rem -= root + 1; root += 2; }
+    }
+    return (uint32)(root >> 1);
+}
+
 static void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
                           const int16* __restrict gamma,
                           const int16* __restrict beta)
 {
-    const float eps = 1e-5f;
-    // AIE1 has no fp32 hardware: every float divide is a softfloat call.
-    // PIPE_SCALE and n_cols(=E_DIM) are powers of two, so multiplying by the
-    // reciprocal is bit-exact; this removes ~50 emulated divides per row.
-    const float inv_ps = 1.0f / PIPE_SCALE;      // compile-time constant
-    const float inv_n  = 1.0f / n_cols;          // one divide per call
-    // gamma/beta are per-column constants; convert once, not once per row
-    float g_f[16], b_f[16];
-    for (int c = 0; c < n_cols; c++) {
-        g_f[c] = (float)gamma[c] * inv_ps;
-        b_f[c] = (float)beta[c] * inv_ps;
-    }
+    // n_cols is always E_DIM = 16 here; EPS_V is a compile-time constant
+    constexpr int64 EPS_V = (int64)(1e-5f * 16.0f * PIPE_SCALE * PIPE_SCALE + 0.5f);
     for (int r = 0; r < n_rows; r++) {
-        float row_f[16];
-        float sum = 0.0f;
-        for (int c = 0; c < n_cols; c++) {
-            row_f[c] = (float)x[r * n_cols + c] * inv_ps;
-            sum += row_f[c];
-        }
-        float mean = sum * inv_n;
-        float var = 0.0f;
-        for (int c = 0; c < n_cols; c++) {
-            float d = row_f[c] - mean;
-            var += d * d;
-        }
-        var *= inv_n;
-        float inv_std = 1.0f / sqrtf(var + eps);
-        for (int c = 0; c < n_cols; c++) {
-            float y = g_f[c] * (row_f[c] - mean) * inv_std + b_f[c];
-            int32 y_fixed = (int32)(y*PIPE_SCALE);
-            if (y_fixed > 32767) y_fixed = 32767;
-            if (y_fixed < -32768) y_fixed = -32768;
-            x[r * n_cols + c] = (int16)y_fixed;
+        int16* row = x + r * n_cols;
+        int32 sum = 0;
+        for (int c = 0; c < 16; c++) sum += row[c];
+        int32 d[16];                                          // d[c] = 16*(x - mean), exact
+        int64 vsum = 0;
+        for (int c = 0; c < 16; c++) { d[c] = ((int32)row[c] << 4) - sum; vsum += (int64)d[c] * d[c]; }
+        const uint64 V = (uint64)(vsum + (EPS_V << 8));       // = 256 * (sum d^2 + EPS_V)
+        const uint32 s = isqrt64(V << 16);                    // sqrt(V') * 2^8
+        const uint64 inv = ((uint64)1 << 45) / s;             // 2^45/s, in [2^15, 2^31)
+        for (int c = 0; c < 16; c++) {
+            int64 num = (int64)gamma[c] * d[c] * (int64)inv;  // |g*d| < 2^31, inv < 2^31 -> < 2^62
+            int32 y = (int32)((num + ((int64)1 << 34)) >> 35) + (int32)beta[c];
+            if (y > 32767) y = 32767;
+            if (y < -32768) y = -32768;
+            row[c] = (int16)y;
         }
     }
 }
