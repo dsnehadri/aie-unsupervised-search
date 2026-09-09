@@ -60,3 +60,9 @@ slowest obj_post_c_L0 = 14.3 us/event ; chain sum 125 us
 # end to end, AIE-PL hybrid with deep FIFOs:  57.9 us/event both ways -- the PL embedding
 #   stage (59 us) now sets the rate -- but one event takes 392 us instead of 816 us.
 # AUC on the 2000-event labelled set: 0.9818 both ways (rank correlation 0.9997).
+# FIFO DEPTH x KERNEL, end-to-end interval of the cross-event pipelined hybrid (us/event):
+#                        shallow FIFOs   deep FIFOs (all depths x3)
+#   float layer norm        111.0            57.9
+#   vector integer LN        57.9            57.9
+# Both fixes remove the same bottleneck. Once the AI Engine stage is fast the extra
+# buffering does nothing, and the floor is the PL embedding stage at 59 us.

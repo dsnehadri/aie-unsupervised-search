@@ -18,14 +18,15 @@ PLC, AIEC, AIE_DARK, INK = "#e8d9a0", "#a9cdea", "#5b8fc9", "#1a1a1a"
 SWEEP = {
     "PL-only": [(1,0.90110),(2,1.10842),(4,1.51807),(8,2.33875),(16,3.98148),
                 (32,7.26646),(64,13.83435),(128,26.96866),(256,53.24013)],
-    "AIE-PL hybrid": [(1,0.81523),(2,0.87427),(4,1.02259),(8,1.59751),(16,2.43396),
-                      (32,4.14259),(64,7.83402),(128,14.90631),(256,29.08464)],
-    # same hybrid with every inter-stage FIFO tripled (~6 events of slack), and the
-    # vector integer layer norm in the AI Engine kernels, 2026-09-08
-    "AIE-PL hybrid, deep FIFOs": [(1,0.39245),(2,0.45408),(4,0.56998),(8,0.80148),(16,1.26358),
+    # cross-event pipelined hybrid with the vector integer layer norm, 2026-09-09.
+    # Its FIFO depth no longer matters: shallow and deep both give 57.9 us/event
+    # (shallow 0.39223..15.16503 ms). With the earlier float layer norm the same
+    # two builds gave 111.0 and 57.9 us -- the deeper FIFOs were compensating for
+    # a slow AI Engine stage, and once that stage is fast the buffering is idle.
+    "AIE-PL hybrid": [(1,0.39245),(2,0.45408),(4,0.56998),(8,0.80148),(16,1.26358),
                       (32,2.19175),(64,4.04537),(128,7.75214),(256,15.16611)],
 }
-COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C, "AIE-PL hybrid, deep FIFOs": "#2ca02c"}
+COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C}
 NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
@@ -100,7 +101,7 @@ for yy, p, a in zip(y, hp, ha):
 # hybrid panel: the deep-FIFO build's interval (the pipeline with enough buffering
 # for its stages to overlap). With the vector integer layer norm the AI Engine
 # compute is well under the interval and the PL embedding stage sets the rate.
-for ax, meas, letter in ((axb, fits["PL-only"], "(a)"), (axc, fits["AIE-PL hybrid, deep FIFOs"], "(b)")):
+for ax, meas, letter in ((axb, fits["PL-only"], "(a)"), (axc, fits["AIE-PL hybrid"], "(b)")):
     ax.axvline(meas, color="#c0392b", ls="--", lw=1.6, zorder=5)
     ax.text(meas, len(labs) - 0.35, f"  Measured interval, {meas:.0f} µs", color="#c0392b",
             fontsize=9.5, va="top", ha="left")
