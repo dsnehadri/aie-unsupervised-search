@@ -10,6 +10,7 @@ using namespace adf;
 #include "../../attn_block_aie/kernels/attn_aie_types.h"
 #include "../../attn_block_aie/kernels/attn_head_kernel.h"
 #include "../../attn_block_aie/kernels/attn_post_kernel.h"
+#include "../../attn_block_aie/kernels/embed_kernel.h"
 
 // Heads need 4 distinct kernel functions per layer (the aiecompiler dedups
 // wrappers by function symbol identity). The aiecompiler can't see through a
@@ -331,6 +332,28 @@ public:
     }
 };
 
+// The jet embedding MLP on one tile. On the fabric this stage took 59 us/event
+// and set the whole pipeline's rate; here it is a single kernel fed by the PL.
+class EmbedGraphL : public graph {
+public:
+    input_plio  plio_jets_in;
+    output_plio plio_x_out;
+private:
+    kernel k_embed;
+public:
+    EmbedGraphL() {
+        plio_jets_in = input_plio::create("embed_jets_in", plio_64_bits, "data/embed_jets_in.txt");
+        plio_x_out   = output_plio::create("embed_x_out",  plio_64_bits, "data/embed_x_out.txt");
+        k_embed = kernel::create(embed_mlp);
+        source(k_embed) = "kernels/embed_kernel.cc";
+        runtime<ratio>(k_embed) = 0.9;
+        constexpr int in_sz  = EMBED_ROWS * EMBED_IN * sizeof(int16);
+        constexpr int out_sz = EMBED_ROWS * E_DIM * sizeof(int16);
+        connect<window<in_sz>>(plio_jets_in.out[0], k_embed.in[0]);
+        connect<window<out_sz>>(k_embed.out[0], plio_x_out.in[0]);
+    }
+};
+
 class PasswdFullGraph : public graph {
 public:
     ObjAttnGraphL<0> obj0;
@@ -339,7 +362,9 @@ public:
     ObjAttnGraphL<1> obj1;
     CandAttnGraphL<1> cand1;
     CrossAttnGraphL<1> cross1;
-
+#ifdef EMBED_ON_AIE
+    EmbedGraphL embed;
+#endif
 };
 
 #endif

@@ -257,6 +257,35 @@ inline void obj_attn_recv(hls::stream<pkt64_t>& x_in_aie, hls::stream<data_t>& x
     unpack_axi_to_stream<X_SZ>(x_in_aie, x_out_pl);
 }
 
+// Jet embedding on the array. The raw features are data_t = ap_fixed<16,7>,
+// whose bit pattern is int16 at scale 512 -- exactly the AI Engine kernel's
+// Q6.9 -- so the bits go across untouched, as for the attention blocks.
+// Masking stays here: the kernel embeds all N_MAX rows and the padded ones are
+// zeroed on the way back, which is what the fabric version did after its MLP.
+inline void embed_send(hls::stream<data_t>& jets_in_pl, hls::stream<pkt64_t>& jets_out_aie) {
+    const int J_SZ = N_MAX * RAW_DIM;
+    data_t buf[J_SZ];
+    for (int i = 0; i < J_SZ; i++) {
+        #pragma HLS PIPELINE II=1
+        buf[i] = jets_in_pl.read();
+    }
+    pack_buf_to_axi<J_SZ>(buf, jets_out_aie);
+}
+
+inline void embed_recv(hls::stream<pkt64_t>& x_in_aie, hls::stream<bool>& mask_in_pl,
+                       hls::stream<data_t>& x_out_pl) {
+    const int X_SZ = N_MAX * E_DIM;
+    data_t buf[X_SZ];
+    unpack_axi_to_buf<X_SZ>(x_in_aie, buf);
+    MASKOUT: for (int j = 0; j < N_MAX; j++) {
+        bool m = mask_in_pl.read();
+        for (int e = 0; e < E_DIM; e++) {
+            #pragma HLS PIPELINE II=1
+            x_out_pl.write(m ? (data_t)0 : buf[j * E_DIM + e]);
+        }
+    }
+}
+
 inline void cand_attn_send(hls::stream<data_t>& c_in_pl, hls::stream<pkt64_t>& c_out_aie) {
     const int C_SZ = T_DIM * E_DIM;
     data_t c_buf[C_SZ];
