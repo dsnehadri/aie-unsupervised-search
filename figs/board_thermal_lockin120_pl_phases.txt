@@ -1,0 +1,402 @@
+run_start 1788815352 cycles=200 xclbin=pl_stream_batched2.xclbin iters=280 host=plhost_timed off_s=120
+on_start 1788815412 cycle=0
+on_end 1788815533 cycle=0 rc=0
+on_start 1788815653 cycle=1
+on_end 1788815771 cycle=1 rc=0
+on_start 1788815891 cycle=2
+on_end 1788816009 cycle=2 rc=0
+on_start 1788816129 cycle=3
+on_end 1788816247 cycle=3 rc=0
+on_start 1788816367 cycle=4
+on_end 1788816485 cycle=4 rc=0
+on_start 1788816605 cycle=5
+on_end 1788816723 cycle=5 rc=0
+on_start 1788816843 cycle=6
+on_end 1788816961 cycle=6 rc=0
+on_start 1788817081 cycle=7
+on_end 1788817199 cycle=7 rc=0
+on_start 1788817319 cycle=8
+on_end 1788817438 cycle=8 rc=0
+on_start 1788817558 cycle=9
+on_end 1788817676 cycle=9 rc=0
+on_start 1788817796 cycle=10
+on_end 1788817914 cycle=10 rc=0
+on_start 1788818034 cycle=11
+on_end 1788818152 cycle=11 rc=0
+on_start 1788818272 cycle=12
+on_end 1788818390 cycle=12 rc=0
+on_start 1788818510 cycle=13
+on_end 1788818628 cycle=13 rc=0
+on_start 1788818748 cycle=14
+on_end 1788818866 cycle=14 rc=0
+on_start 1788818986 cycle=15
+on_end 1788819104 cycle=15 rc=0
+on_start 1788819224 cycle=16
+on_end 1788819342 cycle=16 rc=0
+on_start 1788819462 cycle=17
+on_end 1788819581 cycle=17 rc=0
+on_start 1788819701 cycle=18
+on_end 1788819819 cycle=18 rc=0
+on_start 1788819939 cycle=19
+on_end 1788820057 cycle=19 rc=0
+on_start 1788820177 cycle=20
+on_end 1788820295 cycle=20 rc=0
+on_start 1788820415 cycle=21
+on_end 1788820533 cycle=21 rc=0
+on_start 1788820653 cycle=22
+on_end 1788820771 cycle=22 rc=0
+on_start 1788820891 cycle=23
+on_end 1788821009 cycle=23 rc=0
+on_start 1788821129 cycle=24
+on_end 1788821247 cycle=24 rc=0
+on_start 1788821367 cycle=25
+on_end 1788821486 cycle=25 rc=0
+on_start 1788821606 cycle=26
+on_end 1788821724 cycle=26 rc=0
+on_start 1788821844 cycle=27
+on_end 1788821962 cycle=27 rc=0
+on_start 1788822082 cycle=28
+on_end 1788822200 cycle=28 rc=0
+on_start 1788822320 cycle=29
+on_end 1788822438 cycle=29 rc=0
+on_start 1788822558 cycle=30
+on_end 1788822676 cycle=30 rc=0
+on_start 1788822796 cycle=31
+on_end 1788822914 cycle=31 rc=0
+on_start 1788823034 cycle=32
+on_end 1788823152 cycle=32 rc=0
+on_start 1788823272 cycle=33
+on_end 1788823390 cycle=33 rc=0
+on_start 1788823510 cycle=34
+on_end 1788823629 cycle=34 rc=0
+on_start 1788823749 cycle=35
+on_end 1788823867 cycle=35 rc=0
+on_start 1788823987 cycle=36
+on_end 1788824105 cycle=36 rc=0
+on_start 1788824225 cycle=37
+on_end 1788824343 cycle=37 rc=0
+on_start 1788824463 cycle=38
+on_end 1788824581 cycle=38 rc=0
+on_start 1788824701 cycle=39
+on_end 1788824819 cycle=39 rc=0
+on_start 1788824939 cycle=40
+on_end 1788825057 cycle=40 rc=0
+on_start 1788825177 cycle=41
+on_end 1788825295 cycle=41 rc=0
+on_start 1788825415 cycle=42
+on_end 1788825534 cycle=42 rc=0
+on_start 1788825654 cycle=43
+on_end 1788825772 cycle=43 rc=0
+on_start 1788825892 cycle=44
+on_end 1788826010 cycle=44 rc=0
+on_start 1788826130 cycle=45
+on_end 1788826248 cycle=45 rc=0
+on_start 1788826368 cycle=46
+on_end 1788826486 cycle=46 rc=0
+on_start 1788826606 cycle=47
+on_end 1788826724 cycle=47 rc=0
+on_start 1788826844 cycle=48
+on_end 1788826962 cycle=48 rc=0
+on_start 1788827082 cycle=49
+on_end 1788827200 cycle=49 rc=0
+on_start 1788827320 cycle=50
+on_end 1788827438 cycle=50 rc=0
+on_start 1788827558 cycle=51
+on_end 1788827677 cycle=51 rc=0
+on_start 1788827797 cycle=52
+on_end 1788827915 cycle=52 rc=0
+on_start 1788828035 cycle=53
+on_end 1788828153 cycle=53 rc=0
+on_start 1788828273 cycle=54
+on_end 1788828391 cycle=54 rc=0
+on_start 1788828511 cycle=55
+on_end 1788828629 cycle=55 rc=0
+on_start 1788828749 cycle=56
+on_end 1788828867 cycle=56 rc=0
+on_start 1788828987 cycle=57
+on_end 1788829105 cycle=57 rc=0
+on_start 1788829225 cycle=58
+on_end 1788829343 cycle=58 rc=0
+on_start 1788829463 cycle=59
+on_end 1788829582 cycle=59 rc=0
+on_start 1788829702 cycle=60
+on_end 1788829820 cycle=60 rc=0
+on_start 1788829940 cycle=61
+on_end 1788830058 cycle=61 rc=0
+on_start 1788830178 cycle=62
+on_end 1788830296 cycle=62 rc=0
+on_start 1788830416 cycle=63
+on_end 1788830534 cycle=63 rc=0
+on_start 1788830654 cycle=64
+on_end 1788830772 cycle=64 rc=0
+on_start 1788830892 cycle=65
+on_end 1788831010 cycle=65 rc=0
+on_start 1788831130 cycle=66
+on_end 1788831248 cycle=66 rc=0
+on_start 1788831368 cycle=67
+on_end 1788831486 cycle=67 rc=0
+on_start 1788831606 cycle=68
+on_end 1788831725 cycle=68 rc=0
+on_start 1788831845 cycle=69
+on_end 1788831963 cycle=69 rc=0
+on_start 1788832083 cycle=70
+on_end 1788832201 cycle=70 rc=0
+on_start 1788832321 cycle=71
+on_end 1788832439 cycle=71 rc=0
+on_start 1788832559 cycle=72
+on_end 1788832677 cycle=72 rc=0
+on_start 1788832797 cycle=73
+on_end 1788832915 cycle=73 rc=0
+on_start 1788833035 cycle=74
+on_end 1788833153 cycle=74 rc=0
+on_start 1788833273 cycle=75
+on_end 1788833391 cycle=75 rc=0
+on_start 1788833511 cycle=76
+on_end 1788833629 cycle=76 rc=0
+on_start 1788833749 cycle=77
+on_end 1788833868 cycle=77 rc=0
+on_start 1788833988 cycle=78
+on_end 1788834106 cycle=78 rc=0
+on_start 1788834226 cycle=79
+on_end 1788834344 cycle=79 rc=0
+on_start 1788834464 cycle=80
+on_end 1788834582 cycle=80 rc=0
+on_start 1788834702 cycle=81
+on_end 1788834820 cycle=81 rc=0
+on_start 1788834940 cycle=82
+on_end 1788835058 cycle=82 rc=0
+on_start 1788835178 cycle=83
+on_end 1788835296 cycle=83 rc=0
+on_start 1788835416 cycle=84
+on_end 1788835534 cycle=84 rc=0
+on_start 1788835654 cycle=85
+on_end 1788835773 cycle=85 rc=0
+on_start 1788835893 cycle=86
+on_end 1788836011 cycle=86 rc=0
+on_start 1788836131 cycle=87
+on_end 1788836249 cycle=87 rc=0
+on_start 1788836369 cycle=88
+on_end 1788836487 cycle=88 rc=0
+on_start 1788836607 cycle=89
+on_end 1788836725 cycle=89 rc=0
+on_start 1788836845 cycle=90
+on_end 1788836963 cycle=90 rc=0
+on_start 1788837083 cycle=91
+on_end 1788837201 cycle=91 rc=0
+on_start 1788837321 cycle=92
+on_end 1788837439 cycle=92 rc=0
+on_start 1788837559 cycle=93
+on_end 1788837677 cycle=93 rc=0
+on_start 1788837797 cycle=94
+on_end 1788837916 cycle=94 rc=0
+on_start 1788838036 cycle=95
+on_end 1788838154 cycle=95 rc=0
+on_start 1788838274 cycle=96
+on_end 1788838392 cycle=96 rc=0
+on_start 1788838512 cycle=97
+on_end 1788838630 cycle=97 rc=0
+on_start 1788838750 cycle=98
+on_end 1788838868 cycle=98 rc=0
+on_start 1788838988 cycle=99
+on_end 1788839106 cycle=99 rc=0
+on_start 1788839226 cycle=100
+on_end 1788839344 cycle=100 rc=0
+on_start 1788839464 cycle=101
+on_end 1788839582 cycle=101 rc=0
+on_start 1788839702 cycle=102
+on_end 1788839821 cycle=102 rc=0
+on_start 1788839941 cycle=103
+on_end 1788840059 cycle=103 rc=0
+on_start 1788840179 cycle=104
+on_end 1788840297 cycle=104 rc=0
+on_start 1788840417 cycle=105
+on_end 1788840535 cycle=105 rc=0
+on_start 1788840655 cycle=106
+on_end 1788840773 cycle=106 rc=0
+on_start 1788840893 cycle=107
+on_end 1788841011 cycle=107 rc=0
+on_start 1788841131 cycle=108
+on_end 1788841249 cycle=108 rc=0
+on_start 1788841369 cycle=109
+on_end 1788841487 cycle=109 rc=0
+on_start 1788841607 cycle=110
+on_end 1788841725 cycle=110 rc=0
+on_start 1788841845 cycle=111
+on_end 1788841964 cycle=111 rc=0
+on_start 1788842084 cycle=112
+on_end 1788842202 cycle=112 rc=0
+on_start 1788842322 cycle=113
+on_end 1788842440 cycle=113 rc=0
+on_start 1788842560 cycle=114
+on_end 1788842678 cycle=114 rc=0
+on_start 1788842798 cycle=115
+on_end 1788842916 cycle=115 rc=0
+on_start 1788843036 cycle=116
+on_end 1788843154 cycle=116 rc=0
+on_start 1788843274 cycle=117
+on_end 1788843392 cycle=117 rc=0
+on_start 1788843512 cycle=118
+on_end 1788843630 cycle=118 rc=0
+on_start 1788843750 cycle=119
+on_end 1788843869 cycle=119 rc=0
+on_start 1788843989 cycle=120
+on_end 1788844107 cycle=120 rc=0
+on_start 1788844227 cycle=121
+on_end 1788844345 cycle=121 rc=0
+on_start 1788844465 cycle=122
+on_end 1788844583 cycle=122 rc=0
+on_start 1788844703 cycle=123
+on_end 1788844821 cycle=123 rc=0
+on_start 1788844941 cycle=124
+on_end 1788845059 cycle=124 rc=0
+on_start 1788845179 cycle=125
+on_end 1788845297 cycle=125 rc=0
+on_start 1788845417 cycle=126
+on_end 1788845535 cycle=126 rc=0
+on_start 1788845655 cycle=127
+on_end 1788845773 cycle=127 rc=0
+on_start 1788845893 cycle=128
+on_end 1788846012 cycle=128 rc=0
+on_start 1788846132 cycle=129
+on_end 1788846250 cycle=129 rc=0
+on_start 1788846370 cycle=130
+on_end 1788846488 cycle=130 rc=0
+on_start 1788846608 cycle=131
+on_end 1788846726 cycle=131 rc=0
+on_start 1788846846 cycle=132
+on_end 1788846964 cycle=132 rc=0
+on_start 1788847084 cycle=133
+on_end 1788847202 cycle=133 rc=0
+on_start 1788847322 cycle=134
+on_end 1788847440 cycle=134 rc=0
+on_start 1788847560 cycle=135
+on_end 1788847678 cycle=135 rc=0
+on_start 1788847798 cycle=136
+on_end 1788847916 cycle=136 rc=0
+on_start 1788848036 cycle=137
+on_end 1788848155 cycle=137 rc=0
+on_start 1788848275 cycle=138
+on_end 1788848393 cycle=138 rc=0
+on_start 1788848513 cycle=139
+on_end 1788848631 cycle=139 rc=0
+on_start 1788848751 cycle=140
+on_end 1788848869 cycle=140 rc=0
+on_start 1788848989 cycle=141
+on_end 1788849107 cycle=141 rc=0
+on_start 1788849227 cycle=142
+on_end 1788849345 cycle=142 rc=0
+on_start 1788849465 cycle=143
+on_end 1788849583 cycle=143 rc=0
+on_start 1788849703 cycle=144
+on_end 1788849821 cycle=144 rc=0
+on_start 1788849941 cycle=145
+on_end 1788850060 cycle=145 rc=0
+on_start 1788850180 cycle=146
+on_end 1788850298 cycle=146 rc=0
+on_start 1788850418 cycle=147
+on_end 1788850536 cycle=147 rc=0
+on_start 1788850656 cycle=148
+on_end 1788850774 cycle=148 rc=0
+on_start 1788850894 cycle=149
+on_end 1788851012 cycle=149 rc=0
+on_start 1788851132 cycle=150
+on_end 1788851250 cycle=150 rc=0
+on_start 1788851370 cycle=151
+on_end 1788851488 cycle=151 rc=0
+on_start 1788851608 cycle=152
+on_end 1788851726 cycle=152 rc=0
+on_start 1788851846 cycle=153
+on_end 1788851964 cycle=153 rc=0
+on_start 1788852084 cycle=154
+on_end 1788852203 cycle=154 rc=0
+on_start 1788852323 cycle=155
+on_end 1788852441 cycle=155 rc=0
+on_start 1788852561 cycle=156
+on_end 1788852679 cycle=156 rc=0
+on_start 1788852799 cycle=157
+on_end 1788852917 cycle=157 rc=0
+on_start 1788853037 cycle=158
+on_end 1788853155 cycle=158 rc=0
+on_start 1788853275 cycle=159
+on_end 1788853393 cycle=159 rc=0
+on_start 1788853513 cycle=160
+on_end 1788853631 cycle=160 rc=0
+on_start 1788853751 cycle=161
+on_end 1788853869 cycle=161 rc=0
+on_start 1788853989 cycle=162
+on_end 1788854108 cycle=162 rc=0
+on_start 1788854228 cycle=163
+on_end 1788854346 cycle=163 rc=0
+on_start 1788854466 cycle=164
+on_end 1788854584 cycle=164 rc=0
+on_start 1788854704 cycle=165
+on_end 1788854822 cycle=165 rc=0
+on_start 1788854942 cycle=166
+on_end 1788855060 cycle=166 rc=0
+on_start 1788855180 cycle=167
+on_end 1788855298 cycle=167 rc=0
+on_start 1788855418 cycle=168
+on_end 1788855536 cycle=168 rc=0
+on_start 1788855656 cycle=169
+on_end 1788855774 cycle=169 rc=0
+on_start 1788855894 cycle=170
+on_end 1788856012 cycle=170 rc=0
+on_start 1788856132 cycle=171
+on_end 1788856251 cycle=171 rc=0
+on_start 1788856371 cycle=172
+on_end 1788856489 cycle=172 rc=0
+on_start 1788856609 cycle=173
+on_end 1788856727 cycle=173 rc=0
+on_start 1788856847 cycle=174
+on_end 1788856965 cycle=174 rc=0
+on_start 1788857085 cycle=175
+on_end 1788857203 cycle=175 rc=0
+on_start 1788857323 cycle=176
+on_end 1788857441 cycle=176 rc=0
+on_start 1788857561 cycle=177
+on_end 1788857679 cycle=177 rc=0
+on_start 1788857799 cycle=178
+on_end 1788857917 cycle=178 rc=0
+on_start 1788858037 cycle=179
+on_end 1788858156 cycle=179 rc=0
+on_start 1788858276 cycle=180
+on_end 1788858394 cycle=180 rc=0
+on_start 1788858514 cycle=181
+on_end 1788858632 cycle=181 rc=0
+on_start 1788858752 cycle=182
+on_end 1788858870 cycle=182 rc=0
+on_start 1788858990 cycle=183
+on_end 1788859108 cycle=183 rc=0
+on_start 1788859228 cycle=184
+on_end 1788859346 cycle=184 rc=0
+on_start 1788859466 cycle=185
+on_end 1788859584 cycle=185 rc=0
+on_start 1788859704 cycle=186
+on_end 1788859822 cycle=186 rc=0
+on_start 1788859942 cycle=187
+on_end 1788860060 cycle=187 rc=0
+on_start 1788860180 cycle=188
+on_end 1788860299 cycle=188 rc=0
+on_start 1788860419 cycle=189
+on_end 1788860537 cycle=189 rc=0
+on_start 1788860657 cycle=190
+on_end 1788860775 cycle=190 rc=0
+on_start 1788860895 cycle=191
+on_end 1788861013 cycle=191 rc=0
+on_start 1788861133 cycle=192
+on_end 1788861251 cycle=192 rc=0
+on_start 1788861371 cycle=193
+on_end 1788861489 cycle=193 rc=0
+on_start 1788861609 cycle=194
+on_end 1788861727 cycle=194 rc=0
+on_start 1788861847 cycle=195
+on_end 1788861965 cycle=195 rc=0
+on_start 1788862085 cycle=196
+on_end 1788862204 cycle=196 rc=0
+on_start 1788862324 cycle=197
+on_end 1788862442 cycle=197 rc=0
+on_start 1788862562 cycle=198
+on_end 1788862680 cycle=198 rc=0
+on_start 1788862800 cycle=199
+on_end 1788862918 cycle=199 rc=0
+run_end 1788863068

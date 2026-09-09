@@ -23,10 +23,10 @@ SUF = os.environ.get("LOCKIN_SUFFIX", "")   # "" = 90 s campaigns, "120" = 120 s
 
 FIGS = "/home/snehadri/repos/aie-unsupervised-search/figs"
 RUNS = [
-    ("PL-only  (idle 10.84 W)", "PL-only", "#eb6834",
+    ("PL-only", "PL-only", "#eb6834",
      f"{FIGS}/board_thermal_lockin" + SUF + "_pl_log.csv",
      f"{FIGS}/board_thermal_lockin" + SUF + "_pl_phases.txt"),
-    ("AIE-PL hybrid  (idle 11.12 W)", "AIE-PL hybrid", "#2a78d6",
+    ("AIE-PL hybrid", "AIE-PL hybrid", "#2a78d6",
      f"{FIGS}/board_thermal_lockin" + SUF + "_log.csv",
      f"{FIGS}/board_thermal_lockin" + SUF + "_phases.txt"),
 ]
