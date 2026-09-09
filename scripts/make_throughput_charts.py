@@ -149,11 +149,10 @@ def fig_blocks_and_scaling():
     # Two kernel versions of the same 24-instance vehicle. The vector integer
     # layer norm cuts t_c (the per-instance compute) but leaves t_f (the shared
     # PL feeder) alone, so both curves run into the same ceiling -- the faster
-    # kernels simply get there with fewer tiles. That vehicle stops configuring
-    # reliably above 6 instances with the faster kernels, hence the shorter series.
+    # kernels simply get there with fewer tiles.
     SERIES = [
-        (f"{SAVE}/obj24_sweep_c0.csv",         "float layer norm",          AIE_C,   "o"),
-        (f"{SAVE}/obj24_sweep_lnv2_clean.csv", "vector integer layer norm", "#2ca02c", "s"),
+        (f"{SAVE}/obj24_sweep_c0.csv",  "float layer norm",          AIE_C,   "o"),
+        (f"{SAVE}/obj24_sweep_s4k.csv", "vector integer layer norm", "#2ca02c", "s"),
     ]
     top = 0
     for path, lab, col, mk in SERIES:

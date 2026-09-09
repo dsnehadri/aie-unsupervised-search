@@ -66,3 +66,9 @@ slowest obj_post_c_L0 = 14.3 us/event ; chain sum 125 us
 #   vector integer LN        57.9            57.9
 # Both fixes remove the same bottleneck. Once the AI Engine stage is fast the extra
 # buffering does nothing, and the floor is the PL embedding stage at 59 us.
+# STACK. Deepest call path (main -> post kernel -> layernorm_row), from the profile reports:
+#   float layer norm 416+1088+288 = 1792 B; 64-bit integer 416+992+160 = 1568 B;
+#   vector integer   416+1184+384 = 1984 B, against the default 2048 B stack.
+# With 64 B of headroom the 24-instance vehicle hangs the CU at 7 instances and above:
+# past a core's stack lies a neighbour's buffer. Rebuilt with --stacksize=4096 it runs
+# all 24 instances: 288 tiles give 51,959 events/s (was 43,772 with the float kernels).
