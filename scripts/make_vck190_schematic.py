@@ -84,9 +84,9 @@ box(0.10, 1.26, 1.50, 1.86, fc=ONCHIP)
 txt(0.80, 1.74, "PMC", FST, "bold")
 txt(0.80, 1.475, "Boot + device\nconfiguration", FS)
 
-box(1.70, 1.26, 3.65, 1.86, fc=ONCHIP)
+box(1.62, 1.26, 3.73, 1.86, fc=ONCHIP)
 txt(2.675, 1.74, "Processing System", FST, "bold")
-txt(2.675, 1.475, "2× Arm Cortex-A72\n2× Arm Cortex-R5", FS)
+txt(2.675, 1.475, "2× Arm Cortex-A72 (host)\n2× Arm Cortex-R5F, unused", FS)
 
 for x0 in (3.85, 5.20):
     box(x0, 1.26, x0 + 1.15, 1.86, fc=ONCHIP)
