@@ -135,37 +135,54 @@ def fig_blocks_and_scaling():
     # out of the gated column 0) when its CSV exists; fall back to the July
     # 13-tile obj16 sweep otherwise.
     import csv, os
-    _c0 = "/home/snehadri/aie_scratch_save_20260810/obj24_sweep_c0.csv"
-    if os.path.isfile(_c0):
-        _rows = [r for r in csv.DictReader(open(_c0))]
-        TILES_PER = 12
-        tiles = np.array([float(r["tiles"]) for r in _rows])
-        meas = np.array([float(r["agg_ev_s"]) for r in _rows])
-    else:
-        TILES_PER = 13
-        tiles = np.array([13, 26, 52, 104, 208], float)
-        meas = np.array([4648, 8701, 15226, 24966, 36659], float)
-    n_inst = tiles / TILES_PER
-    T_inv = n_inst / meas                                  # seconds per invocation
-    t_f, t_c = np.polyfit(n_inst, T_inv, 1)                # slope = t_f, intercept = t_c
-    n_model = np.linspace(0.6, 400 / TILES_PER, 400)
-    thr_model = n_model / (t_c + n_model * t_f)
-    axs.plot(n_model * TILES_PER, thr_model, "-", color=AIE_C, lw=1.6, alpha=.8,
-             label=(r"Model $t = t_f + t_c/N$"
-                    f"  ($t_f$ = {t_f*1e6:.1f} µs, $t_c$ = {t_c*1e6:.0f} µs)"))
-    axs.plot(tiles, meas, "o", color=AIE_C, ms=7, markeredgecolor="k",
-             markeredgewidth=0.4, label="AIE, measured", zorder=5)
+    SAVE = "/home/snehadri/aie_scratch_save_20260810"
+    TILES_PER = 12
+
+    def _sweep(path):
+        rows = [r for r in csv.DictReader(open(path))]
+        tiles = np.array([float(r["tiles"]) for r in rows])
+        meas = np.array([float(r["agg_ev_s"]) for r in rows])
+        n = tiles / TILES_PER
+        t_f, t_c = np.polyfit(n, n / meas, 1)   # T(N) = t_c + N t_f, per invocation
+        return tiles, meas, t_f, t_c
+
+    # Two kernel versions of the same 24-instance vehicle. The vector integer
+    # layer norm cuts t_c (the per-instance compute) but leaves t_f (the shared
+    # PL feeder) alone, so both curves run into the same ceiling -- the faster
+    # kernels simply get there with fewer tiles. That vehicle stops configuring
+    # reliably above 6 instances with the faster kernels, hence the shorter series.
+    SERIES = [
+        (f"{SAVE}/obj24_sweep_c0.csv",         "float layer norm",          AIE_C,   "o"),
+        (f"{SAVE}/obj24_sweep_lnv2_clean.csv", "vector integer layer norm", "#2ca02c", "s"),
+    ]
+    top = 0
+    for path, lab, col, mk in SERIES:
+        if not os.path.isfile(path):
+            continue
+        tiles, meas, t_f, t_c = _sweep(path)
+        n_model = np.linspace(0.6, 400 / TILES_PER, 400)
+        thr_model = n_model / (t_c + n_model * t_f)
+        top = max(top, thr_model.max())
+        # solid where the vehicle was measured, dashed where the model extrapolates
+        inside = n_model * TILES_PER <= tiles.max()
+        axs.plot(n_model[inside] * TILES_PER, thr_model[inside], "-", color=col, lw=1.6, alpha=.85,
+                 label=(f"{lab}: $t_f$ = {t_f*1e6:.1f} µs, $t_c$ = {t_c*1e6:.0f} µs"))
+        axs.plot(n_model[~inside] * TILES_PER, thr_model[~inside], ":", color=col, lw=1.6, alpha=.85)
+        axs.plot(tiles, meas, mk, color=col, ms=7, markeredgecolor="k",
+                 markeredgewidth=0.4, zorder=5)
     axs.axhline(6334, color=PL_C, lw=2, ls="--",
                 label="PL block, isolated at 100 MHz")
-    _tk = [t for t in tiles if t != 60] + [400]          # 60 would collide with 48
+    _tk = [12, 48, 96, 192, 288, 400]
     axs.set_xticks(_tk)
     axs.set_xticklabels([f"{int(v)}" for v in _tk])
     axs.set_xlim(0, 420)
     axs.set_xlabel("AI Engine tiles", fontsize=12.5)
     axs.set_ylabel("Object attention block throughput [events / s]",
                    fontsize=12.5)
-    axs.set_ylim(0, thr_model.max() * 1.15)
-    axs.legend(fontsize=9.5, loc="upper left", bbox_to_anchor=(0.02, 0.92), frameon=False)
+    axs.set_ylim(0, top * 1.15)
+    axs.legend(fontsize=9.2, loc="upper left", bbox_to_anchor=(0.02, 0.94), frameon=False,
+               title=r"Model $t = t_f + t_c/N$", title_fontsize=9.5)
+    axs.get_legend().get_title().set_ha("left")
 
     save(fig, "throughput_blocks_and_scaling")
 
