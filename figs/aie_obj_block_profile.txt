@@ -80,3 +80,10 @@ slowest obj_post_c_L0 = 14.3 us/event ; chain sum 125 us
 # so the projected interval is ~18 us (about 56,000 events/s), a 3.2x speed-up. Allowing
 # the ~3 us of window handoff the attention blocks show between simulation and hardware,
 # 18-21 us is the honest range until it is built and measured.
+#
+# EMBEDDING ON THE ARRAY, measured 2026-09-10 (after fixing the weight alignment):
+#   interval 17.3 us/event (57,917 events/s) vs 57.9 us with embedding on the fabric -- 3.35x
+#   one event 355 us (was 393); 2000 events 34.9 ms (was 116.2 ms)
+#   AUC 0.9822 vs 0.9818, rank correlation 0.9984 -- no physics lost
+# The kernel profile predicted 16.8 us/event and the built design measures 17.3, so the
+# interval is set by the object attention block (17.7 us isolated), as the stage model said.

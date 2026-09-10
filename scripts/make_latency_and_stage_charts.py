@@ -16,8 +16,11 @@ PLC, AIEC, AIE_DARK, INK = "#e8d9a0", "#a9cdea", "#5b8fc9", "#1a1a1a"
 
 # ---- (a) batch sweep, steady state (N >= 8) --------------------------------
 SWEEP = {
-    "PL-only": [(1,0.90110),(2,1.10842),(4,1.51807),(8,2.33875),(16,3.98148),
-                (32,7.26646),(64,13.83435),(128,26.96866),(256,53.24013)],
+    # PL-only with the integer layer norm (LN_MODE=5), 2026-09-09. The float
+    # version of the same design ran at 205.2 us/event; the fix is the same one
+    # the AI Engine kernels got, so both sides of the comparison now have it.
+    "PL-only": [(1,0.52672),(2,0.65845),(4,0.91219),(8,1.42699),(16,2.45448),
+                (32,4.51056),(64,8.61873),(128,16.83715),(256,33.27150)],
     # cross-event pipelined hybrid, vector integer layer norm, 4 KB AIE stack, 2026-09-09.
     # Its FIFO depth no longer matters: shallow and deep both give 57.9 us/event
     # (shallow 0.39223..15.16503 ms). With the earlier float layer norm the same
@@ -25,8 +28,13 @@ SWEEP = {
     # a slow AI Engine stage, and once that stage is fast the buffering is idle.
     "AIE-PL hybrid": [(1,0.39255),(2,0.45413),(4,0.56779),(8,0.80058),(16,1.26401),
                       (32,2.19006),(64,4.04590),(128,7.75216),(256,15.16600)],
+    # embedding moved onto the array, measured 2026-09-10. The fabric embedding
+    # stage set the pipeline's rate, so moving it drops the interval to the
+    # object attention block. AUC 0.9822 against 0.9818: no physics lost.
+    "AIE-PL hybrid, embedding on array": [(1,0.35504),(2,0.37636),(4,0.41030),(8,0.47965),(16,0.61606),
+                      (32,0.89252),(64,1.44643),(128,2.54917),(256,4.76108)],
 }
-COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C}
+COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C, "AIE-PL hybrid, embedding on array": "#2ca02c"}
 NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
@@ -35,25 +43,29 @@ NMIN = 8
 # blocks; L1 uses the same kernels and is taken equal). Hybrid attention rows are
 # stacked: light = PL streaming / building on the fabric, dark = AI Engine compute.
 PL_CLK, HYB_CLK = 80e6, 100e6
+# PL-only stage cycles are the routed float-layer-norm counts scaled by the
+# measured 205.2 -> 128.4 us/event, since the per-stage report was not rerun.
+PL_LNFIX = 128.4 / 205.2
 _bi = "/home/snehadri/aie_scratch_save_20260810/block_intervals.json"
 _d = json.load(open(_bi)) if os.path.isfile(_bi) else {}
 AIE = {k: _d[k]["slope_us"] for k in ("Object attention", "Candidate attention", "Cross attention") if k in _d}
 cyc = lambda c, clk: c / clk * 1e6
+cycpl = lambda c: c / PL_CLK * 1e6 * PL_LNFIX
 # rows: (label, PL-only us, hybrid PL-side us, hybrid AIE us)
 ROWS = [
- ("Read input",                cyc(149, PL_CLK),   cyc(149, HYB_CLK),                 0),
- ("Fork",                      cyc(153, PL_CLK),   cyc(153, HYB_CLK),                 0),
- ("Embedding",                 cyc(4483, PL_CLK),  cyc(5874, HYB_CLK),                0),
- ("Pairwise $w_{ij}$",         cyc(3028, PL_CLK),  cyc(836, HYB_CLK),                 0),
- ("Object attention L0",       cyc(16269, PL_CLK), cyc(614+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
- ("Build candidates + candidate attention L0", cyc(3499, PL_CLK), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
- ("Cross attention L0",        cyc(13102, PL_CLK), cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
- ("Object attention L1",       cyc(16824, PL_CLK), cyc(267+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
- ("Build candidates + candidate attention L1", cyc(3551, PL_CLK), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
- ("Cross attention L1",        cyc(13102, PL_CLK), cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
- ("Candidate build* + mass",   cyc(747, PL_CLK),   cyc(747, HYB_CLK),                 0),
- ("Autoencoder + MSE",         cyc(792, PL_CLK),   cyc(1162, HYB_CLK),                0),
- ("Write DDR",                 cyc(81, PL_CLK),    cyc(81, HYB_CLK),                  0),
+ ("Read input",                cycpl(149),   cyc(149, HYB_CLK),                 0),
+ ("Fork",                      cycpl(153),   cyc(153, HYB_CLK),                 0),
+ ("Embedding",                 cycpl(4483),  cyc(5874, HYB_CLK),                0),
+ ("Pairwise $w_{ij}$",         cycpl(3028),  cyc(836, HYB_CLK),                 0),
+ ("Object attention L0",       cycpl(16269), cyc(614+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
+ ("Build candidates + candidate attention L0", cycpl(3499), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
+ ("Cross attention L0",        cycpl(13102), cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
+ ("Object attention L1",       cycpl(16824), cyc(267+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
+ ("Build candidates + candidate attention L1", cycpl(3551), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
+ ("Cross attention L1",        cycpl(13102), cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
+ ("Candidate build* + mass",   cycpl(747),   cyc(747, HYB_CLK),                 0),
+ ("Autoencoder + MSE",         cycpl(792),   cyc(1162, HYB_CLK),                0),
+ ("Write DDR",                 cycpl(81),    cyc(81, HYB_CLK),                  0),
 ]
 labs = [r[0] for r in ROWS]
 y = np.arange(len(labs))[::-1]
@@ -113,7 +125,7 @@ for yy, p, a in zip(y, hp, ha):
 # is measured except the embedding kernel's AI Engine cost, which comes from an
 # aiesimulator profile of the kernel (16.8 us/event) and is drawn hatched. The
 # projected interval is then the longest stage, the object attention block.
-EMBED_AIE_SIM = 16.8
+EMBED_AIE_SIM = 16.8   # simulated kernel; the built design measures 17.3 us/event
 dp = hp.copy(); da = ha.copy()
 _emb = labs.index("Embedding")
 dp[_emb] = cyc(560, HYB_CLK)          # streaming 12x5 in and 12x16 back, as for the attention blocks
@@ -121,16 +133,16 @@ da[_emb] = EMBED_AIE_SIM
 axd.barh(y + hh/2, dp, color=AIEC, edgecolor=INK, linewidth=0.8, height=hh)
 axd.barh(y - hh/2, da, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=hh)
 axd.barh(y[_emb] - hh/2, da[_emb], color=AIE_DARK, edgecolor=INK, linewidth=0.8,
-         height=hh, hatch="////", label="AI Engine compute, simulated")
+         height=hh, hatch="////", label="AI Engine compute (embedding from simulation)")
 for yy, p_, a_ in zip(y, dp, da):
     axd.text(p_ + 3, yy + hh/2, f"{p_:.0f}", va="center", fontsize=8.2, color=INK, zorder=6,
              bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
     if a_:
         axd.text(a_ + 3, yy - hh/2, f"{a_:.0f}", va="center", fontsize=8.2, color=INK, zorder=6,
                  bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
-proj = max(max(p_, a_) for p_, a_ in zip(dp, da))
-axd.axvline(proj, color="#c0392b", ls=":", lw=1.6, zorder=5)
-axd.text(proj, len(labs) - 0.35, f"  Projected interval, {proj:.0f} µs", color="#c0392b",
+proj = 17.3   # measured, not projected
+axd.axvline(proj, color="#c0392b", ls="--", lw=1.6, zorder=5)
+axd.text(proj, len(labs) - 0.35, f"  Measured interval, {proj:.0f} µs", color="#c0392b",
          fontsize=9.5, va="top", ha="left")
 axd.legend(frameon=False, fontsize=8.8, loc="lower right", bbox_to_anchor=(1.0, 0.08))
 
