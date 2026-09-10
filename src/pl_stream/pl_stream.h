@@ -228,6 +228,60 @@ inline void pairwise_stage(
 // obj stage: obj_attn (+wij for layer 0) -> remask -> build_candidates
 // emits the updated x (to cross) and the raw candidates c (to cand)
 
+
+#ifdef OBJ_DATAFLOW
+// ---------------------------------------------------------------------------
+// obj stage split into read / block / post so the wrapper overlaps with the
+// block across events. Without this the block's II (6585) is hidden behind the
+// wrapper's 7977: stream reads, wij expansion, remask, candidate building and
+// the output writes all ran in series with it. The mask is duplicated because
+// a dataflow channel may have only one consumer.
+// ---------------------------------------------------------------------------
+static void obj0_read(hls::stream<data_t> &in_embed, hls::stream<score_t> &in_wij_bias,
+                      hls::stream<bool> &in_mask, data_t x[N_MAX][E_DIM],
+                      score_t wij_bias[N_MAX*N_HEADS][N_KV],
+                      bool mask_blk[N_MAX], bool mask_post[N_MAX])
+{
+    stream_to_array2d<N_MAX,E_DIM>(in_embed, x);
+    data_t wij[N_MAX][N_MAX];
+    READ_WIJ: for (int i = 0; i < N_MAX; i++)
+        for (int j = 0; j < N_MAX; j++) {
+            #pragma HLS PIPELINE II=1
+            wij[i][j] = (data_t)in_wij_bias.read();
+        }
+    expand_wij(wij, wij_bias);
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        bool m = in_mask.read(); mask_blk[i] = m; mask_post[i] = m;
+    }
+}
+
+static void obj_post(const data_t x_in[N_MAX][E_DIM], const bool mask[N_MAX],
+                     hls::stream<data_t> &out_x, hls::stream<data_t> &out_c)
+{
+    data_t x[N_MAX][E_DIM];
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++) x[i][j] = mask[i] ? (data_t)0 : x_in[i][j];
+    }
+    data_t c[T_DIM][E_DIM];
+    int jet_assign_tmp[N_MAX];
+    build_candidates<N_MAX>(x, c, jet_assign_tmp);
+    array2d_to_stream<N_MAX, E_DIM>(x, out_x);
+    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+}
+
+static void obj1_read(hls::stream<data_t> &in_x, hls::stream<bool> &in_mask,
+                      data_t x[N_MAX][E_DIM], bool mask_blk[N_MAX], bool mask_post[N_MAX])
+{
+    stream_to_array2d<N_MAX,E_DIM>(in_x, x);
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        bool m = in_mask.read(); mask_blk[i] = m; mask_post[i] = m;
+    }
+}
+#endif
+
 inline void obj0_stage(
     hls::stream<data_t> &in_embed,
     hls::stream<score_t> &in_wij_bias,
@@ -236,6 +290,23 @@ inline void obj0_stage(
     hls::stream<data_t> &out_x,
     hls::stream<data_t> &out_c
 ) {
+#ifdef OBJ_DATAFLOW
+    #pragma HLS DATAFLOW
+    data_t x[N_MAX][E_DIM];
+    score_t wij_bias[N_MAX*N_HEADS][N_KV];
+    bool mask_blk[N_MAX], mask_post[N_MAX];
+    obj0_read(in_embed, in_wij_bias, in_mask, x, wij_bias, mask_blk, mask_post);
+
+    data_t x_df1[N_MAX][E_DIM];
+    attn_block_obj(x, mask_blk, wij_bias, /*use_wij =*/ true,
+        obj_w.Wq, obj_w.bq, obj_w.Wk, obj_w.bk, obj_w.Wv, obj_w.bv,
+        obj_w.bias_k, obj_w.bias_v, obj_w.Wo, obj_w.bo,
+        obj_w.attn_ln_g, obj_w.attn_ln_b,
+        obj_w.ffn_w, obj_w.ffn_b, obj_w.ffn_ln_g, obj_w.ffn_ln_b,
+        obj_w.post_ffn_g, obj_w.post_ffn_b, x_df1);
+
+    obj_post(x_df1, mask_post, out_x, out_c);
+#else
     data_t x[N_MAX][E_DIM];
     stream_to_array2d<N_MAX,E_DIM>(in_embed, x);
 
@@ -252,12 +323,25 @@ inline void obj0_stage(
     bool mask[N_MAX];
     stream_to_array1d<N_MAX>(in_mask, mask);
 
+#ifdef OBJ_DATAFLOW
+    data_t x_df1[N_MAX][E_DIM];
+#endif
     attn_block_obj(x, mask, wij_bias, /*use_wij =*/ true,
         obj_w.Wq, obj_w.bq, obj_w.Wk, obj_w.bk, obj_w.Wv, obj_w.bv,
         obj_w.bias_k, obj_w.bias_v, obj_w.Wo, obj_w.bo,
         obj_w.attn_ln_g, obj_w.attn_ln_b,
         obj_w.ffn_w, obj_w.ffn_b, obj_w.ffn_ln_g, obj_w.ffn_ln_b,
-        obj_w.post_ffn_g, obj_w.post_ffn_b);
+        obj_w.post_ffn_g, obj_w.post_ffn_b
+#ifdef OBJ_DATAFLOW
+        , x_df1
+#endif
+        );
+#ifdef OBJ_DATAFLOW
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++) x[i][j] = x_df1[i][j];
+    }
+#endif
     remask(x, mask);
 
     data_t c[T_DIM][E_DIM];
@@ -266,6 +350,7 @@ inline void obj0_stage(
 
     array2d_to_stream<N_MAX, E_DIM>(x, out_x);
     array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+#endif
 }
 
 inline void obj1_stage(
@@ -275,6 +360,24 @@ inline void obj1_stage(
     hls::stream<data_t> &out_x,
     hls::stream<data_t> &out_c
 ) {
+#ifdef OBJ_DATAFLOW
+    #pragma HLS DATAFLOW
+    data_t x[N_MAX][E_DIM];
+    bool mask_blk[N_MAX], mask_post[N_MAX];
+    obj1_read(in_x, in_mask, x, mask_blk, mask_post);
+
+    // no wij bias in layer 1; the dummy is never read (use_wij=false)
+    score_t dummy_wij[N_MAX * N_HEADS][N_KV] = {{0}};
+    data_t x_df2[N_MAX][E_DIM];
+    attn_block_obj(x, mask_blk, dummy_wij, /*use_wij =*/ false,
+        obj_w.Wq, obj_w.bq, obj_w.Wk, obj_w.bk, obj_w.Wv, obj_w.bv,
+        obj_w.bias_k, obj_w.bias_v, obj_w.Wo, obj_w.bo,
+        obj_w.attn_ln_g, obj_w.attn_ln_b,
+        obj_w.ffn_w, obj_w.ffn_b, obj_w.ffn_ln_g, obj_w.ffn_ln_b,
+        obj_w.post_ffn_g, obj_w.post_ffn_b, x_df2);
+
+    obj_post(x_df2, mask_post, out_x, out_c);
+#else
     data_t x[N_MAX][E_DIM];
     stream_to_array2d<N_MAX,E_DIM>(in_x, x);
     bool mask[N_MAX];
@@ -282,12 +385,25 @@ inline void obj1_stage(
 
     // no wij bias in layer 1; the dummy is never read (use_wij=false)
     score_t dummy_wij[N_MAX * N_HEADS][N_KV] = {{0}};
+#ifdef OBJ_DATAFLOW
+    data_t x_df2[N_MAX][E_DIM];
+#endif
     attn_block_obj(x, mask, dummy_wij, /*use_wij =*/ false,
         obj_w.Wq, obj_w.bq, obj_w.Wk, obj_w.bk, obj_w.Wv, obj_w.bv,
         obj_w.bias_k, obj_w.bias_v, obj_w.Wo, obj_w.bo,
         obj_w.attn_ln_g, obj_w.attn_ln_b,
         obj_w.ffn_w, obj_w.ffn_b, obj_w.ffn_ln_g, obj_w.ffn_ln_b,
-        obj_w.post_ffn_g, obj_w.post_ffn_b);
+        obj_w.post_ffn_g, obj_w.post_ffn_b
+#ifdef OBJ_DATAFLOW
+        , x_df2
+#endif
+        );
+#ifdef OBJ_DATAFLOW
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++) x[i][j] = x_df2[i][j];
+    }
+#endif
     remask(x, mask);
 
     data_t c[T_DIM][E_DIM];
@@ -296,7 +412,9 @@ inline void obj1_stage(
 
     array2d_to_stream<N_MAX, E_DIM>(x, out_x);
     array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+#endif
 }
+
 
 // cand stage: candidate self-attention. layer 1 also feeds cand_lorentz.
 
@@ -550,23 +668,28 @@ inline void passwd_dataflow_batched(
 
     hls::stream<ap_uint<32>> in_stream("mm2s");
     hls::stream<ap_uint<32>> out_stream("s2mm");
-    #pragma HLS STREAM variable=in_stream depth = 144
-    #pragma HLS STREAM variable=out_stream depth = 8
+    // Depths tripled 2026-09-10: at two events of slack a stage that finishes
+    // early stalls on its neighbour, which is what left ~25 us/event of the
+    // measured interval unexplained by any stage (longest stage 7722 cycles =
+    // 96 us, measured 124 us). Tripling is the same fix that took the hybrid
+    // from 111 to 57.9 us/event.
+    #pragma HLS STREAM variable=in_stream depth = 432
+    #pragma HLS STREAM variable=out_stream depth = 24
 
     // depths: >= one full event payload each (deadlock-safe), doubled where
     // cheap so adjacent events overlap without back-pressure
     hls::stream<data_t> s_jets_embed("jets_embed"), s_jets_pairwise("jets_pair"), s_jets_cand("jets_cand");
-    #pragma HLS STREAM variable = s_jets_embed depth = 128
-    #pragma HLS STREAM variable = s_jets_pairwise depth = 128
-    #pragma HLS STREAM variable = s_jets_cand depth = 384
+    #pragma HLS STREAM variable = s_jets_embed depth = 384
+    #pragma HLS STREAM variable = s_jets_pairwise depth = 384
+    #pragma HLS STREAM variable = s_jets_cand depth = 1152
     hls::stream<bool> s_mask_embed("m_embed"), s_mask_obj0("m_obj0"), s_mask_cross0("m_cross0");
     hls::stream<bool> s_mask_obj1("m_obj1"), s_mask_cross1("m_cross1"), s_mask_cand("m_cand");
-    #pragma HLS STREAM variable = s_mask_embed depth = 64
-    #pragma HLS STREAM variable = s_mask_obj0 depth = 64
-    #pragma HLS STREAM variable = s_mask_cross0 depth = 128
-    #pragma HLS STREAM variable = s_mask_obj1 depth = 128
-    #pragma HLS STREAM variable = s_mask_cross1 depth = 192
-    #pragma HLS STREAM variable = s_mask_cand depth = 256
+    #pragma HLS STREAM variable = s_mask_embed depth = 192
+    #pragma HLS STREAM variable = s_mask_obj0 depth = 192
+    #pragma HLS STREAM variable = s_mask_cross0 depth = 384
+    #pragma HLS STREAM variable = s_mask_obj1 depth = 384
+    #pragma HLS STREAM variable = s_mask_cross1 depth = 576
+    #pragma HLS STREAM variable = s_mask_cand depth = 768
 
     hls::stream<data_t> s_embed("embed");
     hls::stream<score_t> s_wij("wij");
@@ -576,19 +699,19 @@ inline void passwd_dataflow_batched(
     hls::stream<data_t> s_x1("x_layer1"), s_c1("c_layer1");
     hls::stream<data_t> s_ae("ae_input");
     hls::stream<float> s_losses("losses");
-    #pragma HLS STREAM variable =  s_embed depth = 384
-    #pragma HLS STREAM variable =  s_wij depth = 288
-    #pragma HLS STREAM variable =  s_x0a depth = 384
-    #pragma HLS STREAM variable =  s_c0a depth = 96
-    #pragma HLS STREAM variable =  s_c0b depth = 96
-    #pragma HLS STREAM variable =  s_x0 depth = 384
-    #pragma HLS STREAM variable =  s_x1a depth = 384
-    #pragma HLS STREAM variable =  s_c1a depth = 96
-    #pragma HLS STREAM variable =  s_c1b depth = 96
-    #pragma HLS STREAM variable =  s_x1 depth = 384
-    #pragma HLS STREAM variable =  s_c1 depth = 96
-    #pragma HLS STREAM variable =  s_ae depth = 56
-    #pragma HLS STREAM variable =  s_losses depth = 8
+    #pragma HLS STREAM variable =  s_embed depth = 1152
+    #pragma HLS STREAM variable =  s_wij depth = 864
+    #pragma HLS STREAM variable =  s_x0a depth = 1152
+    #pragma HLS STREAM variable =  s_c0a depth = 288
+    #pragma HLS STREAM variable =  s_c0b depth = 288
+    #pragma HLS STREAM variable =  s_x0 depth = 1152
+    #pragma HLS STREAM variable =  s_x1a depth = 1152
+    #pragma HLS STREAM variable =  s_c1a depth = 288
+    #pragma HLS STREAM variable =  s_c1b depth = 288
+    #pragma HLS STREAM variable =  s_x1 depth = 1152
+    #pragma HLS STREAM variable =  s_c1 depth = 288
+    #pragma HLS STREAM variable =  s_ae depth = 168
+    #pragma HLS STREAM variable =  s_losses depth = 24
 
     read_input_n(in_buf, n_events, in_stream);
     fork_n(in_stream, n_events, s_jets_embed, s_jets_pairwise, s_jets_cand,
@@ -635,8 +758,8 @@ inline void passwd_dataflow(
     // internal axi-stream FIFOs
     hls::stream<ap_uint<32>> in_stream("mm2s");
     hls::stream<ap_uint<32>> out_stream("s2mm");
-    #pragma HLS STREAM variable=in_stream depth = 72
-    #pragma HLS STREAM variable=out_stream depth = 4
+    #pragma HLS STREAM variable=in_stream depth = 216
+    #pragma HLS STREAM variable=out_stream depth = 12
 
     // read from ddr into internal stream
 
@@ -649,9 +772,9 @@ inline void passwd_dataflow(
     hls::stream<data_t> s_jets_embed("jets_embed");
     hls::stream<data_t> s_jets_pairwise("jets_pair");
     hls::stream<data_t> s_jets_cand("jets_cand");
-    #pragma HLS STREAM variable = s_jets_embed depth = 60
-    #pragma HLS STREAM variable = s_jets_pairwise depth = 60
-    #pragma HLS STREAM variable = s_jets_cand depth = 60
+    #pragma HLS STREAM variable = s_jets_embed depth = 180
+    #pragma HLS STREAM variable = s_jets_pairwise depth = 180
+    #pragma HLS STREAM variable = s_jets_cand depth = 180
 
     // fork outputs for masks (6 consumers)
     hls::stream<bool> s_mask_embed("mask_embed");
@@ -660,12 +783,12 @@ inline void passwd_dataflow(
     hls::stream<bool> s_mask_obj1("mask_obj1");
     hls::stream<bool> s_mask_cross1("mask_cross1");
     hls::stream<bool> s_mask_cand("mask_cand");
-    #pragma HLS STREAM variable = s_mask_embed depth = 12
-    #pragma HLS STREAM variable = s_mask_obj0 depth = 12
-    #pragma HLS STREAM variable = s_mask_cross0 depth = 12
-    #pragma HLS STREAM variable = s_mask_obj1 depth = 12
-    #pragma HLS STREAM variable = s_mask_cross1 depth = 12
-    #pragma HLS STREAM variable = s_mask_cand depth = 12
+    #pragma HLS STREAM variable = s_mask_embed depth = 36
+    #pragma HLS STREAM variable = s_mask_obj0 depth = 36
+    #pragma HLS STREAM variable = s_mask_cross0 depth = 36
+    #pragma HLS STREAM variable = s_mask_obj1 depth = 36
+    #pragma HLS STREAM variable = s_mask_cross1 depth = 36
+    #pragma HLS STREAM variable = s_mask_cand depth = 36
 
     // inter stage data streams
     // depths cover one full event payload so a producer can always finish
@@ -680,19 +803,19 @@ inline void passwd_dataflow(
     hls::stream<data_t> s_ae("ae_input");
     hls::stream<float> s_losses("losses");
 
-    #pragma HLS STREAM variable =  s_embed depth = 192
-    #pragma HLS STREAM variable =  s_wij depth = 144
-    #pragma HLS STREAM variable =  s_x0a depth = 192
-    #pragma HLS STREAM variable =  s_c0a depth = 48
-    #pragma HLS STREAM variable =  s_c0b depth = 48
-    #pragma HLS STREAM variable =  s_x0 depth = 192
-    #pragma HLS STREAM variable =  s_x1a depth = 192
-    #pragma HLS STREAM variable =  s_c1a depth = 48
-    #pragma HLS STREAM variable =  s_c1b depth = 48
-    #pragma HLS STREAM variable =  s_x1 depth = 192
-    #pragma HLS STREAM variable =  s_c1 depth = 48
-    #pragma HLS STREAM variable =  s_ae depth = 28
-    #pragma HLS STREAM variable =  s_losses depth = 4
+    #pragma HLS STREAM variable =  s_embed depth = 576
+    #pragma HLS STREAM variable =  s_wij depth = 432
+    #pragma HLS STREAM variable =  s_x0a depth = 576
+    #pragma HLS STREAM variable =  s_c0a depth = 144
+    #pragma HLS STREAM variable =  s_c0b depth = 144
+    #pragma HLS STREAM variable =  s_x0 depth = 576
+    #pragma HLS STREAM variable =  s_x1a depth = 576
+    #pragma HLS STREAM variable =  s_c1a depth = 144
+    #pragma HLS STREAM variable =  s_c1b depth = 144
+    #pragma HLS STREAM variable =  s_x1 depth = 576
+    #pragma HLS STREAM variable =  s_c1 depth = 144
+    #pragma HLS STREAM variable =  s_ae depth = 84
+    #pragma HLS STREAM variable =  s_losses depth = 12
 
     // pipeline stages (concurrent under DATAFLOW)
 

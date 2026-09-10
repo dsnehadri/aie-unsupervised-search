@@ -61,3 +61,22 @@
 #   LUT 260,582 (down from 306,597), BRAM 100 (the table), timing closed at 80 MHz.
 # The standalone block synthesis predicted only 1.19x: it sees one block with no
 # memory contention, so treat a block-level estimate as a lower bound.
+#
+# NEGATIVE RESULT: pipelining the fabric attention block finer buys almost nothing
+# (four hardware builds, 2026-09-09/10, all AUC 0.9825 -- no arithmetic changed).
+#
+#   build                                   longest stage (csynth)   measured interval
+#   integer layer norm only                        --                 128.4 us
+#   + object block split, 6 dataflow stages    8532 cyc = 107 us      131.1 us  (worse)
+#   + stage wrappers made dataflow regions     7722 cyc =  96 us      124.1 us
+#   + every inter-stage FIFO depth tripled     7722 cyc =  96 us      124.1 us  (no change)
+#
+# The measured interval sits ~25 us (~2000 cycles at 80 MHz) ABOVE the longest
+# synthesized stage in every build, and that offset does not move: not when the block
+# is split, not when the wrappers are restructured, not when every FIFO is tripled
+# (which is what gave the hybrid 1.92x). So it is neither stage cost nor inter-stage
+# backpressure. Most likely per-event dataflow synchronization that csynth does not
+# model, but that is not proven.
+# => the fabric baseline is limited by something outside the stages; quote 128.4 us
+# (the simple build) and treat finer pipelining as a measured dead end. Contrast with
+# the array side, where moving one stage off the fabric gave 3.35x.

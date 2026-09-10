@@ -30,10 +30,16 @@ void attn_block_obj_top(
 
     const ln_param_t post_ffn_g[E_DIM],
     const ln_param_t post_ffn_b[E_DIM]
-
+#ifdef OBJ_DATAFLOW
+    , data_t x_out[N_MAX][E_DIM]
+#endif
 ) {
     attn_block_obj(x, padding_mask, wij_bias, use_wij,
                     Wq, bq, Wk, bk, Wv, bv, bias_k, bias_v,
                 Wo, bo, attn_ln_g, attn_ln_b, ffn_w, ffn_b,
-            ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b);
+            ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b
+#ifdef OBJ_DATAFLOW
+            , x_out
+#endif
+            );
 }
