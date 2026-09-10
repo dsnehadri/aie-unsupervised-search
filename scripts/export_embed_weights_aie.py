@@ -41,7 +41,11 @@ W0p[:W0.shape[1], :] = W0.T
 
 def emit(f, name, arr, frac):
     v = q(arr, frac).ravel()
-    f.write(f"static const int16 {name}[{v.size}] = {{\n")
+    # alignas(16) is REQUIRED: gemm_pk loads the weight operand with
+    # aie::load_v<8> (16 bytes) and an unaligned load returns wrong data on the
+    # real core while x86sim happily reads it. Without this the kernel matched
+    # the golden in x86sim to 0.006 and was off by 1.44 in aiesimulator.
+    f.write(f"alignas(16) static const int16 {name}[{v.size}] = {{\n")
     for i in range(0, v.size, 16):
         f.write("    " + ", ".join(f"{x:6d}" for x in v[i:i+16]) + ",\n")
     f.write("};\n\n")
