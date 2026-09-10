@@ -29,6 +29,78 @@ static void obj_df_qkv(
     linear<N_MAX>(x, Wv, bv, V_full);
 }
 
+
+#ifdef OBJ_HEADS_PARALLEL
+static void obj_df_reshape_split(
+    const data_t Q_full[N_MAX][E_DIM], const data_t K_full[N_MAX][E_DIM],
+    const data_t V_full[N_MAX][E_DIM],
+    const weight_t bias_k[E_DIM], const weight_t bias_v[E_DIM],
+    data_t A0[3][N_KV][D_HEAD], data_t A1[3][N_KV][D_HEAD],
+    data_t A2[3][N_KV][D_HEAD], data_t A3[3][N_KV][D_HEAD])
+{
+    data_t Q_h[N_HEADS][N_MAX][D_HEAD], K_h[N_HEADS][N_KV][D_HEAD], V_h[N_HEADS][N_KV][D_HEAD];
+    reshape_and_append_bias_kv<N_MAX, N_MAX>(Q_full, K_full, V_full, bias_k, bias_v, Q_h, K_h, V_h);
+    for (int i = 0; i < N_KV; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int d = 0; d < D_HEAD; d++) {
+            data_t q0 = (i < N_MAX) ? Q_h[0][i][d] : (data_t)0;
+            data_t q1 = (i < N_MAX) ? Q_h[1][i][d] : (data_t)0;
+            data_t q2 = (i < N_MAX) ? Q_h[2][i][d] : (data_t)0;
+            data_t q3 = (i < N_MAX) ? Q_h[3][i][d] : (data_t)0;
+            A0[0][i][d] = q0; A0[1][i][d] = K_h[0][i][d]; A0[2][i][d] = V_h[0][i][d];
+            A1[0][i][d] = q1; A1[1][i][d] = K_h[1][i][d]; A1[2][i][d] = V_h[1][i][d];
+            A2[0][i][d] = q2; A2[1][i][d] = K_h[2][i][d]; A2[2][i][d] = V_h[2][i][d];
+            A3[0][i][d] = q3; A3[1][i][d] = K_h[3][i][d]; A3[2][i][d] = V_h[3][i][d];
+        }
+    }
+}
+
+template <int H>
+static void obj_df_head(
+    const data_t A[3][N_KV][D_HEAD],
+    const score_t wij_bias[N_MAX * N_HEADS][N_KV], const bool use_wij,
+    const bool padding_mask[N_MAX], data_t ctx[N_MAX][D_HEAD])
+{
+    data_t Q[N_MAX][D_HEAD], K[N_KV][D_HEAD], V[N_KV][D_HEAD];
+    for (int i = 0; i < N_KV; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int d = 0; d < D_HEAD; d++) {
+            if (i < N_MAX) Q[i][d] = A[0][i][d];
+            K[i][d] = A[1][i][d]; V[i][d] = A[2][i][d];
+        }
+    }
+    score_t scores[N_MAX][N_KV];
+    compute_scores<N_MAX, N_KV>(Q, K, scores);
+    if (use_wij) {
+        for (int i = 0; i < N_MAX; i++) {
+            #pragma HLS PIPELINE II=1
+            for (int j = 0; j < N_MAX; j++) scores[i][j] += wij_bias[H * N_MAX + i][j];
+        }
+    }
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < N_MAX; j++) if (padding_mask[j]) scores[i][j] = NEG_INF;
+    }
+    softmax_and_context<N_MAX, N_KV>(scores, V, ctx);
+}
+
+static void obj_df_merge(
+    const data_t c0[N_MAX][D_HEAD], const data_t c1[N_MAX][D_HEAD],
+    const data_t c2[N_MAX][D_HEAD], const data_t c3[N_MAX][D_HEAD],
+    data_t context_f[N_MAX][E_DIM])
+{
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int d = 0; d < D_HEAD; d++) {
+            context_f[i][0 * D_HEAD + d] = c0[i][d];
+            context_f[i][1 * D_HEAD + d] = c1[i][d];
+            context_f[i][2 * D_HEAD + d] = c2[i][d];
+            context_f[i][3 * D_HEAD + d] = c3[i][d];
+        }
+    }
+}
+#endif
+
 static void obj_df_reshape(
     const data_t Q_full[N_MAX][E_DIM], const data_t K_full[N_MAX][E_DIM],
     const data_t V_full[N_MAX][E_DIM],
@@ -177,11 +249,30 @@ inline void attn_block_obj(
     data_t Q_full[N_MAX][E_DIM], K_full[N_MAX][E_DIM], V_full[N_MAX][E_DIM];
     obj_df_qkv(x, Wq, bq, Wk, bk, Wv, bv, residual, Q_full, K_full, V_full);
 
+#ifdef OBJ_HEADS_PARALLEL
+    // One process per head. They are independent, so this turns the block's
+    // dominant stage (4169 cycles for the serial loop over four heads) into
+    // four concurrent ~1040-cycle stages. It costs four times the head
+    // multipliers, which is only affordable with LIN_FABRIC_MUL.
+    data_t QKV_0[3][N_KV][D_HEAD], QKV_1[3][N_KV][D_HEAD];
+    data_t QKV_2[3][N_KV][D_HEAD], QKV_3[3][N_KV][D_HEAD];
+    obj_df_reshape_split(Q_full, K_full, V_full, bias_k, bias_v,
+                         QKV_0, QKV_1, QKV_2, QKV_3);
+    data_t ctx0[N_MAX][D_HEAD], ctx1[N_MAX][D_HEAD];
+    data_t ctx2[N_MAX][D_HEAD], ctx3[N_MAX][D_HEAD];
+    obj_df_head<0>(QKV_0, wij_bias, use_wij, padding_mask, ctx0);
+    obj_df_head<1>(QKV_1, wij_bias, use_wij, padding_mask, ctx1);
+    obj_df_head<2>(QKV_2, wij_bias, use_wij, padding_mask, ctx2);
+    obj_df_head<3>(QKV_3, wij_bias, use_wij, padding_mask, ctx3);
+    data_t context_f[N_MAX][E_DIM];
+    obj_df_merge(ctx0, ctx1, ctx2, ctx3, context_f);
+#else
     data_t QKV_h[3 * N_HEADS][N_KV][D_HEAD];
     obj_df_reshape(Q_full, K_full, V_full, bias_k, bias_v, QKV_h);
 
     data_t context_f[N_MAX][E_DIM];
     obj_df_heads(QKV_h, wij_bias, use_wij, padding_mask, context_f);
+#endif
 
     data_t attn_out[N_MAX][E_DIM];
     obj_df_project(context_f, Wo, bo, attn_out);

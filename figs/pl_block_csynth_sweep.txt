@@ -92,3 +92,14 @@
 # 6585 -> ~2288 cycles (3.4x) but needs ~4x the head multipliers.
 # UNTESTED: fabric multipliers are slower in ns and the design closes 80 MHz with only
 # +0.69 ns slack, so timing closure is the real risk; csynth does not show it.
+#
+# FOUR-WAY HEAD PARALLELISM: NEGATIVE. Object block, 80 MHz:
+#   serial heads (as built)          II 5762   DSP 183 (9%)   LUT  32,979
+#   4 heads as parallel processes    II 7850   DSP 311 (15%)  LUT  49,918
+#   + fabric multipliers             II 7850   DSP 215 (10%)  LUT 111,262
+# 36% SLOWER, not 2.5x faster as the stage arithmetic suggested. A dataflow channel
+# may have one consumer, so each head process must copy its own Q/K/V out of a private
+# array, and the split/merge stages needed to arrange that cost more than the
+# concurrency saves. Fabric multipliers behave exactly as advertised (311 -> 215 DSP at
+# identical II) but there is now nothing worth spending the freed DSP on.
+# => the DSP budget was never the obstacle; the dataflow copy overhead is.
