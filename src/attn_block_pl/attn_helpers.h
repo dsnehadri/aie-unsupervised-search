@@ -57,6 +57,14 @@ void linear(
             LIN_K:
             for (int k=0; k < IN_DIM; k++) {
                 #pragma HLS UNROLL
+                // The design is DSP-bound at 93% while LUTs sit near 14%, so the
+                // multiplier budget, not logic, is what blocks running the four
+                // attention heads concurrently. LIN_FABRIC_MUL moves these
+                // products into LUT fabric to trade the plentiful resource for
+                // the scarce one.
+#ifdef LIN_FABRIC_MUL
+                #pragma HLS BIND_OP variable=sum op=mul impl=fabric
+#endif
                 sum += (acc_t)in[i][k] * (acc_t)W[j][k];
             }
             out[i][j] = (data_t)sum;

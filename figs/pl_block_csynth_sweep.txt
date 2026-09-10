@@ -80,3 +80,15 @@
 # => the fabric baseline is limited by something outside the stages; quote 128.4 us
 # (the simple build) and treat finer pipelining as a measured dead end. Contrast with
 # the array side, where moving one stage off the fabric gave 3.35x.
+#
+# FABRIC MULTIPLIERS (BIND_OP impl=fabric on the linear layers), object block, 80 MHz:
+#   variant            II      DSP        LUT
+#   DSP  (as built)    5762    183 (9%)   32,979 (3%)
+#   fabric             5762     87 (4%)   94,323 (10%)
+# DSPs halve at IDENTICAL II -- the multiplies were never on the critical path, which
+# matches the layer-norm finding. Across six attention blocks this frees ~580 DSP
+# (design is DSP-bound at 93%), at ~370k more LUT (design uses 252k of 1.8M).
+# That is what would make four-way head parallelism affordable: the block would go
+# 6585 -> ~2288 cycles (3.4x) but needs ~4x the head multipliers.
+# UNTESTED: fabric multipliers are slower in ns and the design closes 80 MHz with only
+# +0.69 ns slack, so timing closure is the real risk; csynth does not show it.

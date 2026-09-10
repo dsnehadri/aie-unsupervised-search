@@ -612,6 +612,16 @@ static void fork_n(hls::stream<ap_uint<32>>& in, int n,
     hls::stream<bool>& mo1, hls::stream<bool>& mc1, hls::stream<bool>& mcd) {
     for (int e = 0; e < n; e++) read_and_fork(in, je, jp, jc, me, mo0, mc0, mo1, mc1, mcd);
 }
+#ifdef GAP_TEST_NOLAYER1
+static void drain_mask_n(hls::stream<bool>& a, hls::stream<bool>& b, int n) {
+    for (int e = 0; e < n; e++)
+        for (int i = 0; i < N_MAX; i++) {
+            #pragma HLS PIPELINE II=1
+            (void)a.read(); (void)b.read();
+        }
+}
+#endif
+
 static void embed_n(hls::stream<data_t>& i, hls::stream<bool>& m,
     const EmbedWeights& w, hls::stream<data_t>& o, int n) {
     for (int e = 0; e < n; e++) embed_stage(i, m, w, o);
@@ -719,12 +729,27 @@ inline void passwd_dataflow_batched(
     embed_n(s_jets_embed, s_mask_embed, embed_w, s_embed, n_events);
     pairwise_n(s_jets_pairwise, mlp_w, s_wij, n_events);
     obj0_n(s_embed, s_wij, s_mask_obj0, obj0_w, s_x0a, s_c0a, n_events);
+#ifdef GAP_TEST_NOLAYER1
+    cand2_n(s_c0a, cand0_w, s_c0b, s_c1, n_events);
+#else
     cand_n(s_c0a, cand0_w, s_c0b, n_events);
+#endif
     cross_n(s_x0a, s_c0b, s_mask_cross0, cross0_w, s_x0, n_events);
+#ifdef GAP_TEST_NOLAYER1
+    // TIMING-ONLY BUILD. Layer 1 (obj1, cand1, cross1) is skipped so the stage
+    // COUNT drops from 13 to 11 while the longest stage stays obj0_stage. Every
+    // fabric build measures ~2200 cycles/event above its longest stage and the
+    // hybrid builds measure none, so this asks whether that offset scales with
+    // the number of dataflow stages (per-stage synchronisation) or is fixed
+    // (the DDR path). The scores this build produces are meaningless.
+    drain_mask_n(s_mask_obj1, s_mask_cross1, n_events);
+    lorentz_n(s_jets_cand, s_x0, s_c1, s_mask_cand, s_ae, n_events);
+#else
     obj1_n(s_x0, s_mask_obj1, obj1_w, s_x1a, s_c1a, n_events);
     cand2_n(s_c1a, cand1_w, s_c1b, s_c1, n_events);
     cross_n(s_x1a, s_c1b, s_mask_cross1, cross1_w, s_x1, n_events);
     lorentz_n(s_jets_cand, s_x1, s_c1, s_mask_cand, s_ae, n_events);
+#endif
     ae_n(s_ae, ae_enc_w, ae_dec_w, s_losses, n_events);
     wout_n(s_losses, out_stream, n_events);
     wddr_n(out_stream, out_buf, n_events);
