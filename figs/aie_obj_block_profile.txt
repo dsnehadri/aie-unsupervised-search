@@ -87,3 +87,12 @@ slowest obj_post_c_L0 = 14.3 us/event ; chain sum 125 us
 #   AUC 0.9822 vs 0.9818, rank correlation 0.9984 -- no physics lost
 # The kernel profile predicted 16.8 us/event and the built design measures 17.3, so the
 # interval is set by the object attention block (17.7 us isolated), as the stage model said.
+#
+# LINK OVERHEAD alpha, fitted from sweep_v2_hw.csv (payload 1 KB - 1 MB, T = alpha + beta*B):
+#   AIE window passthrough  DDR -> PL -> AIE -> PL -> DDR   alpha = 25.1 us
+#   PL loopback control     DDR -> PL -> DDR, no AIE        alpha = 24.8 us   <- the control
+#   no-DDR variant          PL -> AIE -> PL, on-chip buffers alpha = 14.4 us
+# So alpha is launch + DDR: the array crossing adds 0.3 us on the intercepts (per-payload
+# differences scatter -3.0 to +1.9 us, hence quoting ~1 us with a bound of ~2). The 10 us
+# attributed to DDR is the OTHER subtraction, 24.8 - 14.4. Quote all three numbers so both
+# subtractions are checkable; the control's alpha is what makes the crossing claim testable.
