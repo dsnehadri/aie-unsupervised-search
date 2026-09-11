@@ -1,0 +1,32 @@
+# Trivial baselines vs the autoencoder, weighted background (all QCD slices), 2026-09-10.
+# scripts/ae_ht_decorrelation_weighted.py for the AE and binned numbers; baselines from
+# anomaly_baselines.npz (per-event H_T, jet multiplicity, minimum mass asymmetry).
+#
+# INCLUSIVE weighted AUC
+#   signal            AE loss    H_T     n_jet   <m>MMA
+#   XX1500 6j          0.983    0.996    0.798    0.917
+#   XX1500 10j         0.987    0.997    0.950    0.927
+#   XX1500 12j         0.985    0.997    0.939    0.917
+#   XX2000 8j WZH      0.996    0.999    0.751    0.965
+#   XX2000 8j          0.997    1.000    0.903    0.971
+#   (n_jet is unweighted -- the weighted background cache stores only loss, ht, mavg)
+#
+# H_T ALONE BEATS THE AUTOENCODER ON EVERY BENCHMARK. Expected: these signals are
+# 1.5-2 TeV pair-produced sparticles against QCD, so total visible energy is nearly a
+# perfect tag. It is also why the H_T-binned study exists.
+#
+# WHAT THE NETWORK ADDS BEYOND H_T
+#   at fixed H_T (per-bin AUC, all five signals):   0.54 - 0.63
+#   after an H_T > 2 TeV cut:  1500 GeV benchmarks  0.755 - 0.770
+#                              2000 GeV benchmarks  0.903 - 0.913
+# Above chance and consistent across bins, so the network is not only counting energy,
+# but the inclusive 0.98-0.99 substantially overstates its own contribution.
+#
+# BINS MISSING FROM THE FIGURE are signal-starved, NOT background-starved (MIN_N = 30 on
+# both classes). Background per bin is 10^4-10^5 everywhere; the signals barely populate
+# H_T below 1.5 TeV, and the 2000 GeV samples have ~10 events below 1.75 TeV:
+#   bin (TeV)    n_bkg     6j   10j   12j  8jWZH   8j
+#   1.00-1.25   165262      7     0     1      0     0
+#   1.25-1.50    61060     15     4     6      4     1
+#   1.50-1.75    25626    107    48    70     11    10
+#   1.75-2.00    16106    366   293   374     75    43
