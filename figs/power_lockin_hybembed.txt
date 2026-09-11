@@ -112,3 +112,45 @@ within errors, despite 1.65x the throughput, because the integer layer norm
 does correspondingly less work per event. Per event the compute rail improved
 9.61 -> 5.42 uJ. The agreement of the totals across two campaigns six weeks
 apart is a useful check that the lock-in method is stable.
+
+
+The old PL-vs-hybrid figure's shaded band understates the PL load
+=================================================================
+In figs/board_lockin_pl_vs_aie_120s.png the PL trace stays high for about
+10 s past the shaded compute band and looks like it decays late. It does not.
+Those two campaigns set the ON window by an ITERATION COUNT, so a slower
+design ran a LONGER window:
+
+  PL   pl_stream_batched2, 280 iterations  -> ON window 118.1 s
+  AIE  aie_stream,         920 iterations  -> ON window 108.4 s
+
+The band is drawn at the shorter of the two, 108.4 s, so the PL load really
+was still running for another 9.7 s. Nothing is lagging; the shading simply
+does not describe the orange trace.
+
+This is the failure the time-based rewrite of the lock-in script was for. The
+current campaigns hold their load for 122.1 s (fabric) and 124.1 s (hybrid
+with the embedding on the array), 2 s apart instead of 10, and in
+figs/board_lockin_current_designs.png both traces fall at the band edge.
+
+What actually happens at the OFF edge, from the raw fold
+-------------------------------------------------------
+Two different things, and only one of them is physics.
+
+Power is a step, not a decay. The A72 rail, which is 205 of the 256 mW, goes
+0.367 -> 0.163 W across a single 1 Hz sample. Its apparent width comes from
+the measurement, not the board: 1 Hz sampling, a 2 s polling grid for the
+on_end stamp, and the plot's centred five-sample smoothing.
+
+Temperature is a real decay, but a fast one: 81% of the 0.397 C fall is gone
+within 1 s, and the remainder is a slow package tail at the noise floor. The
+die is thermally small and tightly coupled to the logic that heats it.
+
+Neither affects any number reported here. The folding skips 20 s after the
+OFF edge, ten to twenty times the transition width, and the answer does not
+depend on that choice: sweeping the skip from 5 s to 60 s moves the fabric
+dP over 0.2558 to 0.2602 W, a 1.7% spread against a 3.9% standard error.
+
+One caveat visible in the new figure: the hybrid's temperature is still
+climbing at the end of the 120 s ON window, so its dT is a lower bound on the
+steady state. Its power has plateaued, so dP is not affected.

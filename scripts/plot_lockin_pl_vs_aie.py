@@ -20,15 +20,29 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import os
 SUF = os.environ.get("LOCKIN_SUFFIX", "")   # "" = 90 s campaigns, "120" = 120 s campaigns
+# Which campaign feeds each trace. The defaults reproduce the old figure; the
+# current designs are PL_TAG=120_plint and AIE_TAG=120_hybembed.
+#
+# WHY THIS IS PARAMETERISED. The old campaigns set the ON window by an ITERATION
+# COUNT, so a slower design ran a LONGER window: the PL run held its load for
+# 118.1 s while the hybrid held its for 108.4 s. The shaded compute band is the
+# shorter of the two, so the PL trace stayed high for ~10 s past the band and
+# looked like it was decaying late. It was not: its load really was still
+# running. The time-based script fixes this at the source, and the current
+# campaigns are 122.1 s and 124.1 s, 2 s apart rather than 10.
+PL_TAG  = os.environ.get("LOCKIN_PL_TAG",  SUF + "_pl")
+AIE_TAG = os.environ.get("LOCKIN_AIE_TAG", SUF)
+PL_LABEL  = os.environ.get("LOCKIN_PL_LABEL",  "PL-only")
+AIE_LABEL = os.environ.get("LOCKIN_AIE_LABEL", "AIE-PL hybrid")
 
 FIGS = "/home/snehadri/repos/aie-unsupervised-search/figs"
 RUNS = [
-    ("PL-only", "PL-only", "#eb6834",
-     f"{FIGS}/board_thermal_lockin" + SUF + "_pl_log.csv",
-     f"{FIGS}/board_thermal_lockin" + SUF + "_pl_phases.txt"),
-    ("AIE-PL hybrid", "AIE-PL hybrid", "#2a78d6",
-     f"{FIGS}/board_thermal_lockin" + SUF + "_log.csv",
-     f"{FIGS}/board_thermal_lockin" + SUF + "_phases.txt"),
+    (PL_LABEL, PL_LABEL, "#eb6834",
+     f"{FIGS}/board_thermal_lockin{PL_TAG}_log.csv",
+     f"{FIGS}/board_thermal_lockin{PL_TAG}_phases.txt"),
+    (AIE_LABEL, AIE_LABEL, "#2a78d6",
+     f"{FIGS}/board_thermal_lockin{AIE_TAG}_log.csv",
+     f"{FIGS}/board_thermal_lockin{AIE_TAG}_phases.txt"),
 ]
 BLACK, GRID = "#1a1a1a", "#dddddd"
 BIN = 1.0
@@ -150,7 +164,10 @@ for ax in (ax1, ax2):
     ax.axhline(0, color=BLACK, lw=0.8, alpha=0.35, zorder=1)
 
 fig.tight_layout()
-out = f"{FIGS}/board_lockin_pl_vs_aie" + ("_" + SUF + "s" if SUF else "") + ".png"
+# Name the output after the campaigns, so a run with non-default tags cannot
+# silently overwrite the figure built from a different pair.
+out = os.environ.get("LOCKIN_OUT") or (
+    f"{FIGS}/board_lockin_pl_vs_aie" + ("_" + SUF + "s" if SUF else "") + ".png")
 fig.savefig(out, facecolor="white")
 fig.savefig(out.replace(".png", ".pdf"), facecolor="white")
 print("saved", out)
