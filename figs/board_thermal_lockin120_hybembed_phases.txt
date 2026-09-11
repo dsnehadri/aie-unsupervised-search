@@ -1,0 +1,101 @@
+calib per_iter=0.0345 iters=3478 on_s=120
+run_start 1789102080 cycles=49 xclbin=aie_stream.xclbin iters=3478 host=host_aie_timed on_s=120 off_s=120
+on_start 1789102140 cycle=0
+on_end 1789102264 cycle=0 rc=0
+on_start 1789102384 cycle=1
+on_end 1789102508 cycle=1 rc=0
+on_start 1789102628 cycle=2
+on_end 1789102753 cycle=2 rc=0
+on_start 1789102873 cycle=3
+on_end 1789102997 cycle=3 rc=0
+on_start 1789103117 cycle=4
+on_end 1789103241 cycle=4 rc=0
+on_start 1789103361 cycle=5
+on_end 1789103485 cycle=5 rc=0
+on_start 1789103605 cycle=6
+on_end 1789103729 cycle=6 rc=0
+on_start 1789103849 cycle=7
+on_end 1789103973 cycle=7 rc=0
+on_start 1789104093 cycle=8
+on_end 1789104217 cycle=8 rc=0
+on_start 1789104337 cycle=9
+on_end 1789104461 cycle=9 rc=0
+on_start 1789104581 cycle=10
+on_end 1789104706 cycle=10 rc=0
+on_start 1789104826 cycle=11
+on_end 1789104950 cycle=11 rc=0
+on_start 1789105070 cycle=12
+on_end 1789105194 cycle=12 rc=0
+on_start 1789105314 cycle=13
+on_end 1789105438 cycle=13 rc=0
+on_start 1789105558 cycle=14
+on_end 1789105682 cycle=14 rc=0
+on_start 1789105802 cycle=15
+on_end 1789105926 cycle=15 rc=0
+on_start 1789106046 cycle=16
+on_end 1789106170 cycle=16 rc=0
+on_start 1789106290 cycle=17
+on_end 1789106414 cycle=17 rc=0
+on_start 1789106534 cycle=18
+on_end 1789106659 cycle=18 rc=0
+on_start 1789106779 cycle=19
+on_end 1789106903 cycle=19 rc=0
+on_start 1789107023 cycle=20
+on_end 1789107147 cycle=20 rc=0
+on_start 1789107267 cycle=21
+on_end 1789107391 cycle=21 rc=0
+on_start 1789107511 cycle=22
+on_end 1789107635 cycle=22 rc=0
+on_start 1789107755 cycle=23
+on_end 1789107879 cycle=23 rc=0
+on_start 1789107999 cycle=24
+on_end 1789108123 cycle=24 rc=0
+on_start 1789108243 cycle=25
+on_end 1789108367 cycle=25 rc=0
+on_start 1789108487 cycle=26
+on_end 1789108611 cycle=26 rc=0
+on_start 1789108731 cycle=27
+on_end 1789108856 cycle=27 rc=0
+on_start 1789108976 cycle=28
+on_end 1789109100 cycle=28 rc=0
+on_start 1789109220 cycle=29
+on_end 1789109344 cycle=29 rc=0
+on_start 1789109464 cycle=30
+on_end 1789109588 cycle=30 rc=0
+on_start 1789109708 cycle=31
+on_end 1789109832 cycle=31 rc=0
+on_start 1789109952 cycle=32
+on_end 1789110076 cycle=32 rc=0
+on_start 1789110196 cycle=33
+on_end 1789110320 cycle=33 rc=0
+on_start 1789110440 cycle=34
+on_end 1789110564 cycle=34 rc=0
+on_start 1789110684 cycle=35
+on_end 1789110809 cycle=35 rc=0
+on_start 1789110929 cycle=36
+on_end 1789111053 cycle=36 rc=0
+on_start 1789111173 cycle=37
+on_end 1789111297 cycle=37 rc=0
+on_start 1789111417 cycle=38
+on_end 1789111541 cycle=38 rc=0
+on_start 1789111661 cycle=39
+on_end 1789111785 cycle=39 rc=0
+on_start 1789111905 cycle=40
+on_end 1789112029 cycle=40 rc=0
+on_start 1789112149 cycle=41
+on_end 1789112273 cycle=41 rc=0
+on_start 1789112393 cycle=42
+on_end 1789112517 cycle=42 rc=0
+on_start 1789112637 cycle=43
+on_end 1789112762 cycle=43 rc=0
+on_start 1789112882 cycle=44
+on_end 1789113006 cycle=44 rc=0
+on_start 1789113126 cycle=45
+on_end 1789113250 cycle=45 rc=0
+on_start 1789113370 cycle=46
+on_end 1789113494 cycle=46 rc=0
+on_start 1789113614 cycle=47
+on_end 1789113738 cycle=47 rc=0
+on_start 1789113858 cycle=48
+on_end 1789113982 cycle=48 rc=0
+run_end 1789114102

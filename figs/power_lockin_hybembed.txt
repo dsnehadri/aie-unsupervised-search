@@ -1,0 +1,51 @@
+Power and temperature of the headline design, by lock-in
+========================================================
+
+Design: AIE-PL hybrid with the jet embedding on the AI Engine array.
+17.3 us/event, 57,917 events/s, AUC 0.9822.
+Method: 49 cycles of 120 s ON / 120 s OFF, 1 Hz sampling of the INA226 rails
+and the on-die sensors. Each cycle's delta is the interior of the ON window
+minus the interiors of the two flanking OFF windows, skipping 35 s after an
+ON edge and 20 s after an OFF edge. Quoted error is the standard error over
+the 49 cycles. The ON window is time-based, so it is 120 s on every design
+regardless of how fast that design runs.
+
+                            hybrid            hybrid + embedding
+                        (embedding in PL)        on the array
+  throughput              17,263 ev/s            57,917 ev/s
+  total dP              437.6 +- 10.4 mW       961.0 +- 9.7 mW
+    VCCINT              212.4 +- 10.2 mW       718.9 +- 9.6 mW
+    VCCINT_PSFP         205.4 +-  0.4 mW       202.7 +- 0.3 mW
+    VCC_DDR4                  --                31.8 +- 0.2 mW
+  die temperature        +0.269 +- 0.031 C      +0.463 +- 0.034 C
+  array temperature      +0.179 +- 0.031 C      +0.448 +- 0.033 C
+  energy per event         25.35 uJ               16.59 uJ
+
+The headline design draws 2.2x the power of the hybrid, and it is worth it:
+per event it uses 1.53x LESS energy, 25.35 -> 16.59 uJ.
+
+Where that comes from is the interesting part. Split the two rails that move:
+
+  VCCINT, the compute rail, scales 3.385x against a throughput ratio of
+  3.355x. The two agree to 1%, so the compute energy per event is constant:
+  12.30 uJ before, 12.41 uJ after. Moving the embedding onto the array did
+  not make the arithmetic cheaper. It removed a bottleneck, so the same
+  per-event energy is delivered 3.36x faster.
+
+  VCCINT_PSFP, the A72 host domain, is unchanged at ~205 mW (ratio 0.987).
+  It is a fixed cost of running the host loop, not a per-event cost. Spread
+  over 3.36x more events it falls from 11.90 to 3.50 uJ per event.
+
+So the entire energy gain, 25.35 - 16.59 = 8.76 uJ, is the 8.40 uJ saved on
+the host plus rounding. The accelerator itself costs the same per event
+either way. That is the honest statement: the array did not make the
+computation more efficient, it made the fixed overhead cheaper to amortise.
+
+The DDR4 rail only becomes visible in the fast design, 31.8 mW, because it
+is now moving events 3.36x faster.
+
+Both temperature rises are small and well resolved, under half a degree at
+a standard error of 0.034 C. The board is nowhere near a thermal limit; the
+array rise, +0.448 C, is now almost equal to the die rise, +0.463 C, whereas
+in the slower hybrid the array lagged the die (+0.179 against +0.269), which
+is what you expect once the array is doing the embedding as well.
