@@ -1,10 +1,17 @@
 #!/usr/bin/env python
-"""Event-level and per-candidate ROC curves side by side.
+"""Two event-level ROC curves side by side, one per combination rule.
 
-Discriminant is the autoencoder reconstruction loss: summed over the two
-BSM candidates for the event-level panel, and taken per candidate (two
-objects per event) for the candidate-level panel. Paper style: no titles,
-capitalised axis labels, no parenthetical asides.
+Discriminant is the autoencoder reconstruction loss. Both panels are event
+level and use the same events; they differ only in how the two BSM candidate
+losses are combined into one score. The left panel sums them, the right panel
+takes the larger of the two, that is the more anomalous candidate.
+
+A genuine per-candidate ROC, scoring all 2N candidates separately, is weaker
+because one candidate carries less of the event than the pair does:
+AUC 0.863, 0.894, 0.873, 0.896, 0.917 for the five signals below, against
+0.965 to 0.991 for the maximum rule plotted here.
+
+Paper style: no titles, capitalised axis labels, no parenthetical asides.
 """
 import numpy as np
 import matplotlib
@@ -37,13 +44,13 @@ plt.rcParams.update({"font.size": 12})
 fig, (ax_ev, ax_cd) = plt.subplots(1, 2, figsize=(12.4, 5.8))
 
 panels = [
-    (ax_ev, ev,   lambda a: a,                "Signal event efficiency",
-     "QCD event efficiency"),
-    (ax_cd, cand, lambda a: a.max(axis=1),    "Signal event efficiency",
-     "QCD event efficiency"),
+    (ax_ev, ev,   lambda a: a,             "Signal event efficiency",
+     "QCD event efficiency", "Summed candidate loss"),
+    (ax_cd, cand, lambda a: a.max(axis=1), "Signal event efficiency",
+     "QCD event efficiency", "Maximum candidate loss"),
 ]
 
-for ax, data, flat, ylab, xlab in panels:
+for ax, data, flat, ylab, xlab, head in panels:
     bkg = flat(data["qcd_background"])
     for f, lab, col in SIGNALS:
         fpr, tpr, auc = roc(flat(data[f]), bkg)
@@ -56,7 +63,8 @@ for ax, data, flat, ylab, xlab in panels:
     ax.yaxis.set_minor_locator(AutoMinorLocator(4))
     ax.tick_params(which="both", direction="in", right=True, top=True)
     ax.grid(alpha=.12)
-    ax.legend(frameon=False, fontsize=10, loc="lower right")
+    ax.legend(frameon=False, fontsize=10, loc="lower right", title=head,
+              title_fontsize=11)
     # single 0 at the corner: the y-axis label serves both axes
     ax.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
     ax.set_xticklabels(["", "0.2", "0.4", "0.6", "0.8", "1.0"])
