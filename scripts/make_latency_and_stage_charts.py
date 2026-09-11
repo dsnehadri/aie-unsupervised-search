@@ -42,10 +42,26 @@ NMIN = 8
 # routed report; AIE compute = measured per-block interval (blocks3 sweep, L0
 # blocks; L1 uses the same kernels and is taken equal). Hybrid attention rows are
 # stacked: light = PL streaming / building on the fabric, dark = AI Engine compute.
-PL_CLK, HYB_CLK = 80e6, 100e6
-# PL-only stage cycles are the routed float-layer-norm counts scaled by the
-# measured 205.2 -> 128.4 us/event, since the per-stage report was not rerun.
-PL_LNFIX = 128.4 / 205.2
+# The fabric kernel clock is 78.125 MHz, not the 80 MHz we ask v++ for: the
+# clock wizard divides its 625 MHz primitive by an integer, so 80 -> 625/8.
+# The hybrid's 100 MHz is exact, it uses the platform's clk_pl_0 with no divider.
+PL_CLK, HYB_CLK = 78.125e6, 100e6
+# PL-only stage cycles are now the REAL per-event costs of the deployed build
+# (integer layer norm + OBJ_DATAFLOW), read from the full-design csynth report
+# as each stage's event-loop iteration latency. They used to be the float
+# layer-norm counts scaled by 128.4/205.2, which was only an estimate.
+# Check: they sum to 41040 cycles = 525.3 us against a measured one-event
+# latency of 521 us, 0.8% apart, as they should since a single event cannot
+# overlap any stages.
+# PROVENANCE: these per-stage costs are from the OBJ_DATAFLOW variant, which
+# measures 124.1 us/event. Panel (a)'s interval line is the simpler build we
+# quote as the baseline, 128.4 us. The two differ by 3%, which is the whole
+# measured benefit of the extra pipelining, and it does not change the picture:
+# four stages sit at 96-99 us against an interval of either 124 or 128 us. Swap
+# SWEEP["PL-only"] for the 124.1 series if the baseline is ever restated.
+# FOUR CO-BOTTLENECKS: object L0 7724, cross L0 7588, cross L1 7588, object L1
+# 7472, a spread of 3.4%. That is why splitting only the object block bought 3%.
+PL_LNFIX = 1.0
 _bi = "/home/snehadri/aie_scratch_save_20260810/block_intervals.json"
 _d = json.load(open(_bi)) if os.path.isfile(_bi) else {}
 AIE = {k: _d[k]["slope_us"] for k in ("Object attention", "Candidate attention", "Cross attention") if k in _d}
@@ -53,19 +69,19 @@ cyc = lambda c, clk: c / clk * 1e6
 cycpl = lambda c: c / PL_CLK * 1e6 * PL_LNFIX
 # rows: (label, PL-only us, hybrid PL-side us, hybrid AIE us)
 ROWS = [
- ("Read input",                cycpl(149),   cyc(149, HYB_CLK),                 0),
- ("Fork",                      cycpl(153),   cyc(153, HYB_CLK),                 0),
- ("Embedding",                 cycpl(4483),  cyc(5874, HYB_CLK),                0),
- ("Pairwise $w_{ij}$",         cycpl(3028),  cyc(836, HYB_CLK),                 0),
- ("Object attention L0",       cycpl(16269), cyc(614+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
- ("Build candidates + candidate attention L0", cycpl(3499), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
- ("Cross attention L0",        cycpl(13102), cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
- ("Object attention L1",       cycpl(16824), cyc(267+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
- ("Build candidates + candidate attention L1", cycpl(3551), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
- ("Cross attention L1",        cycpl(13102), cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
- ("Candidate build* + mass",   cycpl(747),   cyc(747, HYB_CLK),                 0),
- ("Autoencoder + MSE",         cycpl(792),   cyc(1162, HYB_CLK),                0),
- ("Write DDR",                 cycpl(81),    cyc(81, HYB_CLK),                  0),
+ ("Read input",                cycpl(3),     cyc(149, HYB_CLK),                 0),
+ ("Fork",                      cycpl(161),   cyc(153, HYB_CLK),                 0),
+ ("Embedding",                 cycpl(2186),  cyc(5874, HYB_CLK),                0),
+ ("Pairwise $w_{ij}$",         cycpl(2855),  cyc(836, HYB_CLK),                 0),
+ ("Object attention L0",       cycpl(7724),  cyc(614+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
+ ("Build candidates + candidate attention L0", cycpl(2115), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
+ ("Cross attention L0",        cycpl(7588),  cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
+ ("Object attention L1",       cycpl(7472),  cyc(267+241+450, HYB_CLK),         AIE.get("Object attention", 0)),
+ ("Build candidates + candidate attention L1", cycpl(2169), cyc(920+64+61, HYB_CLK),      AIE.get("Candidate attention", 0)),
+ ("Cross attention L1",        cycpl(7588),  cyc(308+241, HYB_CLK),             AIE.get("Cross attention", 0)),
+ ("Candidate build* + mass",   cycpl(759),   cyc(747, HYB_CLK),                 0),
+ ("Autoencoder + MSE",         cycpl(416),   cyc(1162, HYB_CLK),                0),
+ ("Write DDR",                 cycpl(4),     cyc(81, HYB_CLK),                  0),
 ]
 labs = [r[0] for r in ROWS]
 y = np.arange(len(labs))[::-1]
