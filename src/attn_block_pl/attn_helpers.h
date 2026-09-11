@@ -87,6 +87,12 @@ void linear(
 //      arithmetic, not the pipelining
 //   5  as 4 but the element loops unrolled by 4, to share the wide multipliers
 //      (only possible without PIPELINE on the row loop, which force-unrolls)
+//   6  as 2 (row pipelined at II=1, 15 cycles per layer norm against 372 for
+//      mode 5) with the element multipliers bound to LUT fabric. Mode 2 was
+//      ruled out for costing +153 DSP per block; the device has 130 spare and
+//      1.55M idle LUTs, so this buys mode 2's latency with the plentiful
+//      resource instead of the scarce one. A latency lever: 14 layer norms sit
+//      on the one-event chain.
 // The block spends about 36% of its cycles here, 3.4x the linear layer it
 // follows, so this is where the fabric design's headroom is.
 #ifndef LN_MODE
@@ -120,7 +126,7 @@ void layernorm(
     // LayerNorm also keeps stats in float32 for the same reason.
     LN_ROW:
     for (int i = 0; i < N_ROWS; i++) {
-#if LN_MODE == 1 || LN_MODE == 2
+#if LN_MODE == 1 || LN_MODE == 2 || LN_MODE == 6
         #pragma HLS PIPELINE II=1
 #elif LN_MODE == 3
         #pragma HLS PIPELINE II=4
@@ -141,7 +147,11 @@ void layernorm(
         LN_D: for (int j = 0; j < FEAT_DIM; j++) {
             LN_UNROLL_PRAGMA
             d16[j] = ((ap_int<22>)xq[j] << 4) - isum;
-            V += (ap_uint<44>)((ap_int<44>)d16[j] * d16[j]);
+            ap_int<44> sq = (ap_int<44>)d16[j] * d16[j];
+#if LN_MODE == 6
+            #pragma HLS BIND_OP variable=sq op=mul impl=fabric
+#endif
+            V += (ap_uint<44>)sq;
         }
         ap_uint<46> Vp = V + (ap_uint<46>)LN_EPSV;
         // normalize Vp to a 32-bit mantissa by an EVEN shift, so the square
@@ -160,6 +170,9 @@ void layernorm(
             LN_UNROLL_PRAGMA
             ap_int<16> gq = gamma[j].range(15, 0), bq = beta[j].range(15, 0);
             ap_int<56> num = (ap_int<56>)gq * d16[j] * R;
+#if LN_MODE == 6
+            #pragma HLS BIND_OP variable=num op=mul impl=fabric
+#endif
             ap_int<56> rnd = (ap_int<56>)1 << (sh - 1);   // round to nearest
             ap_int<32> yq = (ap_int<32>)((num + rnd) >> sh) + (ap_int<32>)((bq + 4) >> 3);
             if (yq > 32767) yq = 32767;
@@ -382,8 +395,19 @@ void softmax_and_context(
     #pragma HLS ARRAY_PARTITION variable=V dim=1 complete
     prob_t attn_w[N_Q][N_KEY_TOT];
     #pragma HLS ARRAY_PARTITION variable=attn_w dim=2 complete
+#ifdef SOFTMAX_PIPE
+    // Overlap the twelve row softmaxes. One row is a serial chain of ~70
+    // cycles (max, exp and sum, a float reciprocal, normalise) and without
+    // this the rows run one after another: ~840 of the ~1200 cycles a head
+    // costs, the largest single item in the block's latency. Pipelining the
+    // row loop force-unrolls the row's inner loops 13 wide; that is the price.
+    #pragma HLS ARRAY_PARTITION variable=scores dim=2 complete
+#endif
     SM_ROWS:
     for (int i = 0; i < N_Q; i++) {
+#ifdef SOFTMAX_PIPE
+        #pragma HLS PIPELINE II=1
+#endif
         softmax_row<N_KEY_TOT>(scores[i], attn_w[i]);
     }
 
@@ -399,6 +423,68 @@ void softmax_and_context(
                 sum += (acc_t)attn_w[i][j] * (acc_t)V[j][d];
             }
             context[i][d] = (data_t)sum;
+        }
+    }
+}
+
+// All heads at once, for the blocks with no w_ij bias and no padding mask
+// (candidate and cross attention). The per-head loop in those blocks runs the
+// heads back to back; here the head index is the innermost unrolled dimension
+// of each pipelined loop, so the four heads share every iteration. Same
+// arithmetic and order as compute_scores + softmax_and_context.
+template <int N_Q, int N_KEY_TOT>
+void heads_batched(
+    const data_t Q_h[N_HEADS][N_Q][D_HEAD],
+    const data_t K_h[N_HEADS][N_KEY_TOT][D_HEAD],
+    const data_t V_h[N_HEADS][N_KEY_TOT][D_HEAD],
+    data_t context[N_HEADS][N_Q][D_HEAD])
+{
+    #pragma HLS ARRAY_PARTITION variable=Q_h dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=Q_h dim=3 complete
+    #pragma HLS ARRAY_PARTITION variable=K_h dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=K_h dim=3 complete
+    #pragma HLS ARRAY_PARTITION variable=V_h dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=V_h dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=context dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=context dim=3 complete
+    score_t scores[N_HEADS][N_Q][N_KEY_TOT];
+    #pragma HLS ARRAY_PARTITION variable=scores dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=scores dim=3 complete
+    HBG_SC_I: for (int i = 0; i < N_Q; i++) {
+        HBG_SC_J: for (int j = 0; j < N_KEY_TOT; j++) {
+            #pragma HLS PIPELINE II=1
+            HBG_SC_H: for (int h = 0; h < N_HEADS; h++) {
+                #pragma HLS UNROLL
+                acc_t sum = 0;
+                HBG_SC_D: for (int d = 0; d < D_HEAD; d++) {
+                    #pragma HLS UNROLL
+                    sum += (acc_t)Q_h[h][i][d] * (acc_t)K_h[h][j][d];
+                }
+                scores[h][i][j] = (score_t)(sum * (acc_t)SCALE);
+            }
+        }
+    }
+    prob_t attn_w[N_HEADS][N_Q][N_KEY_TOT];
+    #pragma HLS ARRAY_PARTITION variable=attn_w dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=attn_w dim=3 complete
+    HBG_SM_H: for (int h = 0; h < N_HEADS; h++) {
+        HBG_SM_I: for (int i = 0; i < N_Q; i++) {
+            #pragma HLS PIPELINE II=1
+            softmax_row<N_KEY_TOT>(scores[h][i], attn_w[h][i]);
+        }
+    }
+    HBG_AV_I: for (int i = 0; i < N_Q; i++) {
+        HBG_AV_D: for (int d = 0; d < D_HEAD; d++) {
+            #pragma HLS PIPELINE II=1
+            HBG_AV_H: for (int h = 0; h < N_HEADS; h++) {
+                #pragma HLS UNROLL
+                acc_t sum = 0;
+                HBG_AV_J: for (int j = 0; j < N_KEY_TOT; j++) {
+                    #pragma HLS UNROLL
+                    sum += (acc_t)attn_w[h][i][j] * (acc_t)V_h[h][j][d];
+                }
+                context[h][i][d] = (data_t)sum;
+            }
         }
     }
 }

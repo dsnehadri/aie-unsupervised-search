@@ -68,6 +68,9 @@ inline void attn_block_cand(
     // per head attention with masking
 
     data_t context[N_HEADS][T_DIM][D_HEAD];
+#ifdef HEADS_BATCHED
+    heads_batched<T_DIM, T_KV>(Q_h, K_h, V_h, context);
+#else
     HEAD_LOOP:
     for (int h = 0; h < N_HEADS; h++) {
         // compute raw scores
@@ -75,6 +78,7 @@ inline void attn_block_cand(
         compute_scores<T_DIM,T_KV>(Q_h[h], K_h[h], scores);
         softmax_and_context<T_DIM, T_KV>(scores, V_h[h], context[h]);
     }
+#endif
 
     // concat heads and output projection
 

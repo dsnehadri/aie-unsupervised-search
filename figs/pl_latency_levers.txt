@@ -1,0 +1,81 @@
+Cutting the fabric's one-event latency
+======================================
+Block-level synthesis, object attention block, 12.8 ns clock (78.125 MHz)
+unless stated. Baseline is the deployed build: integer layer norm (LN_MODE 5)
+with OBJ_DATAFLOW.
+
+  variant                                   latency  DSP   LUT      slack
+  baseline                                    5762   183   32,979   +0.06
+  SOFTMAX_PIPE                                3066   207   34,057   +0.06
+  + HEADS_UNROLL                              3009   204   40,949   +0.14  (negative)
+  + LN_MODE 6                                 2663   168  177,208   +0.10
+  + LIN_FABRIC_MUL                            2660    72  238,552   +0.07
+  same at 10.0 ns                             2687    72  238,554   +0.02
+  SOFTMAX_PIPE + HEADS_BATCHED + LN6 + fabric 1517   198  258,573   +0.06   <- 3.8x
+  LN_MODE 3 instead of 6 (either heads)  2698-2755   228  110-117k  -0.49  (fails timing)
+
+Cross attention block: baseline 5295; SOFTMAX_PIPE + LN6 + fabric 2067
+(heads not yet batched in that run), DSP 194 -> 34, LUT 28k -> 246k.
+
+What each lever did, and why
+----------------------------
+SOFTMAX_PIPE (1.88x alone). The twelve row softmaxes ran one after another,
+each a ~70 cycle serial chain, ~840 of the ~1200 cycles a head cost. One
+PIPELINE pragma on the row loop overlaps them, for +24 DSP.
+
+HEADS_UNROLL (2%, kept as a negative result). It did unroll: the loop is gone
+and the sub-loops appear four times in the report. But each head's body is a
+sequence of pipelined loops and HLS runs distinct loops back to back, so the
+four copies executed in series, 1416 cycles = 4 x 354.
+
+HEADS_BATCHED (heads stage 4841 -> 273). The head index becomes the
+innermost unrolled dimension of each pipelined loop, so all four heads share
+every iteration. No copies, unlike the earlier dataflow-per-head attempt.
+
+LN_MODE 6 (layer norm 373 -> 27 cycles, FFN 2170 -> 786). Mode 2's
+row-pipelined integer layer norm with the multiplies bound to LUT fabric.
+Costs ~34k LUT per layer norm, which is why it cannot go everywhere: fourteen
+of them plus fabric linears puts the design near 86% LUT. Mode 2 on DSP is
+the same 15-cycle norm at ~38 DSP each; with the linears in fabric freeing
+~660 DSP that fits, and is what the full design should use.
+
+LIN_FABRIC_MUL. No latency change; DSP 168 -> 72. It pays for the rest.
+
+100 MHz. HLS meets 10 ns with +0.02 ns at the block level, at +1% cycles. A
+22% clock gain for the whole chain if the full design closes; the fabric
+design closes 12.8 ns with +0.64 ns post-route today.
+
+Remaining big items in the block (cycles): FFN 904, QKV 601, reshape 385,
+project 196. The linears run at II=2 with 8-way partition; LIN_PARTITION=16
+should halve them. Reshape is data movement and should be ~50.
+
+Lever 5, one ABC layer
+----------------------
+retrain_tune.py, the deployed model's recipe (ISR 0.5, RAND 2.0, lr 1e-3,
+150k background, best epoch by hi-mass AUC, 6 epochs), on the GPU:
+
+  seed   two layers        one layer
+  0      0.874 COLLAPSED   0.981
+  1      0.983             0.984
+  2      (pending)         (pending)
+  3      0.982             0.983
+  4      0.884 COLLAPSED   (pending)
+
+Where neither collapses the two are equal to 0.002. Collapse (every jet to
+one candidate, m_light = 0) is the known failure mode of this training and
+is why the deployed run is named noncollapse; two of five two-layer seeds hit
+it, none of the one-layer seeds so far. One layer removes obj1, cand2 and
+cross1 from the one-event chain, about half of it.
+
+The hardware path for one layer already exists: GAP_TEST_NOLAYER1 is
+structurally the one-layer model (obj0 -> cand -> cross0 -> final jet choice
+from cross0's output, as PyTorch with attn_blocks_n=1). It was "scores
+meaningless" only because it ran two-layer weights. The exporter now emits
+layer 0's weights in layer 1's slot when a checkpoint has none.
+
+Lever 4, the host launch
+------------------------
+src/pl_stream/plhost_direct.cpp times the same CU two ways in one process:
+xrt::run (the ERT scheduler, as plhost_timed) and direct register access
+(ap_start / ap_done / ap_continue at the kernel.xml offsets). Compiled with
+the 2025.2 SDK; waits for the board.

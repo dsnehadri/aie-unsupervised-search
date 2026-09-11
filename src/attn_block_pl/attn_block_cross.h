@@ -64,6 +64,9 @@ inline void attn_block_cross(
     // per head attention with masking
 
     data_t context[N_HEADS][N_MAX][D_HEAD];
+#ifdef HEADS_BATCHED
+    heads_batched<N_MAX, T_KV>(Q_h, K_h, V_h, context);
+#else
     HEAD_LOOP:
     for (int h = 0; h < N_HEADS; h++) {
         // compute raw scores
@@ -71,6 +74,7 @@ inline void attn_block_cross(
         compute_scores<N_MAX,T_KV>(Q_h[h], K_h[h], scores);
         softmax_and_context<N_MAX, T_KV>(scores, V_h[h], context[h]);
     }
+#endif
 
     // concat heads and output projection
 

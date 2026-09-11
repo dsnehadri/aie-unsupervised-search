@@ -179,7 +179,15 @@ def main():
                             ("obj_blocks_1",   "OBJ1",   "ROM_OBJ1_W"),
                             ("cand_blocks_1",  "CAND1",  "ROM_CAND1_W"),
                             ("cross_blocks_1", "CROSS1", "ROM_CROSS1_W")]:
-        structs.append((tag, "AttnWeights", rom, attn_fields(block, wd)))
+        # A checkpoint trained with attn_blocks_n=1 has no *_blocks_1. The
+        # one-layer hardware build (GAP_TEST_NOLAYER1) never runs layer 1 but
+        # the top-level signature still takes its weights, so emit layer 0's
+        # in their place: right shapes, never read.
+        src = block
+        if not os.path.exists(os.path.join(wd, block + "_attn_in_proj_weight.npy")):
+            src = block.replace("_blocks_1", "_blocks_0")
+            print(f"  {block}: absent in checkpoint, emitting {src} (one-layer model)")
+        structs.append((tag, "AttnWeights", rom, attn_fields(src, wd)))
 
     # Autoencoders
     structs.append(("AE_ENC", "AEEncoderWeights", "ROM_AE_ENC_W",

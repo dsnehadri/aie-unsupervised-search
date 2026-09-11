@@ -121,13 +121,95 @@ static void obj_df_reshape(
         }
 }
 
+#ifdef HEADS_BATCHED
+// All four heads in ONE set of loops, with the head index as the innermost
+// unrolled dimension. HEADS_UNROLL did unroll the outer head loop, but each
+// head's body is a sequence of pipelined loops and HLS runs distinct loops one
+// after another, so the four copies executed back to back: 1416 cycles, 4 x
+// 354, a 2% gain. Here every pipelined iteration computes all four heads, so
+// the stage costs one head's chain plus four times the datapath.
+// Semantics match obj_df_heads exactly: score = (q.k)*SCALE, plus the w_ij
+// bias for j < N_MAX when use_wij, NEG_INF for masked j < N_MAX; column
+// N_MAX (the learned bias key/value) is never biased or masked.
+static void obj_df_heads_batched(
+    const data_t QKV_h[3 * N_HEADS][N_KV][D_HEAD],
+    const score_t wij_bias[N_MAX * N_HEADS][N_KV], const bool use_wij,
+    const bool padding_mask[N_MAX],
+    data_t context_f[N_MAX][E_DIM])
+{
+    #pragma HLS ARRAY_PARTITION variable=QKV_h dim=0 complete
+    #pragma HLS ARRAY_PARTITION variable=context_f dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=wij_bias dim=1 block factor=4
+    #pragma HLS ARRAY_PARTITION variable=wij_bias dim=2 complete
+    score_t scores[N_HEADS][N_MAX][N_KV];
+    #pragma HLS ARRAY_PARTITION variable=scores dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=scores dim=3 complete
+    HB_SC_I: for (int i = 0; i < N_MAX; i++) {
+        HB_SC_J: for (int j = 0; j < N_KV; j++) {
+            #pragma HLS PIPELINE II=1
+            HB_SC_H: for (int h = 0; h < N_HEADS; h++) {
+                #pragma HLS UNROLL
+                acc_t sum = 0;
+                HB_SC_D: for (int d = 0; d < D_HEAD; d++) {
+                    #pragma HLS UNROLL
+                    sum += (acc_t)QKV_h[h][i][d] * (acc_t)QKV_h[N_HEADS + h][j][d];
+                }
+                score_t sc = (score_t)(sum * (acc_t)SCALE);
+                if (use_wij && j < N_MAX) sc += wij_bias[h * N_MAX + i][j];
+                if (j < N_MAX && padding_mask[j]) sc = NEG_INF;
+                scores[h][i][j] = sc;
+            }
+        }
+    }
+    prob_t attn_w[N_HEADS][N_MAX][N_KV];
+    #pragma HLS ARRAY_PARTITION variable=attn_w dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=attn_w dim=3 complete
+    HB_SM_H: for (int h = 0; h < N_HEADS; h++) {
+        HB_SM_I: for (int i = 0; i < N_MAX; i++) {
+            #pragma HLS PIPELINE II=1
+            softmax_row<N_KV>(scores[h][i], attn_w[h][i]);
+        }
+    }
+    HB_AV_I: for (int i = 0; i < N_MAX; i++) {
+        HB_AV_D: for (int d = 0; d < D_HEAD; d++) {
+            #pragma HLS PIPELINE II=1
+            HB_AV_H: for (int h = 0; h < N_HEADS; h++) {
+                #pragma HLS UNROLL
+                acc_t sum = 0;
+                HB_AV_J: for (int j = 0; j < N_KV; j++) {
+                    #pragma HLS UNROLL
+                    sum += (acc_t)attn_w[h][i][j] * (acc_t)QKV_h[2 * N_HEADS + h][j][d];
+                }
+                context_f[i][h * D_HEAD + d] = (data_t)sum;
+            }
+        }
+    }
+}
+#endif
+
 static void obj_df_heads(
     const data_t QKV_h[3 * N_HEADS][N_KV][D_HEAD],
     const score_t wij_bias[N_MAX * N_HEADS][N_KV], const bool use_wij,
     const bool padding_mask[N_MAX],
     data_t context_f[N_MAX][E_DIM])
 {
+#ifdef HEADS_UNROLL
+    // Run the four heads at once. This is NOT the OBJ_HEADS_PARALLEL attempt
+    // below, which made each head its own dataflow process and paid for four
+    // private copies of Q/K/V through split and merge stages (block II 5762 ->
+    // 7850, slower). Unrolling the loop inside one process needs no copies:
+    // the arrays are partitioned by head, so all four read their own slice in
+    // the same cycle. The cost is four times the head datapath, which is
+    // affordable once the linear-layer multiplies are in fabric.
+    // (Literal 4, not N_HEADS: the preprocessor does not expand inside pragmas.)
+    #pragma HLS ARRAY_PARTITION variable=QKV_h dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=context_f dim=2 block factor=4
+    #pragma HLS ARRAY_PARTITION variable=wij_bias dim=1 block factor=4
+#endif
     HEAD_LOOP: for (int h = 0; h < N_HEADS; h++) {
+#ifdef HEADS_UNROLL
+        #pragma HLS UNROLL
+#endif
         data_t Q[N_MAX][D_HEAD], K[N_KV][D_HEAD], V[N_KV][D_HEAD];
         for (int i = 0; i < N_KV; i++) {
             #pragma HLS PIPELINE II=1
@@ -271,7 +353,13 @@ inline void attn_block_obj(
     obj_df_reshape(Q_full, K_full, V_full, bias_k, bias_v, QKV_h);
 
     data_t context_f[N_MAX][E_DIM];
+#ifdef HEADS_BATCHED
+    #pragma HLS ARRAY_PARTITION variable=QKV_h dim=0 complete
+    #pragma HLS ARRAY_PARTITION variable=context_f dim=2 complete
+    obj_df_heads_batched(QKV_h, wij_bias, use_wij, padding_mask, context_f);
+#else
     obj_df_heads(QKV_h, wij_bias, use_wij, padding_mask, context_f);
+#endif
 #endif
 
     data_t attn_out[N_MAX][E_DIM];
