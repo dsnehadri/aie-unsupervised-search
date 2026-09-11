@@ -1,0 +1,56 @@
+# Why the candidate masses come out below the sparticle mass. 2026-09-10.
+# scripts/diagnose_candidate_mass.py reproduces every number here.
+#
+# SHORT ANSWER: the jet-to-candidate assignment is unbalanced, in the float
+# PyTorch model. It is not quantization and not the hardware, and it is NOT
+# confined to the second ABC layer.
+#
+# 1. WHAT THE MASS DEPENDS ON. get_jet_choice is an argmax over the first three
+#    columns of x (with -1 on the ISR column). The mass uses the choice taken
+#    AFTER THE LAST CROSS ATTENTION -- a different tensor from the per-layer
+#    choices, which are taken after each OBJECT attention. That is why
+#    stage4_final_jet_choice equals neither stage3_layer0_jet_choice nor
+#    stage3_layer1_jet_choice.
+#
+# 2. THE ASSIGNMENT IS UNBALANCED EVERYWHERE (retrained_noncollapse, signal
+#    gluino_rpv_6j, 2000 events, 8.7 real jets/event):
+#      jet choice after   m_light  m_heavy  jets:c0  jets:c1  collapsed  light share
+#      obj attention L0      259 G   2656 G     6.5      2.1        5%        24%
+#      CROSS attention L0      0 G   3757 G     0.0      8.7      100%         0%
+#      obj attention L1      327 G   2589 G     2.4      6.2        6%        27%
+#      CROSS attention L1    484 G   2217 G     3.1      5.6        1%        34%   <- feeds the mass
+#    Same pattern on QCD. So the claim that this happens only in the second ABC
+#    layer is NOT supported: layer 0's own assignment is already 24% light. The
+#    one total collapse is at the OUTPUT of layer 0's cross attention, which is
+#    the INPUT to layer 1.
+#
+# 3. MECHANISM. The category scores carry a per-event common mode -- an offset
+#    shared by every jet -- on top of per-jet variation. A jet can only differ
+#    from its neighbours if the per-jet spread is comparable to the gap between
+#    category means:
+#      x taken after            gap(top-2 means)   per-jet spread   ratio   collapsed
+#      obj attention L0                   0.207            0.525    0.39         1%
+#      CROSS attention L0                 0.476            0.454    1.05       100%
+#      obj attention L1                   0.034            0.286    0.12        15%
+#      CROSS attention L1                 0.213            0.736    0.29         0%
+#    Ratio above 1 means the common mode wins and every jet picks the same
+#    category. Cross attention returns a mixture of only three candidate
+#    vectors, so its output is nearly rank-2 across jets (event 0 singular
+#    values 5.118, 0.359, 0.010, ...), which is why the common mode dominates
+#    there.
+#
+# 4. SIZE OF THE EFFECT. For the same jets, the most balanced possible split
+#    gives m_light 1657 GeV and m_heavy 1674 GeV -- consistent with the 1500 GeV
+#    parent plus ISR. The model gives 484 and 2217. The light candidate is short
+#    by about 1170 GeV purely because it receives 3.1 jets instead of 4.35.
+#
+# 5. NOT QUANTIZATION. Quantizing x to the deployed format (ap_fixed<16,7>,
+#    truncating) flips 1 assignment in 13,912 jets (0.004%). The argmax margins
+#    are median 1.88 against a quantization step of 0.00195, so the decision is
+#    nowhere near the noise floor.
+#
+# 6. CHECKPOINT DEPENDENCE. The original 'replication' checkpoint is fully
+#    collapsed: every jet lands in one category at every stage, and at the final
+#    stage all of them go to ISR, so BOTH candidate masses are exactly zero.
+#    'retrained_noncollapse' (the deployed one) mitigates this to the 3.1/5.6
+#    split above but never balances it. The low masses are a training outcome.
