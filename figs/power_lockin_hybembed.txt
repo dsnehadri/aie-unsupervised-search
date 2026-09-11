@@ -49,3 +49,66 @@ a standard error of 0.034 C. The board is nowhere near a thermal limit; the
 array rise, +0.448 C, is now almost equal to the die rise, +0.463 C, whereas
 in the slower hybrid the array lagged the die (+0.179 against +0.269), which
 is what you expect once the array is doing the embedding as well.
+
+
+All three designs, same method, same board
+==========================================
+
+The fabric baseline was rerun too, since the committed PL campaign describes
+the old 205 us float-layer-norm build. Current fabric build: integer layer
+norm + OBJ_DATAFLOW, 124.1 us/event, AUC 0.9825. 49 cycles, 120 s ON/OFF.
+
+                          fabric        hybrid     hybrid + embedding
+                         (PL only)                    on the array
+  throughput             8,056 ev/s   17,263 ev/s     57,917 ev/s
+  total dP              256.1+-9.9mW  437.6+-10.4mW   961.0+-9.7mW
+    VCCINT               43.7+-9.8mW  212.4+-10.2mW   718.9+-9.6mW
+    VCCINT_PSFP         205.6+-0.2mW  205.4+-0.4mW    202.7+-0.3mW
+  die dT                  +0.359 C      +0.269 C        +0.463 C
+  array dT                +0.071 C      +0.179 C        +0.448 C
+                        NOT SIGNIFICANT
+  board power idle        10.024 W      13.801 W        13.930 W
+  board power under load  10.280 W      14.240 W        14.891 W
+
+  marginal energy/event    31.79 uJ      25.35 uJ        16.59 uJ
+    of which compute        5.42 uJ      12.30 uJ        12.41 uJ
+    of which host          25.52 uJ      11.90 uJ         3.50 uJ
+  whole-board energy/event   1276 uJ        825 uJ          257 uJ
+
+Two controls worth noting. The array temperature does not rise in the fabric
+design, +0.071 C against a standard error of 0.032, the only entry in the
+whole campaign that fails significance: the array really is idle there. And
+the A72 domain draws the same 203 to 206 mW in all three designs, so it is a
+fixed cost of running the host loop, not a per-event cost.
+
+The honest reading: the array is NOT more efficient at the arithmetic
+------------------------------------------------------------------
+Compute-rail energy per event goes the WRONG way when work moves to the
+array: 5.42 uJ in the fabric, 12.30 and 12.41 uJ in the two hybrids. Doing
+this computation on the AI Engines costs about 2.3x more energy per event
+than doing it in the fabric.
+
+The hybrid still wins on total energy, 31.79 -> 16.59 uJ marginal and
+1276 -> 257 uJ whole-board, but not because the array computes more cheaply.
+It wins because it is 7.2x faster, and both fixed costs, the 205 mW host loop
+and the ~10 to 14 W platform, are then spread over 7.2x more events.
+
+This only holds if the throughput is used
+-----------------------------------------
+Every energy-per-event figure above assumes the design runs saturated, which
+is the right assumption for a trigger but not a free one. Configuring the AI
+Engine array costs 3.9 W of idle power on its own, 13.9 W against 10.0 W for
+the fabric image, whether or not the array is doing anything. Run the hybrid
+at the fabric's 8,056 ev/s and it would burn about 1729 uJ/event against the
+fabric's 1276, i.e. worse. The array is worth its static cost only above
+roughly 10,000 ev/s, and it pays 5x over at 57,917.
+
+Cross-check against the 2026-08-27 campaign
+-------------------------------------------
+That 200-cycle run measured the older all-PL build (4,869 ev/s, float layer
+norm) at dP = 255.2 +- 6.3 mW with VCCINT 46.8 +- 6.1 mW. This 49-cycle run
+on the current fabric build gives 256.1 +- 9.9 and 43.7 +- 9.8 mW: the same
+within errors, despite 1.65x the throughput, because the integer layer norm
+does correspondingly less work per event. Per event the compute rail improved
+9.61 -> 5.42 uJ. The agreement of the totals across two campaigns six weeks
+apart is a useful check that the lock-in method is stable.
