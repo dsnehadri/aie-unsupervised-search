@@ -69,10 +69,20 @@ inline void pairwise_mlp(
     #pragma HLS ALLOCATION operation instances=mul limit=384
 #endif
     // PAIRWISE_FAST: with LIN_FABRIC_MUL the MLP's multiplies are in LUT
-    // fabric, so the DSP cap above is moot; drop it and pipeline the pair
-    // loop at II=1 (override with -DPAIRWISE_II=n). 144 pairs -> ~250 cycles
-    // instead of 2426. This stage was half the one-layer chain once the
-    // attention blocks were fixed.
+    // fabric, so the DSP cap above is moot for DSPs, but NOT for LUTs: with no
+    // cap at all HLS never shares the fabric multipliers and the pair loop
+    // synthesises fully spatial, 855k LUT at II=1 AND at II=2 (95% of the
+    // device). So keep a cap, sized to the II, to force the sharing:
+    // PAIRWISE_II=4 with PAIRWISE_MUL_LIMIT=160, II=8 with 80. Measured II 16
+    // as built: 2746 cycles.
+#ifdef PAIRWISE_FAST
+#ifndef PAIRWISE_MUL_LIMIT
+#define PAIRWISE_MUL_LIMIT 160
+#endif
+    #define PW_DO_PRAGMA0(x) _Pragma(#x)
+    #define PW_ALLOC(n) PW_DO_PRAGMA0(HLS ALLOCATION operation instances=mul limit=n)
+    PW_ALLOC(PAIRWISE_MUL_LIMIT)
+#endif
     // compute pairwise features
 
     data_t wij_raw[N_MAX][N_MAX][3];

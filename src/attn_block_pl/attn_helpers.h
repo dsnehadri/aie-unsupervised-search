@@ -82,7 +82,16 @@ void linear(
 #ifdef LIN_FABRIC_MUL
                 #pragma HLS BIND_OP variable=sum op=mul impl=fabric
 #endif
+#ifdef NARROW_MUL
+                // Multiply at the operands' own widths. Casting both to acc_t
+                // first made HLS build a 32x32 multiplier for a 16x16 product:
+                // 2 DSPs instead of 1, ~4x the LUTs in fabric. The exact
+                // product is the same number and is rounded once, at the add,
+                // in both forms, so this is bit-identical (native sim checked).
+                sum += in[i][k] * W[j][k];
+#else
                 sum += (acc_t)in[i][k] * (acc_t)W[j][k];
+#endif
             }
             out[i][j] = (data_t)sum;
         }
@@ -433,7 +442,11 @@ void compute_scores(
             QK_D:
             for (int d = 0; d < D_HEAD; d++) {
                 #pragma HLS UNROLL
+#ifdef NARROW_MUL
+                sum += Q[i][d] * K[j][d];
+#else
                 sum += (acc_t)Q[i][d] * (acc_t)K[j][d];
+#endif
             }
             scores[i][j] = (score_t)(sum * (acc_t)SCALE);
         }
@@ -477,7 +490,11 @@ void softmax_and_context(
             AV_J:
             for (int j=0; j < N_KEY_TOT; j++) {
                 #pragma HLS UNROLL
+#ifdef NARROW_MUL
+                sum += attn_w[i][j] * V[j][d];
+#else
                 sum += (acc_t)attn_w[i][j] * (acc_t)V[j][d];
+#endif
             }
             context[i][d] = (data_t)sum;
         }
@@ -515,7 +532,11 @@ void heads_batched(
                 acc_t sum = 0;
                 HBG_SC_D: for (int d = 0; d < D_HEAD; d++) {
                     #pragma HLS UNROLL
+#ifdef NARROW_MUL
+                    sum += Q_h[h][i][d] * K_h[h][j][d];
+#else
                     sum += (acc_t)Q_h[h][i][d] * (acc_t)K_h[h][j][d];
+#endif
                 }
                 scores[h][i][j] = (score_t)(sum * (acc_t)SCALE);
             }
@@ -538,7 +559,11 @@ void heads_batched(
                 acc_t sum = 0;
                 HBG_AV_J: for (int j = 0; j < N_KEY_TOT; j++) {
                     #pragma HLS UNROLL
+#ifdef NARROW_MUL
+                    sum += attn_w[h][i][j] * V_h[h][j][d];
+#else
                     sum += (acc_t)attn_w[h][i][j] * (acc_t)V_h[h][j][d];
+#endif
                 }
                 context[h][i][d] = (data_t)sum;
             }

@@ -180,7 +180,11 @@ static void obj_df_heads_batched(
                 acc_t sum = 0;
                 HB_SC_D: for (int d = 0; d < D_HEAD; d++) {
                     #pragma HLS UNROLL
+#ifdef NARROW_MUL
+                    sum += QKV_h[h][i][d] * QKV_h[N_HEADS + h][j][d];
+#else
                     sum += (acc_t)QKV_h[h][i][d] * (acc_t)QKV_h[N_HEADS + h][j][d];
+#endif
                 }
                 score_t sc = (score_t)(sum * (acc_t)SCALE);
                 if (use_wij && j < N_MAX) sc += wij_bias[h * N_MAX + i][j];
@@ -206,7 +210,11 @@ static void obj_df_heads_batched(
                 acc_t sum = 0;
                 HB_AV_J: for (int j = 0; j < N_KV; j++) {
                     #pragma HLS UNROLL
+#ifdef NARROW_MUL
+                    sum += attn_w[h][i][j] * QKV_h[2 * N_HEADS + h][j][d];
+#else
                     sum += (acc_t)attn_w[h][i][j] * (acc_t)QKV_h[2 * N_HEADS + h][j][d];
+#endif
                 }
                 context_f[i][h * D_HEAD + d] = (data_t)sum;
             }

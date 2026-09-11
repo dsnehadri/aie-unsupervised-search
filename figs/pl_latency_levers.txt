@@ -148,3 +148,31 @@ as they are: pairwise 2855 (in parallel with embed 2186), obj 583, cand ~350,
 cross 719, lorentz 759, AE 416, fork 161. The attention blocks are no longer
 the problem; pairwise is now half the chain. PAIRWISE_PL_LOWDSP runs it at
 II 8 to save DSPs the fabric linears have since freed.
+
+Third round: the multiplier width
+---------------------------------
+Every product site cast both operands to acc_t (32 bit) BEFORE multiplying,
+so HLS built 32x32 multipliers for 16x16 products: 2 DSPs per MAC (the
+"~1030-DSP floor" of the pairwise MLP is 576 MACs), and ~4x the LUTs once
+the multiplies moved to fabric. NARROW_MUL multiplies at the operands' own
+widths. The exact product is the same number and is rounded once at the
+accumulate in both forms, and the native sim agrees: bit-identical on both
+designs, 2000/2000.
+
+  block (12.8 ns)                   latency   DSP   LUT est    change
+  obj, full set                       583     197   476,349
+  obj, full set + NARROW_MUL          597      97   287,459   -40% LUT
+  cross, full set                     719     107   521,146
+  cross, full set + NARROW_MUL        721      43   272,322   -48% LUT
+  pairwise, II 16 as built           2746     321   103,713
+  pairwise, PAIRWISE_FAST II 1        553       9   860,825   never shares
+  pairwise, PAIRWISE_FAST + NARROW    553       9   390,476   -55% LUT
+  (pairwise at II 2/4/8: same LUT as II 1, longer latency; a mul allocation
+   cap does not make HLS share fabric-bound multipliers, so II 1 it is)
+
+Projected one-layer chain, cycles at 100 MHz: fork 161, pairwise 553 (embed
+in parallel), obj 597, cand ~350, cross 721, lorentz 759, AE 416, write 4:
+~3560 = 36 us, plus the ~24 us host launch = ~60 us against 521 today.
+The host launch is now 40% of it; lorentz and the AE are the last untouched
+stages. Round-three builds: plstream_lat1L3 (one layer, everything, 100 MHz)
+and plstream_lat78c (two layers, everything, 78 MHz).
