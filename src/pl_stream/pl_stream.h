@@ -25,6 +25,98 @@
 #include "../attn_block_pl/attn_block_cand.h"
 #include "../attn_block_pl/attn_block_cross.h"
 
+// ---- stream word width -------------------------------------------------------
+// WIDE_STREAMS: eight 16-bit lanes per stream word. Every stage boundary used
+// to move its tensors one element per cycle, ~200 cycles for a 12x16 tensor
+// and ~700 per attention stage for read plus write, which once the compute
+// was cut to ~600 cycles was the largest item on the one-event chain. Packed,
+// a 12x16 tensor is 24 words. Pure data movement: the lanes carry the same
+// 16 bits and every cast happens where it did before, so it is bit-exact
+// (native simulation checked). Fixed-point types only.
+#ifdef WIDE_STREAMS
+#ifdef FLOAT_DATAPATH
+#error "WIDE_STREAMS packs 16-bit fixed-point lanes; not for FLOAT_DATAPATH"
+#endif
+typedef ap_uint<128> pk_t;
+static const int PK_LANES = 8;
+typedef hls::stream<pk_t> dstream_t;   // data_t tensors
+typedef hls::stream<pk_t> wstream_t;   // score_t tensors (the w_ij bias)
+#define STREAM_TO_ARRAY2D(R, C) pstream_to_array2d<R, C>
+#define ARRAY2D_TO_STREAM(R, C) array2d_to_pstream<R, C>
+#else
+typedef dstream_t dstream_t;
+typedef wstream_t wstream_t;
+#define STREAM_TO_ARRAY2D(R, C) stream_to_array2d<R, C>
+#define ARRAY2D_TO_STREAM(R, C) array2d_to_stream<R, C>
+#endif
+
+#ifdef WIDE_STREAMS
+template<int ROWS, int COLS, typename T>
+void array2d_to_pstream(const T arr[ROWS][COLS], hls::stream<pk_t> &out) {
+    #pragma HLS ARRAY_PARTITION variable=arr dim=2 complete
+    const int NW = (COLS + PK_LANES - 1) / PK_LANES;
+    PROWS: for (int i = 0; i < ROWS; i++) {
+        PWORDS: for (int w = 0; w < NW; w++) {
+            #pragma HLS PIPELINE II=1
+            pk_t word = 0;
+            for (int l = 0; l < PK_LANES; l++) {
+                #pragma HLS UNROLL
+                const int j = w * PK_LANES + l;
+                if (j < COLS) word.range(16 * l + 15, 16 * l) = arr[i][j].range(15, 0);
+            }
+            out.write(word);
+        }
+    }
+}
+template<int ROWS, int COLS, typename T>
+void pstream_to_array2d(hls::stream<pk_t> &in, T arr[ROWS][COLS]) {
+    #pragma HLS ARRAY_PARTITION variable=arr dim=2 complete
+    const int NW = (COLS + PK_LANES - 1) / PK_LANES;
+    PROWS: for (int i = 0; i < ROWS; i++) {
+        PWORDS: for (int w = 0; w < NW; w++) {
+            #pragma HLS PIPELINE II=1
+            pk_t word = in.read();
+            for (int l = 0; l < PK_LANES; l++) {
+                #pragma HLS UNROLL
+                const int j = w * PK_LANES + l;
+                if (j < COLS) { T v; v.range(15, 0) = word.range(16 * l + 15, 16 * l); arr[i][j] = v; }
+            }
+        }
+    }
+}
+// w_ij: written as score_t, read back as data_t, the same two casts as the
+// element-wise path, done per lane inside the pack loops.
+static void wij_to_pstream(const data_t wij[N_MAX][N_MAX], hls::stream<pk_t> &out) {
+    #pragma HLS ARRAY_PARTITION variable=wij dim=2 complete
+    const int NW = (N_MAX + PK_LANES - 1) / PK_LANES;
+    for (int i = 0; i < N_MAX; i++)
+        for (int w = 0; w < NW; w++) {
+            #pragma HLS PIPELINE II=1
+            pk_t word = 0;
+            for (int l = 0; l < PK_LANES; l++) {
+                #pragma HLS UNROLL
+                const int j = w * PK_LANES + l;
+                if (j < N_MAX) { score_t sv = (score_t)wij[i][j]; word.range(16 * l + 15, 16 * l) = sv.range(15, 0); }
+            }
+            out.write(word);
+        }
+}
+static void pstream_to_wij(hls::stream<pk_t> &in, data_t wij[N_MAX][N_MAX]) {
+    #pragma HLS ARRAY_PARTITION variable=wij dim=2 complete
+    const int NW = (N_MAX + PK_LANES - 1) / PK_LANES;
+    for (int i = 0; i < N_MAX; i++)
+        for (int w = 0; w < NW; w++) {
+            #pragma HLS PIPELINE II=1
+            pk_t word = in.read();
+            for (int l = 0; l < PK_LANES; l++) {
+                #pragma HLS UNROLL
+                const int j = w * PK_LANES + l;
+                if (j < N_MAX) { score_t sv; sv.range(15, 0) = word.range(16 * l + 15, 16 * l); wij[i][j] = (data_t)sv; }
+            }
+        }
+}
+#endif
+
 // serialization helpers
 
 // write 2d array to a stream in row-major order
@@ -84,9 +176,9 @@ inline void read_and_fork(
     hls::stream<ap_uint<32>> &in_s,
 
     // raw jets go to 3 consumers (embed, pairwise, cand_lorentz)
-    hls::stream<data_t> &out_jets_embed,
-    hls::stream<data_t> &out_jets_pairwise,
-    hls::stream<data_t> &out_jets_cand,
+    dstream_t &out_jets_embed,
+    dstream_t &out_jets_pairwise,
+    dstream_t &out_jets_cand,
 
     // mask -> 6 consumers (embed, obj0, cross0, obj1, cross1, cand_lorentz)
     hls::stream<bool> &out_mask_embed,
@@ -129,6 +221,20 @@ inline void read_and_fork(
 
     // fork raw jets into 3 output streams
 
+#ifdef WIDE_STREAMS
+    // one word per jet row (5 lanes used), to all three consumers
+    FORK_JETS: for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        pk_t word = 0;
+        for (int j = 0; j < RAW_DIM; j++) {
+            #pragma HLS UNROLL
+            word.range(16 * j + 15, 16 * j) = raw_jets[i][j].range(15, 0);
+        }
+        out_jets_embed.write(word);
+        out_jets_pairwise.write(word);
+        out_jets_cand.write(word);
+    }
+#else
     FORK_JETS: for (int i = 0; i < N_MAX;i++) {
         for (int j = 0 ; j<RAW_DIM; j++) {
             #pragma HLS PIPELINE II=1
@@ -138,6 +244,7 @@ inline void read_and_fork(
             out_jets_cand.write(val);
         }
     }
+#endif
 
     // fork mask into 6 output streams
 
@@ -158,16 +265,16 @@ inline void read_and_fork(
 // raw_jets[12*5] + mask[12] -> x[12*16]
 
 inline void embed_stage(
-    hls::stream<data_t> &in_jets,
+    dstream_t &in_jets,
     hls::stream<bool> &in_mask,
     const EmbedWeights &embed_w,
-    hls::stream<data_t> &out_embed
+    dstream_t &out_embed
     // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
     // debug_buf[dbg_idx] = 1;
     // deserialize
     data_t raw_jets[N_MAX][RAW_DIM];
-    stream_to_array2d<N_MAX, RAW_DIM>(in_jets, raw_jets);
+    STREAM_TO_ARRAY2D(N_MAX, RAW_DIM)(in_jets, raw_jets);
     bool mask[N_MAX];
     stream_to_array1d<N_MAX>(in_mask, mask);
 
@@ -176,7 +283,7 @@ inline void embed_stage(
     embed_ffn(raw_jets, mask, embed_w, x);
 
     // serialize
-    array2d_to_stream<N_MAX, E_DIM>(x, out_embed);
+    ARRAY2D_TO_STREAM(N_MAX, E_DIM)(x, out_embed);
     // debug_buf[dbg_idx] = 2;
 }
 
@@ -184,15 +291,15 @@ inline void embed_stage(
 // raw_jets[12*5] -> extract angular -> pairwise_mlp -> expand_wij -> wij_bias[48*13]
 
 inline void pairwise_stage(
-    hls::stream<data_t> &in_jets,
+    dstream_t &in_jets,
     const MLPWeights &mlp_w,
-    hls::stream<score_t> &out_wij_bias
+    wstream_t &out_wij_bias
     // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
     // debug_buf[dbg_idx] = 1;
     // deserialize
     data_t raw_jets[N_MAX][RAW_DIM];
-    stream_to_array2d<N_MAX, RAW_DIM>(in_jets, raw_jets);
+    STREAM_TO_ARRAY2D(N_MAX, RAW_DIM)(in_jets, raw_jets);
 
     // extract angular features
 
@@ -210,12 +317,16 @@ inline void pairwise_stage(
 
     // serialize the 144 unique values; the consumer replicates across heads
     // (streaming the expanded [48][13] form cost 4.3x the FIFO + stream traffic)
+#ifdef WIDE_STREAMS
+    wij_to_pstream(wij, out_wij_bias);
+#else
     WRITE_WIJ: for (int i = 0; i < N_MAX; i++) {
         for (int j = 0; j < N_MAX; j++) {
             #pragma HLS PIPELINE II=1
             out_wij_bias.write((score_t)wij[i][j]);
         }
     }
+#endif
     // debug_buf[dbg_idx] = 2;
 }
 
@@ -237,18 +348,22 @@ inline void pairwise_stage(
 // the output writes all ran in series with it. The mask is duplicated because
 // a dataflow channel may have only one consumer.
 // ---------------------------------------------------------------------------
-static void obj0_read(hls::stream<data_t> &in_embed, hls::stream<score_t> &in_wij_bias,
+static void obj0_read(dstream_t &in_embed, wstream_t &in_wij_bias,
                       hls::stream<bool> &in_mask, data_t x[N_MAX][E_DIM],
                       score_t wij_bias[N_MAX*N_HEADS][N_KV],
                       bool mask_blk[N_MAX], bool mask_post[N_MAX])
 {
-    stream_to_array2d<N_MAX,E_DIM>(in_embed, x);
+    STREAM_TO_ARRAY2D(N_MAX,E_DIM)(in_embed, x);
     data_t wij[N_MAX][N_MAX];
+#ifdef WIDE_STREAMS
+    pstream_to_wij(in_wij_bias, wij);
+#else
     READ_WIJ: for (int i = 0; i < N_MAX; i++)
         for (int j = 0; j < N_MAX; j++) {
             #pragma HLS PIPELINE II=1
             wij[i][j] = (data_t)in_wij_bias.read();
         }
+#endif
     expand_wij(wij, wij_bias);
     for (int i = 0; i < N_MAX; i++) {
         #pragma HLS PIPELINE II=1
@@ -257,7 +372,7 @@ static void obj0_read(hls::stream<data_t> &in_embed, hls::stream<score_t> &in_wi
 }
 
 static void obj_post(const data_t x_in[N_MAX][E_DIM], const bool mask[N_MAX],
-                     hls::stream<data_t> &out_x, hls::stream<data_t> &out_c)
+                     dstream_t &out_x, dstream_t &out_c)
 {
     data_t x[N_MAX][E_DIM];
     for (int i = 0; i < N_MAX; i++) {
@@ -267,14 +382,14 @@ static void obj_post(const data_t x_in[N_MAX][E_DIM], const bool mask[N_MAX],
     data_t c[T_DIM][E_DIM];
     int jet_assign_tmp[N_MAX];
     build_candidates<N_MAX>(x, c, jet_assign_tmp);
-    array2d_to_stream<N_MAX, E_DIM>(x, out_x);
-    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+    ARRAY2D_TO_STREAM(N_MAX, E_DIM)(x, out_x);
+    ARRAY2D_TO_STREAM(T_DIM, E_DIM)(c, out_c);
 }
 
-static void obj1_read(hls::stream<data_t> &in_x, hls::stream<bool> &in_mask,
+static void obj1_read(dstream_t &in_x, hls::stream<bool> &in_mask,
                       data_t x[N_MAX][E_DIM], bool mask_blk[N_MAX], bool mask_post[N_MAX])
 {
-    stream_to_array2d<N_MAX,E_DIM>(in_x, x);
+    STREAM_TO_ARRAY2D(N_MAX,E_DIM)(in_x, x);
     for (int i = 0; i < N_MAX; i++) {
         #pragma HLS PIPELINE II=1
         bool m = in_mask.read(); mask_blk[i] = m; mask_post[i] = m;
@@ -283,12 +398,12 @@ static void obj1_read(hls::stream<data_t> &in_x, hls::stream<bool> &in_mask,
 #endif
 
 inline void obj0_stage(
-    hls::stream<data_t> &in_embed,
-    hls::stream<score_t> &in_wij_bias,
+    dstream_t &in_embed,
+    wstream_t &in_wij_bias,
     hls::stream<bool> &in_mask,
     const AttnWeights &obj_w,
-    hls::stream<data_t> &out_x,
-    hls::stream<data_t> &out_c
+    dstream_t &out_x,
+    dstream_t &out_c
 ) {
 #ifdef OBJ_DATAFLOW
     #pragma HLS DATAFLOW
@@ -308,15 +423,19 @@ inline void obj0_stage(
     obj_post(x_df1, mask_post, out_x, out_c);
 #else
     data_t x[N_MAX][E_DIM];
-    stream_to_array2d<N_MAX,E_DIM>(in_embed, x);
+    STREAM_TO_ARRAY2D(N_MAX,E_DIM)(in_embed, x);
 
     data_t wij[N_MAX][N_MAX];
+#ifdef WIDE_STREAMS
+    pstream_to_wij(in_wij_bias, wij);
+#else
     READ_WIJ: for(int i = 0; i < N_MAX; i++) {
         for (int j = 0; j < N_MAX; j++) {
             #pragma HLS PIPELINE II=1
             wij[i][j] = (data_t)in_wij_bias.read();
         }
     }
+#endif
     score_t wij_bias[N_MAX*N_HEADS][N_KV];
     expand_wij(wij, wij_bias);
 
@@ -348,17 +467,17 @@ inline void obj0_stage(
     int jet_assign_tmp[N_MAX];
     build_candidates<N_MAX>(x, c, jet_assign_tmp);
 
-    array2d_to_stream<N_MAX, E_DIM>(x, out_x);
-    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+    ARRAY2D_TO_STREAM(N_MAX, E_DIM)(x, out_x);
+    ARRAY2D_TO_STREAM(T_DIM, E_DIM)(c, out_c);
 #endif
 }
 
 inline void obj1_stage(
-    hls::stream<data_t> &in_x,
+    dstream_t &in_x,
     hls::stream<bool> &in_mask,
     const AttnWeights &obj_w,
-    hls::stream<data_t> &out_x,
-    hls::stream<data_t> &out_c
+    dstream_t &out_x,
+    dstream_t &out_c
 ) {
 #ifdef OBJ_DATAFLOW
     #pragma HLS DATAFLOW
@@ -379,7 +498,7 @@ inline void obj1_stage(
     obj_post(x_df2, mask_post, out_x, out_c);
 #else
     data_t x[N_MAX][E_DIM];
-    stream_to_array2d<N_MAX,E_DIM>(in_x, x);
+    STREAM_TO_ARRAY2D(N_MAX,E_DIM)(in_x, x);
     bool mask[N_MAX];
     stream_to_array1d<N_MAX>(in_mask, mask);
 
@@ -410,8 +529,8 @@ inline void obj1_stage(
     int jet_assign_tmp[N_MAX];
     build_candidates<N_MAX>(x, c, jet_assign_tmp);
 
-    array2d_to_stream<N_MAX, E_DIM>(x, out_x);
-    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+    ARRAY2D_TO_STREAM(N_MAX, E_DIM)(x, out_x);
+    ARRAY2D_TO_STREAM(T_DIM, E_DIM)(c, out_c);
 #endif
 }
 
@@ -419,52 +538,52 @@ inline void obj1_stage(
 // cand stage: candidate self-attention. layer 1 also feeds cand_lorentz.
 
 inline void cand_stage(
-    hls::stream<data_t> &in_c,
+    dstream_t &in_c,
     const AttnWeights &cand_w,
-    hls::stream<data_t> &out_c
+    dstream_t &out_c
 ) {
     data_t c[T_DIM][E_DIM];
-    stream_to_array2d<T_DIM,E_DIM>(in_c, c);
+    STREAM_TO_ARRAY2D(T_DIM,E_DIM)(in_c, c);
     attn_block_cand(c,
         cand_w.Wq, cand_w.bq, cand_w.Wk, cand_w.bk, cand_w.Wv, cand_w.bv,
         cand_w.bias_k, cand_w.bias_v, cand_w.Wo, cand_w.bo,
         cand_w.attn_ln_g, cand_w.attn_ln_b,
         cand_w.ffn_w, cand_w.ffn_b, cand_w.ffn_ln_g, cand_w.ffn_ln_b,
         cand_w.post_ffn_g, cand_w.post_ffn_b);
-    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+    ARRAY2D_TO_STREAM(T_DIM, E_DIM)(c, out_c);
 }
 
 inline void cand_stage2(
-    hls::stream<data_t> &in_c,
+    dstream_t &in_c,
     const AttnWeights &cand_w,
-    hls::stream<data_t> &out_c_cross,
-    hls::stream<data_t> &out_c_lorentz
+    dstream_t &out_c_cross,
+    dstream_t &out_c_lorentz
 ) {
     data_t c[T_DIM][E_DIM];
-    stream_to_array2d<T_DIM,E_DIM>(in_c, c);
+    STREAM_TO_ARRAY2D(T_DIM,E_DIM)(in_c, c);
     attn_block_cand(c,
         cand_w.Wq, cand_w.bq, cand_w.Wk, cand_w.bk, cand_w.Wv, cand_w.bv,
         cand_w.bias_k, cand_w.bias_v, cand_w.Wo, cand_w.bo,
         cand_w.attn_ln_g, cand_w.attn_ln_b,
         cand_w.ffn_w, cand_w.ffn_b, cand_w.ffn_ln_g, cand_w.ffn_ln_b,
         cand_w.post_ffn_g, cand_w.post_ffn_b);
-    array2d_to_stream<T_DIM, E_DIM>(c, out_c_cross);
-    array2d_to_stream<T_DIM, E_DIM>(c, out_c_lorentz);
+    ARRAY2D_TO_STREAM(T_DIM, E_DIM)(c, out_c_cross);
+    ARRAY2D_TO_STREAM(T_DIM, E_DIM)(c, out_c_lorentz);
 }
 
 // cross stage: cross-attention (x attends to c) + remask
 
 inline void cross_stage(
-    hls::stream<data_t> &in_x,
-    hls::stream<data_t> &in_c,
+    dstream_t &in_x,
+    dstream_t &in_c,
     hls::stream<bool> &in_mask,
     const AttnWeights &cross_w,
-    hls::stream<data_t> &out_x
+    dstream_t &out_x
 ) {
     data_t x[N_MAX][E_DIM];
-    stream_to_array2d<N_MAX,E_DIM>(in_x, x);
+    STREAM_TO_ARRAY2D(N_MAX,E_DIM)(in_x, x);
     data_t c[T_DIM][E_DIM];
-    stream_to_array2d<T_DIM,E_DIM>(in_c, c);
+    STREAM_TO_ARRAY2D(T_DIM,E_DIM)(in_c, c);
     bool mask[N_MAX];
     stream_to_array1d<N_MAX>(in_mask, mask);
 
@@ -476,17 +595,17 @@ inline void cross_stage(
         cross_w.post_ffn_g, cross_w.post_ffn_b);
     remask(x, mask);
 
-    array2d_to_stream<N_MAX, E_DIM>(x, out_x);
+    ARRAY2D_TO_STREAM(N_MAX, E_DIM)(x, out_x);
 }
 
 // cand lorentz stage
 
 inline void cand_lorentz_stage(
-    hls::stream<data_t> &in_jets,
-    hls::stream<data_t> &in_x,
-    hls::stream<data_t> &in_c,
+    dstream_t &in_jets,
+    dstream_t &in_x,
+    dstream_t &in_c,
     hls::stream<bool> &in_mask,
-    hls::stream<data_t> &out_ae_input
+    dstream_t &out_ae_input
     // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
     //deserialize
@@ -494,11 +613,11 @@ inline void cand_lorentz_stage(
     // debug_buf[dbg_idx] = 1;
 
     data_t raw_jets[N_MAX][RAW_DIM];
-    stream_to_array2d<N_MAX, RAW_DIM>(in_jets, raw_jets);
+    STREAM_TO_ARRAY2D(N_MAX, RAW_DIM)(in_jets, raw_jets);
     data_t x[N_MAX][E_DIM];
-    stream_to_array2d<N_MAX, E_DIM>(in_x, x);
+    STREAM_TO_ARRAY2D(N_MAX, E_DIM)(in_x, x);
     data_t c[T_DIM][E_DIM];
-    stream_to_array2d<T_DIM, E_DIM>(in_c, c);
+    STREAM_TO_ARRAY2D(T_DIM, E_DIM)(in_c, c);
     bool mask[N_MAX];
     stream_to_array1d<N_MAX>(in_mask, mask);
 
@@ -514,12 +633,16 @@ inline void cand_lorentz_stage(
 
     // serialize only candidates 0 and 1 (not ISR at index 2)
 
+#ifdef WIDE_STREAMS
+    ARRAY2D_TO_STREAM(2, AE_IN_DIM)(ae_input, out_ae_input);   // candidates 0 and 1
+#else
     WRITE_AE: for (int t = 0; t < 2; t++) {
         for (int i = 0; i < AE_IN_DIM; i++) {
             #pragma HLS PIPELINE II=1
             out_ae_input.write(ae_input[t][i]);
         } 
-    }    
+    }
+#endif    
 
     // debug_buf[dbg_idx] = 2;
 }
@@ -528,7 +651,7 @@ inline void cand_lorentz_stage(
 // take ae input [2 * AE_IN_DIM] -> dual autoencoder -> 3 loss scalars
 
 inline void ae_loss_stage(
-    hls::stream<data_t> &in_ae,
+    dstream_t &in_ae,
     const AEEncoderWeights &ae_enc_w,
     const AEDecoderWeights &ae_dec_w,
     hls::stream<float> &out_losses
@@ -537,6 +660,10 @@ inline void ae_loss_stage(
     // debug_buf[dbg_idx] = 1;
     // deserialize cand 0 and cand 1
     data_t c0_in[1][AE_IN_DIM], c1_in[1][AE_IN_DIM];
+#ifdef WIDE_STREAMS
+    STREAM_TO_ARRAY2D(1, AE_IN_DIM)(in_ae, c0_in);
+    STREAM_TO_ARRAY2D(1, AE_IN_DIM)(in_ae, c1_in);
+#else
     for (int i = 0; i < AE_IN_DIM; i++) {
         #pragma HLS PIPELINE II=1
         c0_in[0][i] = in_ae.read();
@@ -545,6 +672,7 @@ inline void ae_loss_stage(
         #pragma HLS PIPELINE II=1
         c1_in[0][i] = in_ae.read();
     }
+#endif
 
     // run dual autoencoder
 
@@ -627,7 +755,7 @@ static void read_input_n(const ap_uint<32>* in_buf, int n, hls::stream<ap_uint<3
 #endif
 }
 static void fork_n(hls::stream<ap_uint<32>>& in, int n,
-    hls::stream<data_t>& je, hls::stream<data_t>& jp, hls::stream<data_t>& jc,
+    dstream_t& je, dstream_t& jp, dstream_t& jc,
     hls::stream<bool>& me, hls::stream<bool>& mo0, hls::stream<bool>& mc0,
     hls::stream<bool>& mo1, hls::stream<bool>& mc1, hls::stream<bool>& mcd) {
     for (int e = 0; e < n; e++) read_and_fork(in, je, jp, jc, me, mo0, mc0, mo1, mc1, mcd);
@@ -642,38 +770,38 @@ static void drain_mask_n(hls::stream<bool>& a, hls::stream<bool>& b, int n) {
 }
 #endif
 
-static void embed_n(hls::stream<data_t>& i, hls::stream<bool>& m,
-    const EmbedWeights& w, hls::stream<data_t>& o, int n) {
+static void embed_n(dstream_t& i, hls::stream<bool>& m,
+    const EmbedWeights& w, dstream_t& o, int n) {
     for (int e = 0; e < n; e++) embed_stage(i, m, w, o);
 }
-static void pairwise_n(hls::stream<data_t>& i, const MLPWeights& w,
-    hls::stream<score_t>& o, int n) {
+static void pairwise_n(dstream_t& i, const MLPWeights& w,
+    wstream_t& o, int n) {
     for (int e = 0; e < n; e++) pairwise_stage(i, w, o);
 }
-static void obj0_n(hls::stream<data_t>& i, hls::stream<score_t>& wij, hls::stream<bool>& m,
-    const AttnWeights& w, hls::stream<data_t>& ox, hls::stream<data_t>& oc, int n) {
+static void obj0_n(dstream_t& i, wstream_t& wij, hls::stream<bool>& m,
+    const AttnWeights& w, dstream_t& ox, dstream_t& oc, int n) {
     for (int e = 0; e < n; e++) obj0_stage(i, wij, m, w, ox, oc);
 }
-static void obj1_n(hls::stream<data_t>& i, hls::stream<bool>& m,
-    const AttnWeights& w, hls::stream<data_t>& ox, hls::stream<data_t>& oc, int n) {
+static void obj1_n(dstream_t& i, hls::stream<bool>& m,
+    const AttnWeights& w, dstream_t& ox, dstream_t& oc, int n) {
     for (int e = 0; e < n; e++) obj1_stage(i, m, w, ox, oc);
 }
-static void cand_n(hls::stream<data_t>& i, const AttnWeights& w, hls::stream<data_t>& o, int n) {
+static void cand_n(dstream_t& i, const AttnWeights& w, dstream_t& o, int n) {
     for (int e = 0; e < n; e++) cand_stage(i, w, o);
 }
-static void cand2_n(hls::stream<data_t>& i, const AttnWeights& w,
-    hls::stream<data_t>& o1, hls::stream<data_t>& o2, int n) {
+static void cand2_n(dstream_t& i, const AttnWeights& w,
+    dstream_t& o1, dstream_t& o2, int n) {
     for (int e = 0; e < n; e++) cand_stage2(i, w, o1, o2);
 }
-static void cross_n(hls::stream<data_t>& ix, hls::stream<data_t>& ic, hls::stream<bool>& m,
-    const AttnWeights& w, hls::stream<data_t>& o, int n) {
+static void cross_n(dstream_t& ix, dstream_t& ic, hls::stream<bool>& m,
+    const AttnWeights& w, dstream_t& o, int n) {
     for (int e = 0; e < n; e++) cross_stage(ix, ic, m, w, o);
 }
-static void lorentz_n(hls::stream<data_t>& jc, hls::stream<data_t>& x, hls::stream<data_t>& c,
-    hls::stream<bool>& m, hls::stream<data_t>& o, int n) {
+static void lorentz_n(dstream_t& jc, dstream_t& x, dstream_t& c,
+    hls::stream<bool>& m, dstream_t& o, int n) {
     for (int e = 0; e < n; e++) cand_lorentz_stage(jc, x, c, m, o);
 }
-static void ae_n(hls::stream<data_t>& i, const AEEncoderWeights& enc,
+static void ae_n(dstream_t& i, const AEEncoderWeights& enc,
     const AEDecoderWeights& dec, hls::stream<float>& o, int n) {
     for (int e = 0; e < n; e++) ae_loss_stage(i, enc, dec, o);
 }
@@ -718,7 +846,7 @@ inline void passwd_dataflow_batched(
 
     // depths: >= one full event payload each (deadlock-safe), doubled where
     // cheap so adjacent events overlap without back-pressure
-    hls::stream<data_t> s_jets_embed("jets_embed"), s_jets_pairwise("jets_pair"), s_jets_cand("jets_cand");
+    dstream_t s_jets_embed("jets_embed"), s_jets_pairwise("jets_pair"), s_jets_cand("jets_cand");
     #pragma HLS STREAM variable = s_jets_embed depth = 384
     #pragma HLS STREAM variable = s_jets_pairwise depth = 384
     #pragma HLS STREAM variable = s_jets_cand depth = 1152
@@ -731,13 +859,13 @@ inline void passwd_dataflow_batched(
     #pragma HLS STREAM variable = s_mask_cross1 depth = 576
     #pragma HLS STREAM variable = s_mask_cand depth = 768
 
-    hls::stream<data_t> s_embed("embed");
-    hls::stream<score_t> s_wij("wij");
-    hls::stream<data_t> s_x0a("x_obj0"), s_c0a("c_obj0"), s_c0b("c_cand0");
-    hls::stream<data_t> s_x0("x_layer0");
-    hls::stream<data_t> s_x1a("x_obj1"), s_c1a("c_obj1"), s_c1b("c_cand1");
-    hls::stream<data_t> s_x1("x_layer1"), s_c1("c_layer1");
-    hls::stream<data_t> s_ae("ae_input");
+    dstream_t s_embed("embed");
+    wstream_t s_wij("wij");
+    dstream_t s_x0a("x_obj0"), s_c0a("c_obj0"), s_c0b("c_cand0");
+    dstream_t s_x0("x_layer0");
+    dstream_t s_x1a("x_obj1"), s_c1a("c_obj1"), s_c1b("c_cand1");
+    dstream_t s_x1("x_layer1"), s_c1("c_layer1");
+    dstream_t s_ae("ae_input");
     hls::stream<float> s_losses("losses");
     #pragma HLS STREAM variable =  s_embed depth = 1152
     #pragma HLS STREAM variable =  s_wij depth = 864
@@ -824,9 +952,9 @@ inline void passwd_dataflow(
     // stream depths = number of elements per event (prevents deadlock)
 
     // fork outputs for raw_jets (3 consumers)
-    hls::stream<data_t> s_jets_embed("jets_embed");
-    hls::stream<data_t> s_jets_pairwise("jets_pair");
-    hls::stream<data_t> s_jets_cand("jets_cand");
+    dstream_t s_jets_embed("jets_embed");
+    dstream_t s_jets_pairwise("jets_pair");
+    dstream_t s_jets_cand("jets_cand");
     #pragma HLS STREAM variable = s_jets_embed depth = 180
     #pragma HLS STREAM variable = s_jets_pairwise depth = 180
     #pragma HLS STREAM variable = s_jets_cand depth = 180
@@ -848,14 +976,14 @@ inline void passwd_dataflow(
     // inter stage data streams
     // depths cover one full event payload so a producer can always finish
     // its event without consumer progress (deadlock-safe by construction)
-    hls::stream<data_t> s_embed("embed");
-    hls::stream<score_t> s_wij("wij");
-    hls::stream<data_t> s_x0a("x_obj0"), s_c0a("c_obj0"), s_c0b("c_cand0");
-    hls::stream<data_t> s_x0("x_layer0");
-    hls::stream<data_t> s_x1a("x_obj1"), s_c1a("c_obj1"), s_c1b("c_cand1");
-    hls::stream<data_t> s_x1("x_layer1");
-    hls::stream<data_t> s_c1("c_layer1");
-    hls::stream<data_t> s_ae("ae_input");
+    dstream_t s_embed("embed");
+    wstream_t s_wij("wij");
+    dstream_t s_x0a("x_obj0"), s_c0a("c_obj0"), s_c0b("c_cand0");
+    dstream_t s_x0("x_layer0");
+    dstream_t s_x1a("x_obj1"), s_c1a("c_obj1"), s_c1b("c_cand1");
+    dstream_t s_x1("x_layer1");
+    dstream_t s_c1("c_layer1");
+    dstream_t s_ae("ae_input");
     hls::stream<float> s_losses("losses");
 
     #pragma HLS STREAM variable =  s_embed depth = 576

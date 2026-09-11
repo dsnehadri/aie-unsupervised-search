@@ -176,3 +176,16 @@ in parallel), obj 597, cand ~350, cross 721, lorentz 759, AE 416, write 4:
 The host launch is now 40% of it; lorentz and the AE are the last untouched
 stages. Round-three builds: plstream_lat1L3 (one layer, everything, 100 MHz)
 and plstream_lat78c (two layers, everything, 78 MHz).
+
+Fourth round: the plumbing
+--------------------------
+With the compute cut, the stream transfers between stages were the largest
+item left: every tensor moved one element per cycle, ~192 cycles for 12x16,
+and a stage's read plus write (~700 cycles for an attention stage) exceeded
+its compute (~600). WIDE_STREAMS packs eight 16-bit lanes into a 128-bit
+word, so a 12x16 tensor is 24 words. The lanes carry the same bits and every
+cast stays where it was, and the native sim agrees: bit-identical on both
+designs, 2000/2000. LORENTZ_PIPE pipelines the three candidates' mass
+sqrt/divide chains (same float ops per candidate, bit-identical).
+Fourth-round builds: plstream_lat1L4 (one layer, everything, 100 MHz) and
+plstream_lat78d (two layers, everything, 78 MHz).

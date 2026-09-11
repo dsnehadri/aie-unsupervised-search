@@ -140,7 +140,11 @@ inline void compute_mass(
     float cand_mass_scaled[T_DIM]
 ) {
     for (int t = 0; t < T_DIM; t++) {
-        // #pragma HLS PIPELINE II=1
+#ifdef LORENTZ_PIPE
+        // Overlap the three candidates' sqrt/divide chains. Same float ops in
+        // the same order per candidate, so bit-identical.
+        #pragma HLS PIPELINE II=1
+#endif
         float e = cand_p4[t][0];
         float px = cand_p4[t][1];
         float py = cand_p4[t][2];
