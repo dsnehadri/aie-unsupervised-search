@@ -18,6 +18,15 @@ from matplotlib.ticker import AutoMinorLocator
 CACHE = "/home/snehadri/aie_scratch_save_20260810/ae_losses_cand.npz"
 CKPT = "/home/snehadri/repos/unsupervised-search/experiments/retrained_noncollapse/finalWeights.ckpt"
 N_BKG = 200000
+# The deployed checkpoint was trained on the FIRST 150,000 background events
+# (retrain_tune.py, NTRAIN). Evaluating the background on those same events is
+# train-on-test. Measured, the effect is under 0.001 in AUC and in the
+# conservative direction (unseen background scores 0.0002 to 0.0007 HIGHER),
+# because a 16-dim embedding with ae_dim 2 cannot memorise 150k events. But it
+# is free to avoid, so the background is taken from BKG_SKIP onward: 50,000
+# events the model never saw. Set BKG_SKIP=0 to reproduce the older numbers.
+BKG_SKIP = int(os.environ.get("BKG_SKIP", "150000"))
+
 
 SIGNALS = [
     ("gluino_rpv_6j",      r"$XX^{1500}\to 2\times j(jj)$",   "#1f77b4"),
@@ -43,7 +52,7 @@ if not os.path.isfile(CACHE):
     enc.ae_in.register_forward_hook(lambda m, i, o: cin.append(i[0].detach()))
     enc.ae_out.register_forward_hook(lambda m, i, o: cout.append(o.detach()))
 
-    def load(fn, n=None):
+    def load(fn, n=None, skip=0):
         with h5py.File(fn, "r") as f:
             e = np.nan_to_num(np.array(f['source']['e'])) / 1000.
             pt = np.nan_to_num(np.array(f['source']['pt'])) / 1000.
@@ -53,6 +62,7 @@ if not os.path.isfile(CACHE):
             phi = np.array(f['source']['phi']); eta = np.array(f['source']['eta'])
             X = np.stack([lp, eta, np.cos(phi), np.sin(phi), le], -1)
             X = X[(pt > 0).sum(1) >= 6]
+        if skip: X = X[skip:]
         if n: X = X[:n]
         return torch.tensor(X, dtype=torch.float32)
 
@@ -72,7 +82,7 @@ if not os.path.isfile(CACHE):
         return np.concatenate(out)
 
     IN = "inputs"
-    arrs = {"qcd_background": cand_losses(load(f"{IN}/qcd_background.h5", N_BKG))}
+    arrs = {"qcd_background": cand_losses(load(f"{IN}/qcd_background.h5", N_BKG, skip=BKG_SKIP))}
     for f, _, _ in SIGNALS:
         arrs[f] = cand_losses(load(f"{IN}/{f}.h5"))
         print(f"{f:22s} N={len(arrs[f])}  median cand loss {np.median(arrs[f]):.3f}")

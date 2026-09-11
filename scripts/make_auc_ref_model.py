@@ -6,13 +6,18 @@ so a differently trained model, e.g. one ABC layer, can be scored on the set
 the board sees.
 usage: cd ~/repos/unsupervised-search && python make_auc_ref_model.py <config> <ckpt> <out.npz>
 """
-import json, sys
+import json, os, sys
 import numpy as np, h5py, torch
 sys.path.insert(0, "/home/snehadri/repos/unsupervised-search")
 from model_blocks import Encoder
 CFG, CKPT, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 N_PER = 1000; SIGNAL = "gluino_rpv_6j"
-def load(fn, n):
+# Background taken from BKG_SKIP onward so it is disjoint from the 150,000
+# events retrain_tune.py trains on. Measured effect on AUC is under 0.001 and
+# conservative, but the reference should not overlap training. BKG_SKIP=0
+# reproduces the older selection.
+BKG_SKIP = int(os.environ.get("BKG_SKIP", "150000"))
+def load(fn, n, skip=0):
     with h5py.File(fn, "r") as f:
         e = np.nan_to_num(np.array(f["source"]["e"])) / 1000.
         pt = np.nan_to_num(np.array(f["source"]["pt"])) / 1000.
@@ -22,6 +27,7 @@ def load(fn, n):
         phi = np.array(f["source"]["phi"]); eta = np.array(f["source"]["eta"])
         X = np.stack([lp, eta, np.cos(phi), np.sin(phi), le], -1)
         X = X[(pt > 0).sum(1) >= 6]
+    if skip: X = X[skip:]
     return torch.tensor(X[:n], dtype=torch.float32)
 def fuse_all_batchnorms(m):
     for mod in m.modules():
@@ -44,7 +50,7 @@ enc.eval()
 # with rank correlation 0.89, and that gap was wrongly read as quantisation.
 # With BN active the true model scores 0.9818 and correlates 0.9967 with the
 # hardware. Fusing is exact, so BN-active torch == fused hardware in float.
-Xb = load("inputs/qcd_background.h5", N_PER); Xs = load(f"inputs/{SIGNAL}.h5", N_PER)
+Xb = load("inputs/qcd_background.h5", N_PER, skip=BKG_SKIP); Xs = load(f"inputs/{SIGNAL}.h5", N_PER)
 X = torch.cat([Xb, Xs], 0)
 labels = np.concatenate([np.zeros(len(Xb)), np.ones(len(Xs))]).astype(np.int8)
 @torch.no_grad()

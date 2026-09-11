@@ -20,6 +20,10 @@ CACHE = "/home/snehadri/aie_scratch_save_20260810/anomaly_baselines.npz"
 AE_CACHE = "/home/snehadri/aie_scratch_save_20260810/ae_losses.npz"
 OUT_JSON = "/home/snehadri/aie_scratch_save_20260810/anomaly_baseline_aucs.json"
 N_BKG = 200000
+# Background from BKG_SKIP onward, disjoint from retrain_tune.py's first
+# 150,000 training events, matching ae_loss_metrics.py. BKG_SKIP=0 restores
+# the older selection.
+BKG_SKIP = int(os.environ.get("BKG_SKIP", "150000"))
 
 SAMPLES = ["qcd_background", "gluino_rpv_6j", "gluino_rpv_10j",
            "stop_rpv_12j", "squark_rpv_8j_WZH_2000",
@@ -30,7 +34,7 @@ if not os.path.isfile(CACHE):
     sys.path.insert(0, "/home/snehadri/repos/unsupervised-search")
     from model_blocks import x_to_p4
 
-    def load(fn, n=None):
+    def load(fn, n=None, skip=0):
         with h5py.File(fn, "r") as f:
             e = np.nan_to_num(np.array(f['source']['e'])) / 1000.
             pt = np.nan_to_num(np.array(f['source']['pt'])) / 1000.
@@ -40,6 +44,7 @@ if not os.path.isfile(CACHE):
             phi = np.array(f['source']['phi']); eta = np.array(f['source']['eta'])
             X = np.stack([lp, eta, np.cos(phi), np.sin(phi), le], -1)
             X = X[(pt > 0).sum(1) >= 6]
+        if skip: X = X[skip:]
         if n: X = X[:n]
         return torch.tensor(X, dtype=torch.float32)
 
@@ -79,7 +84,8 @@ if not os.path.isfile(CACHE):
 
     arrs = {}
     for s in SAMPLES:
-        X = load(f"inputs/{s}.h5", N_BKG if s == "qcd_background" else None)
+        X = load(f"inputs/{s}.h5", N_BKG if s == "qcd_background" else None,
+                 skip=BKG_SKIP if s == "qcd_background" else 0)
         jp4 = x_to_p4(X).numpy()                       # (N,12,4) GeV
         pt = np.sqrt(jp4[:, :, 1]**2 + jp4[:, :, 2]**2)
         pt[jp4[:, :, 0] == 0] = 0
