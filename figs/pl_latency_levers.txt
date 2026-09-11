@@ -120,3 +120,21 @@ object block writes its packed channel directly from the projections in one
 13-row pass, skipping an intermediate copy (385 -> ~15).
 Native sim with RESHAPE_FAST + LIN_J_UNROLL=4 on top of the build-A flags:
 bit-identical to the deployed design, 2000/2000 events.
+
+  variant (object block, 12.8 ns)          latency  DSP   LUT est
+  round 1 (SOFTMAX_PIPE, HEADS_BATCHED,
+    LN6, fabric multipliers)                  1517   198   258,573
+  + LIN_J_UNROLL=2                            1169   198   325,670
+  + LIN_J_UNROLL=4                             953   198   458,872
+  + RESHAPE_FAST                              1147   197   276,490
+  + RESHAPE_FAST + LIN_J_UNROLL=4              583   197   476,349   <- 9.9x
+  cross, round 1 + RESHAPE_FAST               1475   107   255,429
+Inside the 583: heads 273, FFN 472, linears 51 each (were 195). All slack
+positive (+0.04 to +0.11 ns at 12.8 ns).
+
+Budget, using the measured estimate-to-real ratios (DSP /1.26, LUT /1.8):
+the 4-wide linears cost ~265k real LUT per big block. One layer (obj, cand,
+cross, embed, rest) ~ 740k real, 41%: comfortable. Two layers ~1.3M, 73%:
+marginal for routing. So the second-round builds are the one-layer design
+with the full set at 100 MHz (plstream_lat1L2) and the two-layer design with
+LIN_J_UNROLL=2 at 78 MHz (plstream_lat78b).
