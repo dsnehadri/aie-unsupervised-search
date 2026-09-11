@@ -138,3 +138,13 @@ cross, embed, rest) ~ 740k real, 41%: comfortable. Two layers ~1.3M, 73%:
 marginal for routing. So the second-round builds are the one-layer design
 with the full set at 100 MHz (plstream_lat1L2) and the two-layer design with
 LIN_J_UNROLL=2 at 78 MHz (plstream_lat78b).
+  cross, round 1 + RESHAPE_FAST + LIN_J_UNROLL=4   719   107   521,146   <- 7.4x
+Native sim: one layer with the full set is bit-identical to the round-one
+one-layer design (2000/2000); two layers with LIN_J_UNROLL=2 is bit-identical
+to the deployed design (2000/2000). Both second-round builds are exact.
+
+What is left on the one-layer chain, in cycles, if the untouched stages stay
+as they are: pairwise 2855 (in parallel with embed 2186), obj 583, cand ~350,
+cross 719, lorentz 759, AE 416, fork 161. The attention blocks are no longer
+the problem; pairwise is now half the chain. PAIRWISE_PL_LOWDSP runs it at
+II 8 to save DSPs the fabric linears have since freed.
