@@ -61,13 +61,18 @@ inline void pairwise_mlp(
     #pragma HLS ARRAY_PARTITION variable=weights.last_b    complete
     // Output wij partitioned on j (the unrolled dim) so 4 writes/reads overlap.
     #pragma HLS ARRAY_PARTITION variable=wij dim=2 cyclic factor=4
-#ifdef PAIRWISE_PL_LOWDSP
+#if defined(PAIRWISE_PL_LOWDSP) && !defined(PAIRWISE_FAST)
     // all-PL is DSP-constrained (attention already ~990 DSP). Pipelining the
     // MLP fully-spatializes it to a ~1030-DSP floor (II-independent) -> 2020
     // total, over budget. Cap the multipliers so HLS SHARES them: fewer DSP,
     // higher II, but pairwise stays far below the ~841us PL-attention wall.
     #pragma HLS ALLOCATION operation instances=mul limit=384
 #endif
+    // PAIRWISE_FAST: with LIN_FABRIC_MUL the MLP's multiplies are in LUT
+    // fabric, so the DSP cap above is moot; drop it and pipeline the pair
+    // loop at II=1 (override with -DPAIRWISE_II=n). 144 pairs -> ~250 cycles
+    // instead of 2426. This stage was half the one-layer chain once the
+    // attention blocks were fixed.
     // compute pairwise features
 
     data_t wij_raw[N_MAX][N_MAX][3];
@@ -91,7 +96,14 @@ inline void pairwise_mlp(
             // so it can afford II=1 (~1.4k DSP, pairwise ~27us). The all-PL model
             // already spends ~1055 DSP on PL attention, so it uses a higher II
             // (define PAIRWISE_PL_LOWDSP) to fit -- still removes the bottleneck.
-#ifdef PAIRWISE_PL_LOWDSP
+#if defined(PAIRWISE_FAST)
+#ifndef PAIRWISE_II
+#define PAIRWISE_II 1
+#endif
+            #define PW_DO_PRAGMA(x) _Pragma(#x)
+            #define PW_PIPE(ii) PW_DO_PRAGMA(HLS PIPELINE II=ii)
+            PW_PIPE(PAIRWISE_II)
+#elif defined(PAIRWISE_PL_LOWDSP)
             #pragma HLS PIPELINE II=16
 #else
             #pragma HLS PIPELINE II=1
