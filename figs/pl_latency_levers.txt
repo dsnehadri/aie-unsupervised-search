@@ -79,3 +79,32 @@ src/pl_stream/plhost_direct.cpp times the same CU two ways in one process:
 xrt::run (the ERT scheduler, as plhost_timed) and direct register access
 (ap_start / ap_done / ap_continue at the kernel.xml offsets). Compiled with
 the 2025.2 SDK; waits for the board.
+
+Bit-accurate x86 simulation, 2000-event board set (native_sims)
+---------------------------------------------------------------
+  design                                   AUC     vs its own true software model
+  deployed (LN5, OBJ_DATAFLOW)             0.9825  0.9818, rank corr 0.9967
+  build A flags (LN6, SOFTMAX_PIPE,
+    HEADS_BATCHED, LIN_FABRIC_MUL)         0.9825  bit-identical to deployed, 2000/2000 events
+  build C (one layer, same flags,
+    onelayer_s1 weights)                   0.9780  0.9812, rank corr 0.9915
+
+Build A's levers are scheduling and binding changes, and the simulation
+confirms they are exact: every one of the 2000 scores matches the deployed
+design. The one-layer design gives up 0.003 of AUC to quantisation against
+0.0007 for two layers, on this set.
+
+A correction found on the way
+-----------------------------
+The "software reference" used since 5 September scored 0.9688 with rank
+correlation 0.89 against the hardware, and that gap was being read as the
+cost of int16 quantisation. It was not. make_auc_eval_set.py zeroed the
+embedding's input BatchNorm in torch without fusing it into the linear, which
+is the model with its input normalisation removed. export_phase3.py fuses BN
+into the linear correctly, so the hardware always computed the full model.
+With BN active the true reference is 0.9818 and the rank correlation with the
+fabric hardware is 0.9967: quantisation costs 0.0007 of AUC. Both reference
+scripts are fixed and both .npz references regenerated; the broken one is
+kept as auc_eval_ref_BROKEN_bn_neutralised.npz. The committed figure notes
+already quoted 0.9818, so nothing in the paper carried the wrong number, but
+the measurement printouts in this session did.
