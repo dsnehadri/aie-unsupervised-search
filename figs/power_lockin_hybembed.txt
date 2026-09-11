@@ -154,3 +154,23 @@ dP over 0.2558 to 0.2602 W, a 1.7% spread against a 3.9% standard error.
 One caveat visible in the new figure: the hybrid's temperature is still
 climbing at the end of the 120 s ON window, so its dT is a lower bound on the
 steady state. Its power has plateaued, so dP is not affected.
+
+Rerun with a true 120 s window on both designs
+==============================================
+The calibration fix landed both campaigns on 120 s (38 cycles at 120 s and 11
+at 121 for the fabric, 37 and 12 for the hybrid; the +-1 s is the integer
+date stamp). Before: 122.1 and 124.1 s. The numbers reproduce within errors,
+so the earlier ones were not wrong, only measured through slightly unequal
+windows:
+
+                        fabric                  hybrid + embedding
+  total dP      253.9 +- 12.7 mW  (256.1)     952.7 +- 11.6 mW  (961.0)
+    VCCINT       40.3 +- 12.3 mW  ( 43.7)     706.1 +- 11.1 mW  (718.9)
+    PSFP        205.9 +-  0.3 mW  (205.6)     206.4 +-  0.4 mW  (202.7)
+  die dT           +0.368 C       (+0.359)       +0.467 C       (+0.463)
+  array dT         +0.065 C       (+0.071)       +0.448 C       (+0.448)
+                 not significant                                
+The A72 rail is 205.9 against 206.4 mW across two designs that differ 7x in
+throughput, which is the cleanest statement yet that it is a fixed cost of
+the host loop. figs/board_lockin_current_designs.png is rebuilt from these,
+and both traces now fall at the shaded band's edge.

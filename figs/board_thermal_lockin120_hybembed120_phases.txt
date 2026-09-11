@@ -1,0 +1,101 @@
+calib per_iter=0.034839 fixed=1.060 trial=120.21 iters=3394 on_s=120
+run_start 1789146515 cycles=49 xclbin=aie_stream.xclbin iters=3394 host=host_aie_timed on_s=120 off_s=120
+on_start 1789146575 cycle=0
+on_end 1789146696 cycle=0 rc=0
+on_start 1789146816 cycle=1
+on_end 1789146936 cycle=1 rc=0
+on_start 1789147056 cycle=2
+on_end 1789147176 cycle=2 rc=0
+on_start 1789147296 cycle=3
+on_end 1789147416 cycle=3 rc=0
+on_start 1789147536 cycle=4
+on_end 1789147657 cycle=4 rc=0
+on_start 1789147777 cycle=5
+on_end 1789147897 cycle=5 rc=0
+on_start 1789148017 cycle=6
+on_end 1789148137 cycle=6 rc=0
+on_start 1789148257 cycle=7
+on_end 1789148377 cycle=7 rc=0
+on_start 1789148497 cycle=8
+on_end 1789148617 cycle=8 rc=0
+on_start 1789148737 cycle=9
+on_end 1789148858 cycle=9 rc=0
+on_start 1789148978 cycle=10
+on_end 1789149098 cycle=10 rc=0
+on_start 1789149218 cycle=11
+on_end 1789149338 cycle=11 rc=0
+on_start 1789149458 cycle=12
+on_end 1789149578 cycle=12 rc=0
+on_start 1789149698 cycle=13
+on_end 1789149819 cycle=13 rc=0
+on_start 1789149939 cycle=14
+on_end 1789150059 cycle=14 rc=0
+on_start 1789150179 cycle=15
+on_end 1789150299 cycle=15 rc=0
+on_start 1789150419 cycle=16
+on_end 1789150539 cycle=16 rc=0
+on_start 1789150659 cycle=17
+on_end 1789150779 cycle=17 rc=0
+on_start 1789150899 cycle=18
+on_end 1789151020 cycle=18 rc=0
+on_start 1789151140 cycle=19
+on_end 1789151260 cycle=19 rc=0
+on_start 1789151380 cycle=20
+on_end 1789151500 cycle=20 rc=0
+on_start 1789151620 cycle=21
+on_end 1789151740 cycle=21 rc=0
+on_start 1789151860 cycle=22
+on_end 1789151981 cycle=22 rc=0
+on_start 1789152101 cycle=23
+on_end 1789152221 cycle=23 rc=0
+on_start 1789152341 cycle=24
+on_end 1789152461 cycle=24 rc=0
+on_start 1789152581 cycle=25
+on_end 1789152701 cycle=25 rc=0
+on_start 1789152821 cycle=26
+on_end 1789152942 cycle=26 rc=0
+on_start 1789153062 cycle=27
+on_end 1789153182 cycle=27 rc=0
+on_start 1789153302 cycle=28
+on_end 1789153422 cycle=28 rc=0
+on_start 1789153542 cycle=29
+on_end 1789153662 cycle=29 rc=0
+on_start 1789153782 cycle=30
+on_end 1789153902 cycle=30 rc=0
+on_start 1789154022 cycle=31
+on_end 1789154143 cycle=31 rc=0
+on_start 1789154263 cycle=32
+on_end 1789154383 cycle=32 rc=0
+on_start 1789154503 cycle=33
+on_end 1789154623 cycle=33 rc=0
+on_start 1789154743 cycle=34
+on_end 1789154863 cycle=34 rc=0
+on_start 1789154983 cycle=35
+on_end 1789155104 cycle=35 rc=0
+on_start 1789155224 cycle=36
+on_end 1789155344 cycle=36 rc=0
+on_start 1789155464 cycle=37
+on_end 1789155584 cycle=37 rc=0
+on_start 1789155704 cycle=38
+on_end 1789155824 cycle=38 rc=0
+on_start 1789155944 cycle=39
+on_end 1789156065 cycle=39 rc=0
+on_start 1789156185 cycle=40
+on_end 1789156305 cycle=40 rc=0
+on_start 1789156425 cycle=41
+on_end 1789156545 cycle=41 rc=0
+on_start 1789156665 cycle=42
+on_end 1789156785 cycle=42 rc=0
+on_start 1789156905 cycle=43
+on_end 1789157025 cycle=43 rc=0
+on_start 1789157145 cycle=44
+on_end 1789157266 cycle=44 rc=0
+on_start 1789157386 cycle=45
+on_end 1789157506 cycle=45 rc=0
+on_start 1789157626 cycle=46
+on_end 1789157746 cycle=46 rc=0
+on_start 1789157866 cycle=47
+on_end 1789157986 cycle=47 rc=0
+on_start 1789158106 cycle=48
+on_end 1789158227 cycle=48 rc=0
+run_end 1789158347
