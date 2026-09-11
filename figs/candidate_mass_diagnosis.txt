@@ -90,3 +90,53 @@
 #    is short by about 1170 GeV, and making it correct costs 0.02 to 0.06 AUC.
 #    The mass is one of fourteen autoencoder input features and functions as a
 #    learned summary statistic, not as a physical mass estimate.
+
+################################################################################
+# CORRECTION, 2026-09-11: THIS DIAGNOSIS WAS MEASURED ON A BROKEN MODEL
+################################################################################
+# Every number above was produced by a probe that NEUTRALISED the embedding's
+# input BatchNorm (zeroing running_mean, setting running_var, gamma and beta to
+# the identity) instead of fusing it into the first linear. That is the model
+# with its input normalisation deleted, the same bug found the same day in
+# scripts/make_auc_eval_set.py. The exported hardware weights are BN-FUSED, so
+# the board always ran the full model; only this analysis did not.
+#
+# The deployed checkpoint, BatchNorm active, on gluino_rpv_6j:
+#
+#                         share   jets      m_light   m_heavy
+#   as reported above      34%    3.2/5.9     605 G    2404 G
+#   the real model         43%    4.2/4.9     993 G    1914 G
+#
+# THE HEADLINE CLAIM IS WRONG. The split is NOT badly unbalanced by jet count:
+# 4.22 against 4.85 jets is a ratio of 1.15. But the masses still differ by
+# 1.93x, and the reason is visible once the right quantity is measured:
+#
+#   lighter candidate   4.22 jets   sum pT 1041 GeV   mass  993 GeV
+#   heavier candidate   4.85 jets   sum pT 1905 GeV   mass 1914 GeV
+#   ratios              jets 1.15   sum pT 1.83       mass 1.93
+#
+# The mass asymmetry tracks ENERGY (1.83), not jet count (1.15). The model
+# divides the jets nearly evenly by number and very unevenly by momentum: the
+# hard jets go to one candidate and the soft ones to the other.
+#
+# That reframes the failure of the balance objectives in
+# figs/balance_loss_negative_result.txt. They penalised COUNT imbalance. Even
+# perfect count balance moves 4.22/4.85 to 4.5/4.5, a 7% correction, against an
+# 83% energy imbalance. They were optimising the wrong quantity. (The
+# train/eval mismatch recorded there is real and also applies; the share
+# figures in that file are likewise ~9 points low for this same reason, though
+# its relative comparisons and its training-log evidence stand, since those
+# metrics came from the model itself during training.)
+#
+# AND THE ISR SLOT IS DEAD: 0.00 jets of 9.07. Only about six of those jets are
+# signal, three per 1500 GeV gluino; the rest are ISR and are absorbed into the
+# candidates instead of being set aside. The cause is a training hyperparameter,
+# not the architecture: the deployed checkpoint was trained by retrain_tune.py
+# with ISR=0.5, ten times the config's own scale_ISR_loss=0.05. That term
+# charges the ISR candidate its full transverse energy, so emptying the slot is
+# the cheapest solution available to the optimiser.
+#
+# Whether restoring the slot also fixes the energy skew, and at what cost in
+# AUC, is measured in figs/isr_slot_sweep.txt. No candidate-mass quantity is
+# used as a training target anywhere: forcing the two masses equal would build
+# the signal's symmetry into a model that only ever sees QCD.
