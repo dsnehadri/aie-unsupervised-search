@@ -54,3 +54,39 @@
 #    stage all of them go to ISR, so BOTH candidate masses are exactly zero.
 #    'retrained_noncollapse' (the deployed one) mitigates this to the 3.1/5.6
 #    split above but never balances it. The low masses are a training outcome.
+#
+# ===================== HOW TO FIX IT (tested, 2026-09-10) =====================
+#
+# A. INFERENCE-TIME CENTERING -- partial, free. Subtract each category's
+#    per-event mean across jets before the argmax, removing the common mode:
+#      sample              m_light      light share    AUC
+#      gluino_rpv_6j       478 -> 703 G   34 -> 39%    0.9505 -> 0.9486
+#      gluino_rpv_10j      694 -> 761 G   35 -> 37%    0.9699 -> 0.9714
+#      squark_rpv_8j_2000  673 -> 842 G   33 -> 37%    0.9916 -> 0.9910
+#    Recovers about a third of the imbalance at no cost in AUC. One line in
+#    get_jet_choice; on hardware it is a mean over at most 12 jets per category,
+#    cheap in both the fabric and the array. It does NOT reach a balanced split.
+#
+# B. FORCING A PHYSICALLY CORRECT MASS -- makes discrimination WORSE. Replacing
+#    the mass feature with the most balanced two-way split of the same jets:
+#      gluino_rpv_6j      AUC 0.9546 -> 0.8904
+#      gluino_rpv_10j     AUC 0.9708 -> 0.9224
+#      squark_rpv_8j_2000 AUC 0.9905 -> 0.9689
+#    The autoencoder is trained on the mass distribution its own assignment
+#    produces; a balanced mass is out of distribution for BOTH classes and
+#    compresses the separation. So this is not a fix in any useful sense.
+#
+# C. RETRAINING is the only real fix, if physically meaningful candidate masses
+#    are wanted. This is assignment collapse of the same kind as mixture-of-
+#    experts routing collapse, and the usual remedies apply: an auxiliary
+#    balance loss penalising deviation from an even split, a Sinkhorn or
+#    optimal-transport assignment instead of a hard argmax, or Gumbel-softmax
+#    with temperature annealing. The checkpoint name retrained_noncollapse says
+#    this was already fought once; the 'replication' checkpoint is the fully
+#    collapsed starting point.
+#
+# D. DOING NOTHING is defensible, provided the paper does not claim the
+#    candidates reconstruct sparticle masses. They do not: the light candidate
+#    is short by about 1170 GeV, and making it correct costs 0.02 to 0.06 AUC.
+#    The mass is one of fourteen autoencoder input features and functions as a
+#    learned summary statistic, not as a physical mass estimate.
