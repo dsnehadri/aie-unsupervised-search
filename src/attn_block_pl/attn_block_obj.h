@@ -107,6 +107,34 @@ static void obj_df_reshape(
     const weight_t bias_k[E_DIM], const weight_t bias_v[E_DIM],
     data_t QKV_h[3 * N_HEADS][N_KV][D_HEAD])
 {
+#ifdef HEADS_BATCHED
+    // Write the packed channel directly from the projections in one pass over
+    // the 13 key rows; the consumer holds QKV_h fully partitioned. The generic
+    // path below builds three intermediate arrays and copies them again, 385
+    // cycles for 13 rows of data movement. Same semantics: head h takes
+    // columns h*D_HEAD+d, row N_MAX of K and V is the learned bias, row N_MAX
+    // of Q is zero.
+    #pragma HLS ARRAY_PARTITION variable=Q_full dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=K_full dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=V_full dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=bias_k complete
+    #pragma HLS ARRAY_PARTITION variable=bias_v complete
+    #pragma HLS ARRAY_PARTITION variable=QKV_h dim=0 complete
+    for (int i = 0; i < N_KV; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int h = 0; h < N_HEADS; h++) {
+            #pragma HLS UNROLL
+            for (int d = 0; d < D_HEAD; d++) {
+                #pragma HLS UNROLL
+                const int e = h * D_HEAD + d;
+                QKV_h[h][i][d]               = (i < N_MAX) ? Q_full[i][e] : (data_t)0;
+                QKV_h[N_HEADS + h][i][d]     = (i < N_MAX) ? K_full[i][e] : (data_t)bias_k[e];
+                QKV_h[2 * N_HEADS + h][i][d] = (i < N_MAX) ? V_full[i][e] : (data_t)bias_v[e];
+            }
+        }
+    }
+    return;
+#endif
     // Q, K and V packed into one channel so the interface stays a single array.
     data_t Q_h[N_HEADS][N_MAX][D_HEAD], K_h[N_HEADS][N_KV][D_HEAD], V_h[N_HEADS][N_KV][D_HEAD];
     reshape_and_append_bias_kv<N_MAX, N_MAX>(Q_full, K_full, V_full, bias_k, bias_v, Q_h, K_h, V_h);

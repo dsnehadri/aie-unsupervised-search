@@ -108,3 +108,15 @@ scripts are fixed and both .npz references regenerated; the broken one is
 kept as auc_eval_ref_BROKEN_bn_neutralised.npz. The committed figure notes
 already quoted 0.9818, so nothing in the paper carried the wrong number, but
 the measurement printouts in this session did.
+
+Second round: linears and reshape
+---------------------------------
+LIN_PARTITION=16 changed nothing because the linear already runs at II=1
+over its 192 outputs (195 cycles). LIN_J_UNROLL=F computes F outputs per
+cycle instead. RESHAPE_FAST rewrites the reshape helper as two pipelined row
+passes (the original pipelined only the innermost 4-iteration loop and paid
+fill on every head-row pair: 255 cycles for 25 rows); under HEADS_BATCHED the
+object block writes its packed channel directly from the projections in one
+13-row pass, skipping an intermediate copy (385 -> ~15).
+Native sim with RESHAPE_FAST + LIN_J_UNROLL=4 on top of the build-A flags:
+bit-identical to the deployed design, 2000/2000 events.

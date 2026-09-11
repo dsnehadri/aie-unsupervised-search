@@ -48,11 +48,28 @@ void linear(
 #define LIN_PART_K(v, f) LIN_DO_PRAGMA(HLS ARRAY_PARTITION variable=v dim=2 cyclic factor=f)
     LIN_PART_K(W, LIN_PARTITION)
     LIN_PART_K(in, LIN_PARTITION)
+#ifdef LIN_J_UNROLL
+    // The linear already runs at II=1 over its N_ROWS x OUT_DIM outputs (192
+    // iterations -> 195 cycles for 12x16), so widening the k-partition cannot
+    // help; the only way down is several outputs per cycle. LIN_J_UNROLL = F
+    // computes F outputs per iteration, F x the multipliers. Same two-level
+    // _Pragma indirection as LIN_PART_K, or the factor is not expanded.
+    #define LIN_PART_J(v, f)   LIN_DO_PRAGMA(HLS ARRAY_PARTITION variable=v dim=1 cyclic factor=f)
+    #define LIN_PART_OUT(v, f) LIN_DO_PRAGMA(HLS ARRAY_PARTITION variable=v dim=2 cyclic factor=f)
+    #define LIN_PART_B(v, f)   LIN_DO_PRAGMA(HLS ARRAY_PARTITION variable=v cyclic factor=f)
+    #define LIN_UNROLL_J(f)    LIN_DO_PRAGMA(HLS UNROLL factor=f)
+    LIN_PART_J(W, LIN_J_UNROLL)
+    LIN_PART_OUT(out, LIN_J_UNROLL)
+    LIN_PART_B(bias, LIN_J_UNROLL)
+#endif
     LIN_I:
     for (int i = 0; i < N_ROWS; i++) {
         LIN_J:
         for (int j=0; j < OUT_DIM; j++) {
             #pragma HLS PIPELINE II=1
+#ifdef LIN_J_UNROLL
+            LIN_UNROLL_J(LIN_J_UNROLL)
+#endif
             acc_t sum = (acc_t) bias[j];
             LIN_K:
             for (int k=0; k < IN_DIM; k++) {
@@ -328,6 +345,45 @@ void reshape_and_append_bias_kv(
     data_t K_h[N_HEADS][N_KEY+1][D_HEAD],
     data_t V_h[N_HEADS][N_KEY+1][D_HEAD]
 ) {
+#ifdef RESHAPE_FAST
+    // Two pipelined passes over the rows, writing every head and dim of a row
+    // in one cycle: N_Q + N_KEY + 1 cycles plus latency (~30 for 12 rows).
+    // The original pipelines only the innermost 4-iteration loop and pays
+    // pipeline fill on every (h, i): 255 cycles for the same 25 rows.
+    #pragma HLS ARRAY_PARTITION variable=Q_full dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=K_full dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=V_full dim=2 complete
+    #pragma HLS ARRAY_PARTITION variable=bias_k complete
+    #pragma HLS ARRAY_PARTITION variable=bias_v complete
+    #pragma HLS ARRAY_PARTITION variable=Q_h dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=Q_h dim=3 complete
+    #pragma HLS ARRAY_PARTITION variable=K_h dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=K_h dim=3 complete
+    #pragma HLS ARRAY_PARTITION variable=V_h dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=V_h dim=3 complete
+    RS_Q: for (int i = 0; i < N_Q; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int h = 0; h < N_HEADS; h++) {
+            #pragma HLS UNROLL
+            for (int d = 0; d < D_HEAD; d++) {
+                #pragma HLS UNROLL
+                Q_h[h][i][d] = Q_full[i][h * D_HEAD + d];
+            }
+        }
+    }
+    RS_KV: for (int i = 0; i <= N_KEY; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int h = 0; h < N_HEADS; h++) {
+            #pragma HLS UNROLL
+            for (int d = 0; d < D_HEAD; d++) {
+                #pragma HLS UNROLL
+                const int e = h * D_HEAD + d;
+                K_h[h][i][d] = (i < N_KEY) ? K_full[i][e] : (data_t)bias_k[e];
+                V_h[h][i][d] = (i < N_KEY) ? V_full[i][e] : (data_t)bias_v[e];
+            }
+        }
+    }
+#else
     RESHAPE:
     for (int h = 0; h <N_HEADS; h++) {
         #pragma HLS UNROLL
@@ -354,6 +410,7 @@ void reshape_and_append_bias_kv(
             V_h[h][N_KEY][d] = (data_t)bias_v[e];
         }
     }
+#endif
 }
 
 // scaled dot product attention for one head
