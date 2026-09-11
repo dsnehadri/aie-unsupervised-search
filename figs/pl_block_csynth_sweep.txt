@@ -103,3 +103,23 @@
 # concurrency saves. Fabric multipliers behave exactly as advertised (311 -> 215 DSP at
 # identical II) but there is now nothing worth spending the freed DSP on.
 # => the DSP budget was never the obstacle; the dataflow copy overhead is.
+#
+# BURST DDR INPUT: NEGATIVE. The ~25 us fixed offset is not DDR access latency.
+# BURST_INPUT replaces the per-event read_input() calls with one flat loop over the
+# whole batch, so the m_axi reads burst across all n events instead of once per event.
+# Measured on hardware, PL-only, integer LN, OBJ_DATAFLOW, 80 MHz:
+#   per-event m_axi reads (as built)   interval 124.1 us   fixed 398 us   AUC 0.9825
+#   bursted across the batch           interval 124.1 us   fixed 399 us   AUC 0.9825
+# Identical to four digits. The AUC confirms the build is correct rather than broken,
+# so this is a real null, not a failed run.
+# Per-event DDR latency was the prime suspect after the stage-removal experiment
+# showed the offset is fixed per event and not per stage. It is now excluded.
+#
+# What the offset is NOT, after four experiments: stage cost (splitting the block),
+# inter-stage backpressure (tripling every FIFO), stage count (removing two stages),
+# DDR access latency (bursting the batch). The interval is pinned at 124.1 us
+# = 9928 cycles at 80 MHz while the longest synthesized stage is 7722 cycles.
+# Note OBJ_DATAFLOW took the object block 9202 -> 5762 cycles in synthesis but the
+# design-level interval only moved 128.4 -> 124.1 us (3%), so the object block is no
+# longer what sets the interval. The remaining suspect is the slowest stage we never
+# touched, cross attention, which the OBJ_DATAFLOW work deliberately left alone.
