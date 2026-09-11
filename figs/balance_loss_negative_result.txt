@@ -1,0 +1,96 @@
+Can a balance-encouraging objective fix the low candidate masses?  No.
+================================================================
+
+Background
+----------
+figs/candidate_mass_diagnosis.txt showed the low reconstructed masses come
+from an unbalanced jet assignment, not from quantisation.  The deployed model
+sends about 34% of the jets to the lighter candidate instead of 50%, so that
+candidate is built from ~3 jets and the other from ~6.  The resulting masses
+are 478 GeV and 2215 GeV instead of the ~1660 GeV a balanced split gives.
+
+This file records an attempt to cure that in training, and why it failed.
+
+Method
+------
+All runs: 2000 steps, seed 7, QCD background, same data and schedule.  Three
+families of balance objective were added to model.py, applied to the T=3 jet
+choice tensor:
+
+  soft   l_bal = mean((frac_light - 0.5)^2) * scale
+  moe    l_bal = 2 * mean(sum_t f_t * P_t) * scale     (switch-transformer
+         load balancing; f = hard fraction, P = mean soft probability)
+  ST     do_gumbel = True, i.e. gumbel_softmax(tau, hard=True) replaces
+         softmax(x/0.1) in get_jet_choice during training, so the penalty
+         sees the same one-hot assignment that inference uses.
+
+Results
+-------
+model                       light share   m_light   m_heavy   AUC 6j/10j/8j
+deployed (retrained)             34%        478 G    2215 G   0.951/0.970/0.992
+balance0  (control, scale 0)     35%        524 G    2158 G   0.895/0.949/0.982
+balance2  (soft, scale 2)        29%        348 G    2404 G   0.905/0.948/0.982
+balance10 (soft, scale 10)       37%        619 G    2074 G   0.904/0.940/0.984
+moe1      (moe, scale 1)         35%        547 G    2119 G   0.909/0.945/0.986
+moe5      (moe, scale 5)         29%        365 G    2373 G   0.919/0.961/0.989
+gumbel0   (ST, scale 0)           0%          0 G    3749 G   0.841/0.872/0.952
+gumbel10  (ST, scale 10)          0%          0 G    3745 G   0.840/0.872/0.951
+gumbel50  (ST, scale 50)          0%          0 G    3749 G   0.841/0.872/0.952
+
+The 2000-step runs are undertrained next to the deployed model (AUC ~0.90 vs
+0.951), so compare them to the balance0 control, not to the deployed row.
+
+Why the soft penalty fails
+--------------------------
+It is minimised on a tensor that inference never sees.  Training scores
+softmax(x/0.1); inference takes argmax.  Recovering the light fraction from
+the logged penalty:
+
+  run         TRAIN (soft)        VAL (hard argmax)
+  balance2    0.358 -> 0.444      0.299 -> 0.261
+  balance10   0.358 -> 0.446      0.284 -> 0.274
+
+In both runs the training fraction moves toward 0.5 and the evaluation
+fraction moves away from it.  The model flattens the soft probabilities
+without flipping any argmax, which costs it nothing.  The penalty is not
+merely ineffective, it is anti-correlated with the quantity we want.
+
+The moe penalty never optimised at all: 5.086 -> 4.974 against a balanced
+minimum of 5.0, i.e. it already reports "balanced" at initialisation.
+
+Why straight-through fails worse
+--------------------------------
+gumbel_softmax(hard=True) is the textbook fix for that train/eval mismatch,
+and it collapses the model completely: every jet goes to one candidate, so
+m_light is exactly 0.
+
+The control is what identifies the cause.  gumbel0 has the balance penalty
+set to zero and collapses exactly as hard as gumbel50; all three ST runs
+agree to three digits.  So the collapse is caused by do_gumbel itself, not
+by the balance term.  Gumbel adds noise to the logits before the argmax, and
+that noise, not the logits, is what spreads the assignment during training.
+The model is free to drive the logits further into collapse while the noisy
+assignment still looks balanced.  Take the noise away at evaluation and
+nothing is left.  gumbel10 shows this directly: the training fraction stays
+near 0.35 while the evaluation fraction falls 0.373 -> 0.012.
+
+This is presumably why do_gumbel is False in every shipped config although
+gumbel_softmax_config is present.
+
+An architectural change was considered and rejected
+---------------------------------------------------
+Taking the final jet choice from the object-attention output rather than the
+cross-attention output was the obvious next idea.  The probe in
+scripts/diagnose_candidate_mass.py rules it out: of the four candidate
+tensors, cross1 (what the model already uses) gives the best light share at
+34% and obj1 the worst at 27%.  The swap would make the balance worse.
+
+Conclusion
+----------
+Eight runs across three objective families do not move the light share out of
+the 29-37% band, and the one method that acts on the hard assignment destroys
+the model.  The unbalanced split should be reported as a property of the
+trained model rather than presented as something we corrected.  It does not
+affect the hardware result: the fabric and AIE implementations reproduce the
+float model's assignment to 1 flip in 13912 jets, so the masses are a
+statement about the network, not about the port to hardware.
