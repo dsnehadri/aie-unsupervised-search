@@ -1,0 +1,56 @@
+Candidate mass on the quantity the paper actually plots
+=======================================================
+
+Figure 3 of arXiv:2309.05728 plots the AVERAGE of the two candidate masses,
+<m>_ABC = mean(m_0, m_1), not the two candidates separately. That is the
+comparison below; paper_repro/compute_figs.py computes it as
+  mavg(choice) = ms_from_p4s(bmm(choice^T, jet_p4))[:, :2].mean(-1)
+from the ORIGINAL jet four-momenta, in GeV.
+
+Both models rerun today on the same current samples, full statistics
+(11,441 events for the 6j signal), BatchNorm active in both.
+
+  signal                     true    ours <m>_ABC    released <m>_ABC
+  gluino_rpv_6j             1500 G   1417 G   -6%   1373 G    -8%
+  gluino_rpv_10j            1500 G   1437 G   -4%   1403 G    -6%
+  stop_rpv_12j              1500 G   1416 G   -6%   1366 G    -9%
+  squark_rpv_8j_WZH_2000    2000 G   1774 G  -11%   1712 G   -14%
+  squark_rpv_8j_2000        2000 G   1810 G   -9%   1743 G   -13%
+  qcd_background              --      633 G           624 G
+
+  mean |deviation| from the parent mass:  ours 7.2%, released 10.2%
+
+So the mass DOES track the parent, low by 4 to 11%, and our deployed model is
+closer than the released checkpoint on every one of the five signals. The
+background sits at 633 GeV, well separated from both signal regimes, which is
+what makes the mass useful as an observable.
+
+Per-candidate, both models are asymmetric
+-----------------------------------------
+On gluino_rpv_6j the split is 943/1871 GeV for ours (ratio 1.85) and
+1003/1746 GeV for the released checkpoint (ratio 1.74). The asymmetry is a
+property of the method, not of our port: the released weights show it too,
+and arXiv:2309.05728 ships a brute-force MINIMUM-MASS-ASYMMETRY partition as
+a dashed baseline in the same figure, which is the authors measuring exactly
+this. That baseline gives 919 GeV on QCD here.
+
+Averaging the two candidates is what makes the observable land near the parent
+mass, and it is what the paper reports.
+
+What the released checkpoint actually contains
+----------------------------------------------
+config_files/2309.05728/finalWeights.ckpt has obj_blocks, cand_blocks and
+cross_blocks at indices [0,1,2,3], i.e. FOUR ABC layers, with embed_dim 32,
+ae_dim 4 and out_dim (T) = 2, so no ISR slot at all. Our deployed model is
+T=3 with two ABC layers and embed_dim 16. The file is named optimal_T2.json,
+a tuned variant, so it need not match the architecture described in the paper
+text; the block count above is read from the weights, not the config.
+
+Consequences for the earlier mass investigation
+-----------------------------------------------
+The dead ISR slot (0.00 jets of 9.07) is not a regression against the released
+checkpoint: that model is T=2 and has no ISR slot to fill. Two attempts to
+revive ours both failed, and are recorded in figs/isr_slot_sweep.txt: the ISR
+energy penalty empties the slot at any scale >= 0.05 and at 0 the model
+collapses into it (AUC 0.98 -> 0.58), and removing the hardcoded logit bias
+entirely does not fill it either while making the split worse (ratio 2.74).
