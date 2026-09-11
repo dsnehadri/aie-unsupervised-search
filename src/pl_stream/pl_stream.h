@@ -604,7 +604,27 @@ static void write_output_ddr(hls::stream<ap_uint<32>>& in, ap_uint<32>* out_buf,
 
 static void read_input_n(const ap_uint<32>* in_buf, int n, hls::stream<ap_uint<32>>& o) {
     #pragma HLS INLINE off
+#ifdef BURST_INPUT
+    // MEASURED, AND IT CHANGES NOTHING. Keep it off.
+    // One flat sequential read over the whole batch instead of one call per
+    // event, so the m_axi reads burst across the batch rather than paying a
+    // DDR round trip per event. The idea was that this fixed per-event cost
+    // explains why every fabric build sits ~2000 cycles above its longest
+    // stage, an offset that did not move when two of thirteen stages were
+    // removed. On hardware: interval 124.1 us either way, fixed cost 398
+    // against 399 us, AUC 0.9825 unchanged, so the build is correct and the
+    // null is real. Per-event DDR latency is excluded. See
+    // figs/pl_block_csynth_sweep.txt; the real limit is three co-bottleneck
+    // stages at 7472-7724 cycles (obj0, obj1, cross).
+    const int total = n * 72;
+    for (int i = 0; i < total; i++) {
+        #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=144 max=184320
+        o.write(in_buf[i]);
+    }
+#else
     for (int e = 0; e < n; e++) read_input(in_buf, e*72, o);
+#endif
 }
 static void fork_n(hls::stream<ap_uint<32>>& in, int n,
     hls::stream<data_t>& je, hls::stream<data_t>& jp, hls::stream<data_t>& jc,
@@ -662,7 +682,17 @@ static void wout_n(hls::stream<float>& i, hls::stream<ap_uint<32>>& o, int n) {
 }
 static void wddr_n(hls::stream<ap_uint<32>>& i, ap_uint<32>* out_buf, int n) {
     #pragma HLS INLINE off
+#ifdef BURST_INPUT
+    // same reasoning as read_input_n, on the write side
+    const int total_o = n * 3;
+    for (int i2 = 0; i2 < total_o; i2++) {
+        #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=6 max=7680
+        out_buf[i2] = i.read();
+    }
+#else
     for (int e = 0; e < n; e++) write_output_ddr(i, out_buf, e*3);
+#endif
 }
 
 // batched top-level dataflow: one region for the whole batch
