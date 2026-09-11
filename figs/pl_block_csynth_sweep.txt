@@ -118,8 +118,35 @@
 # What the offset is NOT, after four experiments: stage cost (splitting the block),
 # inter-stage backpressure (tripling every FIFO), stage count (removing two stages),
 # DDR access latency (bursting the batch). The interval is pinned at 124.1 us
-# = 9928 cycles at 80 MHz while the longest synthesized stage is 7722 cycles.
+# = 9695 cycles at 78.125 MHz while the longest synthesized stage is 7724 cycles.
 # Note OBJ_DATAFLOW took the object block 9202 -> 5762 cycles in synthesis but the
 # design-level interval only moved 128.4 -> 124.1 us (3%), so the object block is no
 # longer what sets the interval. The remaining suspect is the slowest stage we never
 # touched, cross attention, which the OBJ_DATAFLOW work deliberately left alone.
+#
+# THE KERNEL CLOCK IS 78.125 MHz, NOT 80. We ask v++ for --clock.freqHz 80000000
+# but the clock wizard can only divide its 625 MHz primitive by an integer, so it
+# gives 625/8 = 78.125 MHz. Post-route timing summary, clk_wizard_0_clk_out1_o4.
+# Every cycle count derived from a measured microsecond figure must use 78.125.
+# It does not change any events/s or microsecond number, those are measured, and
+# it closes timing comfortably: WNS +0.639 ns, 0 failing endpoints of 591314.
+# (HLS estimated -0.12 ns at the top level, which implementation then beat.)
+#
+# PER-EVENT COST OF EVERY STAGE, from the event loop's iteration latency in the
+# full-design csynth report (not the block-level runs above):
+#   read_input     3        obj0      7724        cross    7588
+#   fork         161        cand      2115        lorentz   759
+#   embed       2186        obj1      7472        ae        416
+#   pairwise    2855        cand2     2169        wddr        2
+# sum 33450, max 7724 (98.9 us), measured interval 9695 (124.1 us).
+#
+# THIS IS WHY FINER PIPELINING STOPPED PAYING. Three stages are co-bottlenecks
+# within 3% of each other: obj0 7724, cross 7588, obj1 7472. OBJ_DATAFLOW took the
+# object block 9202 -> 7724 but cross attention was already at 7588 and was never
+# touched, so the max barely moved and the design-level gain was 3%. Speeding up
+# any ONE of the three cannot help; all three have to come down together.
+# Ceiling: even if the 1971-cycle offset vanished entirely the interval would be
+# 98.9 us, a 1.25x gain, and further progress then needs all three stages.
+# For contrast the hybrid is already at 17.3 us (57,917 ev/s), 7x better, because
+# it moves whole stages off the fabric instead of making them faster on it.
+# => stop optimising the fabric. It is the baseline for comparison, not the result.
