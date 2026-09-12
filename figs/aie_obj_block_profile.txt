@@ -125,3 +125,10 @@ slowest obj_attn_head_post_h0_L0 = 10.1 us/event ; chain sum 64 us
 # the L0 head post kernel only).
 # Chain sum 125 -> 64 us per object block: the block's LATENCY, not its
 # interval; the slowest kernel (head post, integer softmax) sets the interval.
+# EMBEDDING with vector I/O (aiesimulator, 2026-09-12): 8,998 cycles/event = 7.2 us
+# (was 20,993 = 16.8 us); output matches x86sim line for line.
+# PROJECTION before the hardware build (per-block critical path pre + head post
+# + a_proj + b1 + b2 + c): object 65 -> 28 us, cross about the same, candidate
+# small; AIE path per event ~307 -> ~135 us, so one event ~355 -> ~180 us
+# (~160 with direct-register launch) and the interval 17.3 -> ~12 us (head post
+# 10.1 us + handoff). To be replaced by the measurement.
