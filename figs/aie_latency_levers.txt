@@ -43,5 +43,30 @@ Lever 2 -- vector float softmax in the object head post kernels (softmax_vec.h, 
   Golden error unchanged (obj max 0.031 -> 0.034); aiesim == x86sim.
   Object block critical path 65 -> 23 us; cross 18.5 us (4-key softmax is cheap).
   post_c (two layer norms, 43-48%) is now the slowest kernel at 6.0 us.
-  Image aie_hybrid_smvec: building (link started 16:32). Projection: one event
-  ~160 us (~140 direct); interval limited by the fabric candidate-build stage (9.2 us).
+  HARDWARE (image aie_hybrid_smvec, BOOT.BIN md5 7589432b, SW_CRC f06b23f3, 2026-09-12 18:45):
+                              vector I/O      + vector softmax
+    one event (xrt::run)       191 us          181 us  (184 in the 200-iter direct test's ERT loop)
+    one event, direct regs     170 us          160 us            scheduler 24.7 us median
+    interval (fit N>=8)        11.3 us         11.3 us           88,377 events/s
+    fixed cost (fit)           182 us          172 us
+    AUC (2000 labelled)        0.9822          0.9817  (+-0.0023 statistical); rank corr vs
+                                                       software 0.9977 (was 0.9983), vs the
+                                                       vector I/O image 0.9986; 2/2000 identical
+  The 10 us is 2 object blocks x 5 us (the cross blocks' 4-key softmax was already 2 us).
+  The interval did not move: with head post at 5 us the fabric candidate-build stage
+  (9.2 us) and post_c (6 us) set it, not the AIE head kernels.
+  batch sweep (figs/latency_sweep_hybrid_smvec.csv):
+  N=1    median 0.181 ms  180.7 us/event
+  N=2    median 0.194 ms  96.2 us/event
+  N=4    median 0.219 ms  54.1 us/event
+  N=8    median 0.264 ms  32.5 us/event
+  N=16   median 0.354 ms  22.1 us/event
+  N=32   median 0.536 ms  16.7 us/event
+  N=64   median 0.898 ms  14.0 us/event
+  N=128  median 1.622 ms  12.6 us/event
+  N=256  median 3.069 ms  12.0 us/event
+
+Summary, one event: 355 -> 181 us (1.96x), 160 us with direct-register launch (2.22x);
+interval 17.3 -> 11.3 us (1.53x). Fabric-only two-layer design for comparison: 363 / 342 us.
+Left on the table: post_c layer norm (43-48% of the now-slowest 6 us kernel), the fabric
+candidate-build stage (9.2 us, sets the interval), merging b1+b2+c (saves window hops).
