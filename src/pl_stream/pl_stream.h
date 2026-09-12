@@ -44,8 +44,8 @@ typedef hls::stream<pk_t> wstream_t;   // score_t tensors (the w_ij bias)
 #define STREAM_TO_ARRAY2D(R, C) pstream_to_array2d<R, C>
 #define ARRAY2D_TO_STREAM(R, C) array2d_to_pstream<R, C>
 #else
-typedef dstream_t dstream_t;
-typedef wstream_t wstream_t;
+typedef hls::stream<data_t> dstream_t;
+typedef hls::stream<score_t> wstream_t;
 #define STREAM_TO_ARRAY2D(R, C) stream_to_array2d<R, C>
 #define ARRAY2D_TO_STREAM(R, C) array2d_to_stream<R, C>
 #endif
