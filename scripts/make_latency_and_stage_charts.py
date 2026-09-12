@@ -34,7 +34,24 @@ SWEEP = {
     "AIE-PL hybrid, embedding on array": [(1,0.35504),(2,0.37636),(4,0.41030),(8,0.47965),(16,0.61606),
                       (32,0.89252),(64,1.44643),(128,2.54917),(256,4.76108)],
 }
-COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C, "AIE-PL hybrid, embedding on array": "#2ca02c"}
+COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C, "AIE-PL hybrid, embedding on array": "#2ca02c",
+       "PL-only, attention blocks optimised": "#ff7f0e", "AIE-PL hybrid, vector AIE kernels": "#9467bd"}
+
+# The two 2026-09-11/12 latency builds, read from their sweep files (figs/):
+#   PL-only t2a: softmax pipelined, heads batched, narrow multipliers, fast
+#   reshape (79.8 us/event, one event 363 us; 78.125 MHz, two layers).
+#   Hybrid smvec: every AI Engine kernel moves its windows 16 lanes at a time and
+#   the object head post uses an 8-lane float softmax (11.3 us/event, one event
+#   181 us, 160 us with direct-register launch). AUC 0.9825 / 0.9817.
+def _csv(path, kernel):
+    pts = []
+    for l in open(path):
+        if l.startswith(kernel + ","):
+            q = l.split(","); pts.append((int(q[1]), float(q[4])))   # (N, median ms)
+    return pts
+_F = "/home/snehadri/repos/aie-unsupervised-search/figs/"
+SWEEP["PL-only, attention blocks optimised"] = _csv(_F + "latency_sweep_pl_t2a.csv", "pl_stream_top")
+SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_smvec.csv", "aie_stream_top")
 NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
