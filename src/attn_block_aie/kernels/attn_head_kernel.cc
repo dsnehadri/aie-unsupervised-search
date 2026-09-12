@@ -522,21 +522,20 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     win_read_v<N_KV_PAD * D_HEAD>(v_in, V);
 
 #if ATTN_LAYER == 0
-    // wij is N_MAX x N_KV row-major (156 words): vector reads for the first
-    // 144, scalar for the last 12, then each row is an unaligned 16-lane
-    // load with lanes N_KV.. masked to zero before the saturating add.
-    alignas(16) int16 wl[N_MAX * N_KV_PAD];
-    constexpr int WV = (N_MAX * N_KV) / 16 * 16;
-    win_read_v<WV>(wij_in, wl);
-    for (int i = WV; i < N_MAX * N_KV; i++) wl[i] = window_readincr(wij_in);
-    alignas(16) int16 lane_mask[16];
-    for (int c = 0; c < 16; c++) lane_mask[c] = (c < N_KV) ? 1 : 0;
-    const aie::vector<int16, 16> mv = aie::load_v<16>(lane_mask);
+    // wij add stays scalar (156 words, row-major N_MAX x N_KV). A vector
+    // version (9 vector window reads + 12 scalar, then an unaligned 16-lane
+    // load per row with lanes N_KV.. masked) was bit-exact in x86sim but on
+    // the hardware ISA (aiesimulator) the last row of every event came out
+    // wrong, with or without a memory fence. The scalar loop costs ~1.2 us
+    // on this one kernel (10.1 vs 8.9 us/event), so it is not worth chasing.
     for (int r = 0; r < N_MAX; r++) {
-        const aie::vector<int16, 16> w = aie::load_unaligned_v<16>(&wl[r * N_KV]);
-        const aie::vector<int16, 16> wm = aie::mul(w, mv).template to_vector<int16>(0);
-        aie::store_v(&scores[r * N_KV_PAD],
-                     add_sat16(aie::load_v<16>(&scores[r * N_KV_PAD]), wm));
+        for (int c = 0; c < N_KV; c++) {
+            int16 w = window_readincr(wij_in);
+            int32 sum = (int32)scores[r * N_KV_PAD + c] + (int32)w;
+            if (sum > 32767) sum = 32767;
+            if (sum < -32768) sum = -32768;
+            scores[r * N_KV_PAD + c] = (int16)sum;
+        }
     }
 #endif
 
