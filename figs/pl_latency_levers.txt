@@ -245,3 +245,16 @@ offsets. On t2a, N=1, 200 iterations:
 The scheduler costs 20.4 us of the invocation, 5.6% of it, and all of the
 jitter: the direct path's min, median and max span 0.4 us against ERT's 97 us.
 Both paths produce identical scores (ev0 0.40821 either way).
+
+t2e ON HARDWARE (2026-09-12 18:55; plstream_t2e = t2a + HEADS_BATCHED + LIN_FABRIC_MUL,
+78.125 MHz, two layers; BOOT.BIN md5 ea2a0ca2, SW_CRC 1999cd90; routed 406,389 LUT
+(45%), 1,044 DSP (53%); csynth full-design estimate was 698,958 LUT -> ratio 1.72):
+                       t2a            t2e
+  one event (xrt::run)  363 us         319 us     (baseline 521)
+  one event, direct     342 us         299 us     scheduler 19.9 us median
+  interval (fit N>=8)   79.8 us        65.7 us    15,210 events/s
+  fixed cost (fit)      --             254 us
+  AUC                   0.9825         0.9825     scores identical 2000/2000, rank corr vs software 0.9967
+Data figs/latency_sweep_pl_t2e.csv. t2f (all levers incl. LN6) was killed before Vivado:
+csynth full-design 1,648,774 LUT (183%). Remaining fabric room at 45% LUT: LN6 on a
+subset of the layer norms, or WIDE_STREAMS (untested at two layers).
