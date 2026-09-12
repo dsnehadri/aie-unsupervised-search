@@ -96,3 +96,32 @@ slowest obj_post_c_L0 = 14.3 us/event ; chain sum 125 us
 # differences scatter -3.0 to +1.9 us, hence quoting ~1 us with a bound of ~2). The 10 us
 # attributed to DDR is the OTHER subtraction, 24.8 - 14.4. Quote all three numbers so both
 # subtractions are checkable; the control's alpha is what makes the crossing claim testable.
+
+=== vector window I/O (2026-09-12, deployed kernels above + win_vec.h; wij add scalar) ===
+kernel                      tile  us/event  softfloat  layernorm   divide    gemm
+obj_attn_head_post_h0_L0    24_3      10.1         0%         0%       0%      0%
+obj_attn_head_post_h2_L0    23_1      10.0         0%         0%       0%      0%
+obj_attn_head_post_h1_L0    23_3      10.0         0%         0%       0%      0%
+obj_attn_head_post_h3_L0    25_2      10.0         0%         0%       0%      0%
+obj_post_c_L0               22_0       6.0         0%        31%       0%      0%
+obj_post_a_proj_L0          24_2       3.4         0%         0%       0%      0%
+obj_post_b2_L0              22_1       3.3         0%         0%       0%      0%
+obj_post_b1_L0              22_2       3.3         0%         0%       0%      0%
+obj_attn_head_pre_h1_L0     24_4       2.0         0%         0%       0%      0%
+obj_attn_head_pre_h0_L0     24_5       2.0         0%         0%       0%      0%
+obj_attn_head_pre_h2_L0     24_0       2.0         0%         0%       0%      0%
+obj_attn_head_pre_h3_L0     24_1       2.0         0%         0%       0%      0%
+slowest obj_attn_head_post_h0_L0 = 10.1 us/event ; chain sum 64 us
+# What changed: every window is read/written 16 lanes at a time, rows are packed
+# into the gemm block layout with interleave_zip, the bias/residual adds are
+# saturating vector adds, and the "= {0}" stack memsets are gone. The previous
+# profile had the post kernels at ~80% scalar window copies (~18 cycles per
+# int16) plus a 2,700-cycle byte-wise memset. x86sim outputs are bit-identical
+# to the previous kernels (20 events x 6 blocks, and the embedding); on the
+# hardware ISA (aiesimulator) the object block matches x86sim line for line.
+# NEGATIVE: a vector wij path (unaligned 16-lane loads per row, lanes N_KV..
+# masked) was bit-exact in x86sim but wrong in the last row of every event in
+# aiesimulator, with or without chess_memory_fence(); kept scalar (+1.2 us on
+# the L0 head post kernel only).
+# Chain sum 125 -> 64 us per object block: the block's LATENCY, not its
+# interval; the slowest kernel (head post, integer softmax) sets the interval.
