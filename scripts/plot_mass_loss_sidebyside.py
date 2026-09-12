@@ -4,7 +4,11 @@ no titles, plain 'Fraction of Events' y-axes, no inset commentary.
 
 Data source and output name are overridable:
   IN=<figdata.npz> OUT=<figs basename> python3 plot_mass_loss_sidebyside.py
-Default is paper_repro/figdata.npz (retrained, paper architecture)."""
+Default is paper_repro/figdata_ours.npz: OUR weights, retrained_noncollapse,
+the checkpoint on the hardware and the one every other figure uses. The
+paper's released 2309.05728 checkpoint is figdata_released.npz; it is a
+different network (T=2, four ABC blocks, embed 32) with a loss axis ~78x
+apart, so it must not be mixed in."""
 import os
 import numpy as np, matplotlib
 matplotlib.use("Agg")
@@ -12,7 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator
 
 IN = os.environ.get("IN",
-                    "/home/snehadri/repos/unsupervised-search/paper_repro/figdata.npz")
+                    "/home/snehadri/repos/unsupervised-search/paper_repro/figdata_ours.npz")
 d = np.load(IN)
 
 SIG = [
