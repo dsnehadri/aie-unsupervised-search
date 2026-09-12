@@ -1,0 +1,47 @@
+AIE-PL hybrid: one-event latency levers on the AI Engine side (2026-09-12)
+==========================================================================
+Where the 355 us went (embedding-on-array image, aie_hybrid_pipe_embed):
+  ~290 us AIE kernel chain: 6 attention blocks, each a serial chain
+         pre -> head post -> a_proj -> b1 -> b2 -> c (65 us per obj/cross block)
+  ~30 us  fabric stages at 100 MHz (pairwise 6.8, candidate build 9.2, AE 7.3, lorentz 2.9)
+  ~25 us  host launch (ERT scheduler; direct registers remove it)
+The interval is the SLOWEST kernel; the latency is the SUM along the chain.
+
+Lever 1 -- vector window I/O in every AIE kernel (win_vec.h, commit c0f653b + e2f50c2)
+  The aiesimulator profile: ~80% of each post kernel was scalar window_readincr /
+  writeincr (~18 cycles per int16) plus a 2,700-cycle byte-wise memset of the
+  "= {0}" stack arrays; gemm and the vector layer norm were already cheap.
+  aiesim, object block, us/event: head post 11.7->10.1, post_c 14.3->6.0,
+  a_proj 11.6->3.4, b1/b2 9.7->3.3, head pre 8.1->2.0; embedding 16.8->7.2.
+  x86sim bit-identical to the previous kernels (20 events x 6 blocks + embed);
+  aiesim == x86sim line for line (obj, cross, embed).
+  NEGATIVE: a vector wij bias path was bit-exact in x86sim and wrong in the last
+  row of every event on the ISA (with or without a memory fence); kept scalar.
+
+  HARDWARE (image aie_hybrid_vecio, BOOT.BIN md5 92996ef0, SW_CRC 9e1f4959,
+  host_latency_sweep 30 iters + plhost_direct_k 200 iters, 2026-09-12 17:40):
+                              before          vector I/O
+    one event (xrt::run)       355 us          191 us  (1.86x)
+    one event, direct regs      --             170 us  (2.09x)   scheduler 24.9 us median
+    interval (fit N>=8)        17.3 us         11.3 us          88,404 events/s (was 57,917)
+    fixed cost (fit)            --             182 us
+    AUC (2000 labelled)        0.9822          0.9822   scores identical 2000/2000
+  batch sweep (figs/latency_sweep_hybrid_vecio.csv):
+  N=1    median 0.191 ms  190.6 us/event
+  N=2    median 0.203 ms  100.9 us/event
+  N=4    median 0.229 ms  57.1 us/event
+  N=8    median 0.274 ms  33.9 us/event
+  N=16   median 0.365 ms  22.7 us/event
+  N=32   median 0.546 ms  17.0 us/event
+  N=64   median 0.908 ms  14.2 us/event
+  N=128  median 1.632 ms  12.7 us/event
+  N=256  median 3.079 ms  12.0 us/event
+
+Lever 2 -- vector float softmax in the object head post kernels (softmax_vec.h, f9277d7)
+  aiesim head post 10.1 -> 5.0 us (poly 2^-f x 2^-k in 8-lane fp32, one vector
+  Newton reciprocal for all rows; the 12 scalar float divides were 21%).
+  Golden error unchanged (obj max 0.031 -> 0.034); aiesim == x86sim.
+  Object block critical path 65 -> 23 us; cross 18.5 us (4-key softmax is cheap).
+  post_c (two layer norms, 43-48%) is now the slowest kernel at 6.0 us.
+  Image aie_hybrid_smvec: building (link started 16:32). Projection: one event
+  ~160 us (~140 direct); interval limited by the fabric candidate-build stage (9.2 us).

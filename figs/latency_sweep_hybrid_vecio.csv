@@ -1,0 +1,11 @@
+kernel,n_events,iters,min_ms,med_ms,us_per_event,out_changed
+aie_stream_top,1,30,0.19059,0.19102,190.590,3/3
+aie_stream_top,2,30,0.20187,0.20277,100.935,6/6
+aie_stream_top,4,30,0.22842,0.22888,57.105,12/12
+aie_stream_top,8,30,0.27155,0.27376,33.944,24/24
+aie_stream_top,16,30,0.36385,0.36457,22.741,48/48
+aie_stream_top,32,30,0.54498,0.54578,17.031,96/96
+aie_stream_top,64,30,0.90633,0.90778,14.161,192/192
+aie_stream_top,128,30,1.62955,1.63181,12.731,384/384
+aie_stream_top,256,30,3.07817,3.07949,12.024,768/768
+SWEEP_DONE
