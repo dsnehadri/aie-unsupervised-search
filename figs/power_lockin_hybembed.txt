@@ -174,3 +174,60 @@ The A72 rail is 205.9 against 206.4 mW across two designs that differ 7x in
 throughput, which is the cleanest statement yet that it is a fixed cost of
 the host loop. figs/board_lockin_current_designs.png is rebuilt from these,
 and both traces now fall at the shaded band's edge.
+
+
+300 s windows: power and temperature from ONE measurement
+=========================================================
+Both designs rerun at 300 s ON / 300 s OFF, 25 cycles, so power and
+temperature come from the same campaign and the same windows rather than
+being stitched from two. Window distribution identical on both designs:
+{300 s: 11 cycles, 301 s: 14}.
+
+                          fabric only          hybrid + embedding
+  total dP          266.1 +- 14.9 mW        1004.7 +- 16.7 mW
+    VCCINT           51.5 +- 14.1 mW         753.9 +- 15.7 mW
+    VCCINT_PSFP     205.1 +-  0.3 mW         207.2 +-  0.3 mW
+    VCC_DDR4          4.1 +-  0.1 mW          32.4 +-  0.1 mW
+  die dT           +0.430 +- 0.050 C       +0.621 +- 0.067 C
+  array dT         +0.130 +- 0.049 C       +0.602 +- 0.067 C
+  energy per event     33.03 uJ                 17.35 uJ
+    of which compute    6.39 uJ                 13.02 uJ
+    of which host      25.46 uJ                  3.58 uJ
+
+BOTH quantities were understated at 120 s, for the same reason
+--------------------------------------------------------------
+  hybrid dP   952.7 -> 1004.7 mW   +5.5%  (2.6 sigma)
+  hybrid die   0.467 -> 0.621 C    +33%
+  hybrid array 0.448 -> 0.602 C    +34%
+  fabric dP   253.9 ->  266.1 mW   +4.8%  (0.6 sigma, not significant)
+  fabric die   0.368 ->  0.430 C   +17%
+
+The temperature was expected: at tau = 56 to 71 s a 120 s window reaches only
+about 85% of the steady-state rise. The POWER shift was not, and the reason
+is the same window. Power itself is a step, settled within about 2 s, but the
+baseline it is measured against is not: a 120 s OFF window leaves the die
+warm, warm silicon leaks more current, so the OFF power sits high and dP comes
+out small. Both quantities need a long OFF window, not just a long ON window.
+The earlier prediction that dP would be insensitive to window length was
+wrong for this reason.
+
+The fitted asymptotes from the 120 s data (0.642 and 0.636 C) match the
+measured 300 s values (0.621 and 0.602) to 3 to 5%, so the exponential fit
+was sound even though the percentage arithmetic built on it was not.
+
+What does not change
+--------------------
+Energy per event 33.03 -> 17.35 uJ, a factor 1.90, against 1.92 at 120 s. The
+hybrid still costs about twice the COMPUTE energy per event, 13.02 against
+6.39 uJ, and still wins only by amortising fixed cost over 7.2x the
+throughput. The A72 rail reads 205.1 and 207.2 mW across two designs that
+differ sevenfold in rate, which is the cleanest form of the fixed-host-cost
+claim in this work.
+
+One control weakens
+-------------------
+The fabric's AIE array rise is no longer cleanly null: +0.065 +- 0.040 C at
+120 s (1.6 sigma) becomes +0.130 +- 0.049 C at 300 s (2.7 sigma). Over 300 s
+heat conducts from the die, which sits at +0.430 C. So "the array is idle in
+the fabric design" should rest on the power rail, VCCINT +51.5 mW against
++753.9 mW, rather than on a null temperature.

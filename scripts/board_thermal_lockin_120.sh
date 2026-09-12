@@ -24,6 +24,7 @@ HOST=${3:-$DEFHOST}
 ON_S=${ON_S:-120}
 OFF_S=${OFF_S:-120}
 NEV=${NEV:-2000}
+WDOG=$(awk -v a="$ON_S" 'BEGIN{print int(a)+120}')
 cd /root
 rm -f mod_log.csv mod_phase.txt mod_load.log
 
@@ -105,7 +106,9 @@ while [ $i -lt "$CYCLES" ]; do
   ./"$HOST" "$XCLBIN" eval_bkg.bin "$NEV" "$ITERS" >> mod_load.log 2>&1 &
   PID=$!
   n=0
-  while kill -0 $PID 2>/dev/null && [ $n -lt 400 ]; do sleep 1; n=$((n+1)); done   # 400 s watchdog
+  # watchdog scales with the window: ON_S plus 120 s of slack. A fixed 400 s
+  # would fire during a 300 s window on a slow start.
+  while kill -0 $PID 2>/dev/null && [ $n -lt $WDOG ]; do sleep 1; n=$((n+1)); done
   if kill -0 $PID 2>/dev/null; then
     kill -9 $PID; wait $PID 2>/dev/null
     echo "on_end $(date +%s) cycle=$i rc=TIMEOUT" >> mod_phase.txt
