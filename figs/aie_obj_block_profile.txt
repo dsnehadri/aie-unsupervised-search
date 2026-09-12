@@ -161,3 +161,25 @@ slowest obj_post_c_L0 = 6.0 us/event ; chain sum 44 us
 # Object block critical path pre 2.0 + post 5.0 + a_proj 3.4 + b1 3.3 + b2 3.3
 # + c 6.0 = 23 us (was 65 with the float-LN-fixed kernels). post_c (43% layer
 # norm) is now the slowest kernel and sets the block interval.
+
+=== cross block, vector I/O (2026-09-12, aiesimulator, CrossAttnGraphL<0>, 4 events) ===
+kernel                      tile  us/event  softfloat  layernorm   divide    gemm
+cross_post_c_L0             22_1       6.0         0%        48%       0%      0%
+cross_post_b1_L0            22_2       3.3         0%         0%       0%      0%
+cross_post_b2_L0            22_3       3.3         0%         0%       0%      0%
+cross_post_a_proj_L0        24_2       3.0         0%         0%       0%      0%
+cross_attn_head_post_h2_L0  23_3       2.0         0%         0%       0%      0%
+cross_attn_head_post_h0_L0  23_1       2.0         0%         0%       0%      0%
+cross_attn_head_post_h1_L0  24_4       2.0         0%         0%       0%      0%
+cross_attn_head_post_h3_L0  25_2       2.0         0%         0%       0%      0%
+cross_attn_head_pre_h3_L0   24_1       0.9         0%         0%       0%      0%
+cross_attn_head_pre_h2_L0   24_3       0.9         0%         0%       0%      0%
+cross_attn_head_pre_h0_L0   24_0       0.9         0%         0%       0%      0%
+cross_attn_head_pre_h1_L0   24_5       0.9         0%         0%       0%      0%
+slowest cross_post_c_L0 = 6.0 us/event ; chain sum 27 us
+# Critical path pre 0.9 + head post 2.0 + a_proj 3.0 + b1 3.3 + b2 3.3 + c 6.0 = 18.5 us;
+# the 4-key integer softmax is cheap, post_c (two layer norms, 48%) sets the interval.
+# aiesimulator output == x86sim. Vehicle: tb/cross_prof_main.cc via /home/snehadri/run_prof_cross.sh.
+# PROJECTION (obj 23 + cross 18.5 + cand ~6 per layer, x2, + embed 7 = ~103 us of AIE
+# chain, + ~30 us fabric + ~25 us launch): one event ~160 us (~140 direct registers);
+# interval set by the fabric candidate-build stage (9.2 us) once post_c is at 6 us.
