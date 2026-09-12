@@ -371,6 +371,11 @@ static inline void scale_scores_v(int16* __restrict scores, float inv_sqrt_d)
 // PIPE_SCALE into OUT in 4x4-block-packed layout (pk_idx) so the AV gemm
 // consumes them with pure vector loads. Padded rows/cols are written zero.
 #include "exp2_lut.h"
+// SOFTMAX_INT keeps the integer softmax for the 16-key (object) head post kernels
+#ifndef SOFTMAX_INT
+#define SOFTMAX_VEC 1
+#include "softmax_vec.h"
+#endif
 
 #if defined(ATTN_TYPE_CAND)
 #define PIPE_SCALE_BITS CAND_FRAC_BITS
@@ -539,9 +544,13 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     }
 #endif
 
-    // integer softmax, emitted directly in packed layout for the AV gemm
+    // softmax, emitted directly in packed layout for the AV gemm
     alignas(16) int16 attn_p[N_MAX * N_KV_PAD];
+#ifdef SOFTMAX_VEC
+    vec_softmax_packed<N_MAX, N_KV, N_KV_PAD>(scores, attn_p, (float)PIPE_SCORE_SCALE, (float)PIPE_SCALE);
+#else
     int_softmax_packed<N_MAX, N_KV, N_KV_PAD>(scores, attn_p);
+#endif
 
     alignas(16) int16 head_out[N_MAX * D_HEAD];
     gemm_pk<N_MAX, N_KV_PAD, D_HEAD>(attn_p, V, head_out, PIPE_AV_SHIFT);

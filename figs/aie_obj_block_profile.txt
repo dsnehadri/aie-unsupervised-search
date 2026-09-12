@@ -132,3 +132,32 @@ slowest obj_attn_head_post_h0_L0 = 10.1 us/event ; chain sum 64 us
 # small; AIE path per event ~307 -> ~135 us, so one event ~355 -> ~180 us
 # (~160 with direct-register launch) and the interval 17.3 -> ~12 us (head post
 # 10.1 us + handoff). To be replaced by the measurement.
+
+=== + vector float softmax in the head post kernels (2026-09-12, softmax_vec.h) ===
+kernel                      tile  us/event  softfloat  layernorm   divide    gemm
+obj_post_c_L0               22_1       6.0         0%        43%       0%      0%
+obj_attn_head_post_h2_L0    25_2       5.0         0%         0%       0%      0%
+obj_attn_head_post_h1_L0    23_1       5.0         0%         0%       0%      0%
+obj_attn_head_post_h3_L0    23_3       5.0         0%         0%       0%      0%
+obj_attn_head_post_h0_L0    24_4       5.0         0%         0%       0%      0%
+obj_post_a_proj_L0          24_2       3.4         0%         0%       0%      0%
+obj_post_b1_L0              22_2       3.3         0%         0%       0%      0%
+obj_post_b2_L0              22_3       3.3         0%         0%       0%      0%
+obj_attn_head_pre_h2_L0     24_1       2.0         0%         0%       0%      0%
+obj_attn_head_pre_h1_L0     24_0       2.0         0%         0%       0%      0%
+obj_attn_head_pre_h3_L0     24_3       2.0         0%         0%       0%      0%
+obj_attn_head_pre_h0_L0     24_5       2.0         0%         0%       0%      0%
+slowest obj_post_c_L0 = 6.0 us/event ; chain sum 44 us
+# Head post 10.1 -> 5.0 us: the integer softmax ran 156 scalar exponentials
+# (branch + LUT + variable shift) per event. Now per row: d = max - x in int32
+# lanes, t = d*log2e/score_scale in 8-lane fp32, k = round(t), 2^-f by a
+# degree-4 polynomial, times 2^-k by subtracting k from the exponent bits;
+# row sums by vector reduce; ONE vector Newton reciprocal (bit-trick seed, 3
+# steps) for all 12 rows instead of 12 scalar float divides (the divides were
+# 21% of the kernel: 7.7 us with them, 5.0 without). Not bit-identical to the
+# integer softmax: x86sim vs the PyTorch golden, obj max error 0.031 -> 0.034
+# (L0), 0.007 -> 0.009 (L1); cand/cross untouched. aiesimulator == x86sim.
+# Head post stack 2880 B (of 4096 with --stacksize=4096; main adds ~416).
+# Object block critical path pre 2.0 + post 5.0 + a_proj 3.4 + b1 3.3 + b2 3.3
+# + c 6.0 = 23 us (was 65 with the float-LN-fixed kernels). post_c (43% layer
+# norm) is now the slowest kernel and sets the block interval.
