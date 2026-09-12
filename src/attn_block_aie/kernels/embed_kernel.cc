@@ -3,6 +3,7 @@
 #include <aie_api/aie_adf.hpp>
 #include <adf.h>
 #include "gemm_utils.h"
+#include "win_vec.h"
 
 // Diagnostic: a scalar reference for the three matrix multiplies. x86sim agrees
 // with the float model to 0.006 while the cycle-accurate simulator is off by
@@ -36,17 +37,7 @@ static void gemm_ref(const int16* __restrict Ap, const int16* __restrict B,
 #define PIPE_SCALE DATA_SCALE
 #include "layernorm_int.h"
 
-static void add_bias_sat(int16* __restrict mat, const int16* __restrict bias,
-                         int n_rows, int n_cols)
-{
-    for (int r = 0; r < n_rows; r++)
-        for (int c = 0; c < n_cols; c++) {
-            int32 s = (int32)mat[r * n_cols + c] + (int32)bias[c];
-            if (s > 32767) s = 32767;
-            if (s < -32768) s = -32768;
-            mat[r * n_cols + c] = (int16)s;
-        }
-}
+// bias adds: add_bias_v16 (win_vec.h), the same saturating int32 add as before
 
 static void relu_inplace(int16* __restrict x, int n)
 {
@@ -59,33 +50,38 @@ static void relu_inplace(int16* __restrict x, int n)
 void embed_mlp(input_window_int16* __restrict jets_in,
                output_window_int16* __restrict embed_out)
 {
-    // layer 0: 5 -> 16, read straight into packed layout with zero padding
-    alignas(32) int16 a[EMBED_ROWS * EMBED_IN_PAD] = {0};
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    // layer 0: 5 -> 16. The 64-word window (12 x 5 features, then padding)
+    // comes in as 4 vectors; the 60 features are scattered into the packed
+    // 12 x 8 layout from local memory, the padding columns stay zero.
+    alignas(16) int16 raw[EMBED_IN_WORDS];
+    win_read_v<EMBED_IN_WORDS>(jets_in, raw);
+    alignas(32) int16 a[EMBED_ROWS * EMBED_IN_PAD];
+    zero_v<EMBED_ROWS * EMBED_IN_PAD>(a);
     for (int r = 0; r < EMBED_ROWS; r++)
         for (int c = 0; c < EMBED_IN; c++)
-            a[pk_idx<EMBED_IN_PAD>(r, c)] = window_readincr(jets_in);
-    // consume the window's alignment padding so the next event starts clean
-    for (int i = EMBED_ROWS * EMBED_IN; i < EMBED_IN_WORDS; i++) (void)window_readincr(jets_in);
+            a[pk_idx<EMBED_IN_PAD>(r, c)] = raw[r * EMBED_IN + c];
 
     alignas(32) int16 h[EMBED_ROWS * E_DIM];
     GEMM_PK<EMBED_ROWS, EMBED_IN_PAD, E_DIM>(a, embed_W0, h, ACC_SHIFT);
-    add_bias_sat(h, embed_b0, EMBED_ROWS, E_DIM);
+    add_bias_v16<EMBED_ROWS>(h, embed_b0);
     layernorm_row(h, EMBED_ROWS, E_DIM, embed_ln0_g, embed_ln0_b);
     relu_inplace(h, EMBED_ROWS * E_DIM);
 
     // layer 1: 16 -> 16
     alignas(32) int16 ap[EMBED_ROWS * E_DIM];
-    pack_a4<EMBED_ROWS, E_DIM>(h, ap);
+    pack_local16<EMBED_ROWS>(h, ap);
     GEMM_PK<EMBED_ROWS, E_DIM, E_DIM>(ap, embed_W1, h, ACC_SHIFT);
-    add_bias_sat(h, embed_b1, EMBED_ROWS, E_DIM);
+    add_bias_v16<EMBED_ROWS>(h, embed_b1);
     layernorm_row(h, EMBED_ROWS, E_DIM, embed_ln1_g, embed_ln1_b);
     relu_inplace(h, EMBED_ROWS * E_DIM);
 
     // layer 2: 16 -> 16, no norm
-    pack_a4<EMBED_ROWS, E_DIM>(h, ap);
+    pack_local16<EMBED_ROWS>(h, ap);
     alignas(32) int16 out[EMBED_ROWS * E_DIM];
     GEMM_PK<EMBED_ROWS, E_DIM, E_DIM>(ap, embed_W2, out, ACC_SHIFT);
-    add_bias_sat(out, embed_b2, EMBED_ROWS, E_DIM);
+    add_bias_v16<EMBED_ROWS>(out, embed_b2);
 
-    for (int i = 0; i < EMBED_ROWS * E_DIM; i++) window_writeincr(embed_out, out[i]);
+    win_write_v<EMBED_ROWS * E_DIM>(embed_out, out);
+    aie::set_saturation(sat_save);
 }

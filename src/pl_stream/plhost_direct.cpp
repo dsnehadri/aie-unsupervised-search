@@ -7,7 +7,8 @@
 // Register map from the kernel.xml of the build (HLS layout, ap_ctrl_chain):
 //   0x00 control (bit0 ap_start, bit1 ap_done, bit3 ap_ready, bit4 ap_continue)
 //   0x10/0x14 in_buf lo/hi   0x1C/0x20 out_buf lo/hi   0x28 n_events
-// usage: ./plhost_direct pl_stream.xclbin input.bin <n_events> [iters]
+// usage: ./plhost_direct <xclbin> input.bin <n_events> [iters] [kernel=pl_stream_top]
+// The hybrid (aie_stream_top) has the same register map, so it is the same test.
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -33,11 +34,12 @@ int main(int argc,char**argv){
   const int WIN=72, WOUT=3;
   int N = (argc>3)?atoi(argv[3]):1;
   int ITERS = (argc>4)?atoi(argv[4]):50;
+  std::string kname = (argc>5)?argv[5]:"pl_stream_top";
   std::vector<uint32_t> in(N*WIN,0);
   if(argc>2){ std::ifstream f(argv[2],std::ios::binary); f.read((char*)in.data(),N*WIN*4); }
   auto dev=xrt::device(0);
   printf("load_xclbin...\n"); auto uuid=dev.load_xclbin(std::string(argv[1]));
-  auto k=xrt::kernel(dev,uuid,"pl_stream_top",xrt::kernel::cu_access_mode::exclusive);
+  auto k=xrt::kernel(dev,uuid,kname,xrt::kernel::cu_access_mode::exclusive);
   auto in_bo=xrt::bo(dev,N*WIN*4,k.group_id(0));
   auto out_bo=xrt::bo(dev,N*WOUT*4,k.group_id(1));
   auto im=in_bo.map<uint32_t*>(); auto om=out_bo.map<uint32_t*>();

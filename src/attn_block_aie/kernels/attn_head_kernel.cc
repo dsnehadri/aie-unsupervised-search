@@ -339,29 +339,22 @@ void HEAD_POST_FN(input_window_float* __restrict scores_in,
 #else  // !FLOAT_AIE -- the deployed int16 kernels
 // vectorized tiled gemm: A packed 4x4-block-major, B row-major (gemm_utils.h)
 #include "gemm_utils.h"
+#include "win_vec.h"
 
-// add bias to each row
-
-template<int ROWS, int COLS>
-static inline void add_bias(int16* __restrict mat, const int16* __restrict bias)
-{
-    for (int r = 0; r < ROWS; r++) {
-        for (int c = 0; c < COLS; c++) {
-            mat[r * COLS + c] = (int16)(mat[r * COLS + c] + bias[c]);
-        }
-    }
-}
+// Window traffic and the bias/scale passes are vector (win_vec.h); the
+// scalar window loops were most of each head kernel's cycles. The bias adds
+// saturate (the scalar add_bias wrapped, which only differed on overflow).
 
 // scale scores by 1/sqrt(d_head). Operates on the score buffer which is at
 // PIPE_SCORE_SCALE (separate from PIPE_SCALE so Q*Kt doesn't saturate int16).
-static void scale_scores(int16* __restrict scores, int n_rows, int n_cols_pad, float inv_sqrt_d)
+// (product >> shift) per lane under the default floor rounding, as before.
+template <int N>
+static inline void scale_scores_v(int16* __restrict scores, float inv_sqrt_d)
 {
-    int16 scale_fixed = (int16)(inv_sqrt_d * PIPE_SCORE_SCALE);
-    for (int r = 0; r < n_rows; r++) {
-        for (int c = 0; c < n_cols_pad; c++) {
-            int32 product = (int32)scores[r * n_cols_pad + c] * (int32)scale_fixed;
-            scores[r * n_cols_pad + c] = (int16)(product >> PIPE_SCORE_SHIFT);
-        }
+    const int16 scale_fixed = (int16)(inv_sqrt_d * PIPE_SCORE_SCALE);
+    for (int i = 0; i < N; i += 16) {
+        const aie::vector<int16, 16> v = aie::load_v<16>(&scores[i]);
+        aie::store_v(&scores[i], aie::mul(v, scale_fixed).template to_vector<int16>(PIPE_SCORE_SHIFT));
     }
 }
 
@@ -431,6 +424,15 @@ static void int_softmax_packed(const int16* __restrict scores, int16* __restrict
             out[pk_idx<N_PAD>(r, c)] = 0;
 }
 
+// K (ROWS_KV x 4, row-major) -> Kt (4 x ROWS_KV)
+template <int ROWS_KV>
+static inline void transpose_k4(const int16* __restrict K, int16* __restrict Kt)
+{
+    for (int i = 0; i < ROWS_KV; i++)
+        for (int j = 0; j < D_HEAD; j++)
+            Kt[j * ROWS_KV + i] = K[i * D_HEAD + j];
+}
+
 // =====================================================================
 // object self attention - split into pre + post
 // =====================================================================
@@ -438,27 +440,28 @@ static void int_softmax_packed(const int16* __restrict scores, int16* __restrict
 #if defined(ATTN_TYPE_OBJ)
 
 // stage 1: Q/K/V projection + scores = Q*K^T scaled
+
 #if defined(HEAD_STAGE_PRE)
 void HEAD_PRE_FN(input_window_int16* __restrict x_in,
                        output_window_int16* __restrict scores_out,
                        output_window_int16* __restrict v_out)
 {
-    // read X directly into packed layout (same scalar read cost; the gemms
-    // then run on pure vector loads). The window carries N_MAX+1 rows: the
-    // extra row is the padding mask (nonzero = padded jet), so BOTH layers
-    // get true key masking without extra PLIOs (fixes the padded-key leak:
-    // previously padded keys kept bias-only scores instead of -inf).
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    // read X into packed layout (the gemms then run on pure vector loads).
+    // The window carries N_MAX+1 rows: the extra row is the padding mask
+    // (nonzero = padded jet), so BOTH layers get true key masking without
+    // extra PLIOs (fixes the padded-key leak: previously padded keys kept
+    // bias-only scores instead of -inf).
     alignas(16) int16 Xp[N_MAX * E_DIM];
-    for (int r = 0; r < N_MAX; r++)
-        for (int c = 0; c < E_DIM; c++)
-            Xp[pk_idx<E_DIM>(r, c)] = window_readincr(x_in);
-    int16 kmask[E_DIM];
-    for (int c = 0; c < E_DIM; c++) kmask[c] = window_readincr(x_in);
+    win_read_packed16<N_MAX>(x_in, Xp);
+    alignas(16) int16 kmask[E_DIM];
+    aie::store_v(kmask, win_read16(x_in));
 
     // V first - persists into the output stream
-    alignas(16) int16 V[N_KV_PAD * D_HEAD] = {0};
+    alignas(16) int16 V[N_KV_PAD * D_HEAD];
+    zero_v<N_KV_PAD * D_HEAD>(V);
     gemm_pk<N_MAX, E_DIM, D_HEAD>(Xp, Wv, V, PIPE_ACC_SHIFT);
-    add_bias<N_MAX, D_HEAD>(V, bv);
+    add_bias_v4<N_MAX>(V, bv);
     for (int j = 0; j < D_HEAD; j++) V[N_MAX * D_HEAD + j] = bias_v_row[j];
 
     alignas(16) int16 scores[N_MAX * N_KV_PAD];
@@ -467,22 +470,21 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
         // feeds the Q*Kt gemm below without repacking
         alignas(16) int16 Q[N_MAX * D_HEAD];
         gemm_pk<N_MAX, E_DIM, D_HEAD>(Xp, Wq, Q, PIPE_ACC_SHIFT);
-        add_bias<N_MAX, D_HEAD>(Q, bq);
+        add_bias_v4<N_MAX>(Q, bq);
 
-        alignas(16) int16 K[N_KV_PAD * D_HEAD] = {0};
+        alignas(16) int16 K[N_KV_PAD * D_HEAD];
+        zero_v<N_KV_PAD * D_HEAD>(K);
         gemm_pk<N_MAX, E_DIM, D_HEAD>(Xp, Wk, K, PIPE_ACC_SHIFT);
-        add_bias<N_MAX, D_HEAD>(K, bk);
+        add_bias_v4<N_MAX>(K, bk);
         for (int j = 0; j < D_HEAD; j++) K[N_MAX * D_HEAD + j] = bias_k_row[j];
 
         alignas(16) int16 Kt[D_HEAD * N_KV_PAD];
-        for (int i = 0; i < N_KV_PAD; i++)
-            for (int j = 0; j < D_HEAD; j++)
-                Kt[j * N_KV_PAD + i] = K[i * D_HEAD + j];
+        transpose_k4<N_KV_PAD>(K, Kt);
 
         gemm_pk<N_MAX, D_HEAD, N_KV_PAD>(Q, Kt, scores, PIPE_QKT_SHIFT);
     }
 
-    scale_scores(scores, N_MAX, N_KV_PAD, 0.5f);
+    scale_scores_v<N_MAX * N_KV_PAD>(scores, 0.5f);
 
     // hard-mask padded keys: -32000 pushes softmax past D_MAX -> exactly 0
     for (int j = 0; j < N_MAX; j++)
@@ -490,8 +492,9 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
             for (int i = 0; i < N_MAX; i++)
                 scores[i * N_KV_PAD + j] = -32000;
 
-    for (int i = 0; i < N_MAX * N_KV_PAD; i++) window_writeincr(scores_out, scores[i]);
-    for (int i = 0; i < N_KV_PAD * D_HEAD; i++) window_writeincr(v_out, V[i]);
+    win_write_v<N_MAX * N_KV_PAD>(scores_out, scores);
+    win_write_v<N_KV_PAD * D_HEAD>(v_out, V);
+    aie::set_saturation(sat_save);
 }
 #endif // HEAD_STAGE_PRE
 
@@ -511,22 +514,29 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
                         output_window_int16* __restrict x_out)
 #endif
 {
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 scores[N_MAX * N_KV_PAD];
-    for (int i = 0; i < N_MAX * N_KV_PAD; i++) scores[i] = window_readincr(scores_in);
+    win_read_v<N_MAX * N_KV_PAD>(scores_in, scores);
 
     alignas(16) int16 V[N_KV_PAD * D_HEAD];
-    for (int i = 0; i < N_KV_PAD * D_HEAD; i++) V[i] = window_readincr(v_in);
+    win_read_v<N_KV_PAD * D_HEAD>(v_in, V);
 
 #if ATTN_LAYER == 0
-    // add wij row-by-row (no full wij array on stack)
+    // wij is N_MAX x N_KV row-major (156 words): vector reads for the first
+    // 144, scalar for the last 12, then each row is an unaligned 16-lane
+    // load with lanes N_KV.. masked to zero before the saturating add.
+    alignas(16) int16 wl[N_MAX * N_KV_PAD];
+    constexpr int WV = (N_MAX * N_KV) / 16 * 16;
+    win_read_v<WV>(wij_in, wl);
+    for (int i = WV; i < N_MAX * N_KV; i++) wl[i] = window_readincr(wij_in);
+    alignas(16) int16 lane_mask[16];
+    for (int c = 0; c < 16; c++) lane_mask[c] = (c < N_KV) ? 1 : 0;
+    const aie::vector<int16, 16> mv = aie::load_v<16>(lane_mask);
     for (int r = 0; r < N_MAX; r++) {
-        for (int c = 0; c < N_KV; c++) {
-            int16 w = window_readincr(wij_in);
-            int32 sum = (int32)scores[r * N_KV_PAD + c] + (int32)w;
-            if (sum > 32767) sum = 32767;
-            if (sum < -32768) sum = -32768;
-            scores[r * N_KV_PAD + c] = (int16)sum;
-        }
+        const aie::vector<int16, 16> w = aie::load_unaligned_v<16>(&wl[r * N_KV]);
+        const aie::vector<int16, 16> wm = aie::mul(w, mv).template to_vector<int16>(0);
+        aie::store_v(&scores[r * N_KV_PAD],
+                     add_sat16(aie::load_v<16>(&scores[r * N_KV_PAD]), wm));
     }
 #endif
 
@@ -537,13 +547,14 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     alignas(16) int16 head_out[N_MAX * D_HEAD];
     gemm_pk<N_MAX, N_KV_PAD, D_HEAD>(attn_p, V, head_out, PIPE_AV_SHIFT);
 
-    for (int i = 0; i < N_MAX * D_HEAD; i++) window_writeincr(x_out, head_out[i]);
+    win_write_v<N_MAX * D_HEAD>(x_out, head_out);
+    aie::set_saturation(sat_save);
 }
 #endif // HEAD_STAGE_POST
 #endif
 
 // =====================================================================
-// candidate self attention - split into pre + post
+// candidate self attention
 // =====================================================================
 
 #if defined(ATTN_TYPE_CAND)
@@ -553,39 +564,37 @@ void HEAD_PRE_FN(input_window_int16* __restrict c_in,
                         output_window_int16* __restrict scores_out,
                         output_window_int16* __restrict v_out)
 {
-    alignas(16) int16 Cp[4 * E_DIM] = {0};  // packed; padded row 3 stays zero
-    for (int r = 0; r < T_DIM; r++)
-        for (int c = 0; c < E_DIM; c++)
-            Cp[pk_idx<E_DIM>(r, c)] = window_readincr(c_in);
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    alignas(16) int16 Cp[4 * E_DIM];  // packed; padded row 3 is zero
+    win_read_packed16<T_DIM>(c_in, Cp);
 
-    alignas(16) int16 V[T_KV * D_HEAD] = {0};
+    alignas(16) int16 V[T_KV * D_HEAD];
     gemm_pk<4, E_DIM, D_HEAD>(Cp, cand_Wv, V, PIPE_ACC_SHIFT);
-    add_bias<T_DIM, D_HEAD>(V, cand_bv);
+    add_bias_v4<4>(V, cand_bv);
     for (int j = 0; j < D_HEAD; j++) V[T_DIM * D_HEAD + j] = cand_bias_v_row[j];
 
     alignas(16) int16 scores[4 * T_KV];
     {
         alignas(16) int16 Q[4 * D_HEAD];
         gemm_pk<4, E_DIM, D_HEAD>(Cp, cand_Wq, Q, PIPE_ACC_SHIFT);
-        add_bias<T_DIM, D_HEAD>(Q, cand_bq);
+        add_bias_v4<4>(Q, cand_bq);
 
-        alignas(16) int16 K[T_KV * D_HEAD] = {0};
+        alignas(16) int16 K[T_KV * D_HEAD];
         gemm_pk<4, E_DIM, D_HEAD>(Cp, cand_Wk, K, PIPE_ACC_SHIFT);
-        add_bias<T_DIM, D_HEAD>(K, cand_bk);
+        add_bias_v4<4>(K, cand_bk);
         for (int j = 0; j < D_HEAD; j++) K[T_DIM * D_HEAD + j] = cand_bias_k_row[j];
 
         alignas(16) int16 Kt[D_HEAD * T_KV];
-        for (int i = 0; i < T_KV; i++)
-            for (int j = 0; j < D_HEAD; j++)
-                Kt[j * T_KV + i] = K[i * D_HEAD + j];
+        transpose_k4<T_KV>(K, Kt);
 
         gemm_pk<4, D_HEAD, T_KV>(Q, Kt, scores, PIPE_QKT_SHIFT);
     }
 
-    scale_scores(scores, T_DIM, T_KV, 0.5f);
+    scale_scores_v<4 * T_KV>(scores, 0.5f);
 
-    for (int i = 0; i < 4 * T_KV; i++) window_writeincr(scores_out, scores[i]);
-    for (int i = 0; i < T_KV * D_HEAD; i++) window_writeincr(v_out, V[i]);
+    win_write_v<4 * T_KV>(scores_out, scores);
+    win_write_v<T_KV * D_HEAD>(v_out, V);
+    aie::set_saturation(sat_save);
 }
 #endif // HEAD_STAGE_PRE
 
@@ -595,10 +604,10 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
                          output_window_int16* __restrict c_out)
 {
     alignas(16) int16 scores[4 * T_KV];
-    for (int i = 0; i < 4 * T_KV; i++) scores[i] = window_readincr(scores_in);
+    win_read_v<4 * T_KV>(scores_in, scores);
 
     alignas(16) int16 V[T_KV * D_HEAD];
-    for (int i = 0; i < T_KV * D_HEAD; i++) V[i] = window_readincr(v_in);
+    win_read_v<T_KV * D_HEAD>(v_in, V);
 
     // integer softmax (K==4: packed == row-major)
     alignas(16) int16 attn_p[4 * T_KV];
@@ -607,6 +616,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     alignas(16) int16 out[4 * D_HEAD];
     gemm_pk<4, T_KV, D_HEAD>(attn_p, V, out, PIPE_AV_SHIFT);
 
+    // the candidate head output window is 12 words: scalar
     for (int r = 0; r < T_DIM; r++)
         for (int c = 0; c < D_HEAD; c++)
             window_writeincr(c_out, out[r * D_HEAD + c]);
@@ -615,7 +625,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 #endif
 
 // =====================================================================
-// cross attention - split into pre + post
+// cross attention: queries from x (jets), keys/values from c (candidates)
 // =====================================================================
 
 #if defined(ATTN_TYPE_CROSS)
@@ -626,44 +636,40 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
                          output_window_int16* __restrict scores_out,
                          output_window_int16* __restrict v_out)
 {
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 Xp[N_MAX * E_DIM];
-    for (int r = 0; r < N_MAX; r++)
-        for (int c = 0; c < E_DIM; c++)
-            Xp[pk_idx<E_DIM>(r, c)] = window_readincr(x_in);
+    win_read_packed16<N_MAX>(x_in, Xp);
 
-    alignas(16) int16 Cp[4 * E_DIM] = {0};  // packed; padded row 3 stays zero
-    for (int r = 0; r < T_DIM; r++)
-        for (int c = 0; c < E_DIM; c++)
-            Cp[pk_idx<E_DIM>(r, c)] = window_readincr(c_in);
+    alignas(16) int16 Cp[4 * E_DIM];  // packed; padded row 3 is zero
+    win_read_packed16<T_DIM>(c_in, Cp);
 
-    alignas(16) int16 V[T_KV * D_HEAD] = {0};
+    alignas(16) int16 V[T_KV * D_HEAD];
     gemm_pk<4, E_DIM, D_HEAD>(Cp, cross_Wv, V, PIPE_ACC_SHIFT);
-    add_bias<T_DIM, D_HEAD>(V, cross_bv);
+    add_bias_v4<4>(V, cross_bv);
     for (int j = 0; j < D_HEAD; j++) V[T_DIM * D_HEAD + j] = cross_bias_v_row[j];
 
     alignas(16) int16 scores[N_MAX * T_KV];
     {
         alignas(16) int16 Q[N_MAX * D_HEAD];
         gemm_pk<N_MAX, E_DIM, D_HEAD>(Xp, cross_Wq, Q, PIPE_ACC_SHIFT);
-        add_bias<N_MAX, D_HEAD>(Q, cross_bq);
+        add_bias_v4<N_MAX>(Q, cross_bq);
 
-        alignas(16) int16 K[T_KV * D_HEAD] = {0};
+        alignas(16) int16 K[T_KV * D_HEAD];
         gemm_pk<4, E_DIM, D_HEAD>(Cp, cross_Wk, K, PIPE_ACC_SHIFT);
-        add_bias<T_DIM, D_HEAD>(K, cross_bk);
+        add_bias_v4<4>(K, cross_bk);
         for (int j = 0; j < D_HEAD; j++) K[T_DIM * D_HEAD + j] = cross_bias_k_row[j];
 
         alignas(16) int16 Kt[D_HEAD * T_KV];
-        for (int i = 0; i < T_KV; i++)
-            for (int j = 0; j < D_HEAD; j++)
-                Kt[j * T_KV + i] = K[i * D_HEAD + j];
+        transpose_k4<T_KV>(K, Kt);
 
         gemm_pk<N_MAX, D_HEAD, T_KV>(Q, Kt, scores, PIPE_QKT_SHIFT);
     }
 
-    scale_scores(scores, N_MAX, T_KV, 0.5f);
+    scale_scores_v<N_MAX * T_KV>(scores, 0.5f);
 
-    for (int i = 0; i < N_MAX * T_KV; i++) window_writeincr(scores_out, scores[i]);
-    for (int i = 0; i < T_KV * D_HEAD; i++) window_writeincr(v_out, V[i]);
+    win_write_v<N_MAX * T_KV>(scores_out, scores);
+    win_write_v<T_KV * D_HEAD>(v_out, V);
+    aie::set_saturation(sat_save);
 }
 #endif // HEAD_STAGE_PRE
 
@@ -673,10 +679,10 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
                           output_window_int16* __restrict x_out)
 {
     alignas(16) int16 scores[N_MAX * T_KV];
-    for (int i = 0; i < N_MAX * T_KV; i++) scores[i] = window_readincr(scores_in);
+    win_read_v<N_MAX * T_KV>(scores_in, scores);
 
     alignas(16) int16 V[T_KV * D_HEAD];
-    for (int i = 0; i < T_KV * D_HEAD; i++) V[i] = window_readincr(v_in);
+    win_read_v<T_KV * D_HEAD>(v_in, V);
 
     // integer softmax (K==4: packed == row-major)
     alignas(16) int16 attn_p[N_MAX * T_KV];
@@ -685,7 +691,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     alignas(16) int16 out[N_MAX * D_HEAD];
     gemm_pk<N_MAX, T_KV, D_HEAD>(attn_p, V, out, PIPE_AV_SHIFT);
 
-    for (int i = 0; i < N_MAX * D_HEAD; i++) window_writeincr(x_out, out[i]);
+    win_write_v<N_MAX * D_HEAD>(x_out, out);
 }
 #endif // HEAD_STAGE_POST
 #endif
