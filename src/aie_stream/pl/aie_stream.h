@@ -38,6 +38,73 @@
 // takes remasked X, produced C = jet_choice^T @ X
 // also re-emits X for downstream cross attn
 
+#ifdef HYB_FAST_STAGES
+// HYB_FAST_STAGES (2026-09-12): both stages were 60-70% stream transfer at one
+// 16-bit word per cycle (candidate build: 192 in + 240 out around ~230 cycles
+// of work, 920 cycles at 100 MHz; remask 192 in + 192 out). They are the
+// fabric's biggest one-event costs in the hybrid, and they run twice (two
+// layers). Both now stream x through in ONE pass: the candidate build takes
+// the isr bias, the argmax and the per-category row sum as each row goes by
+// (same operations in the same order as build_candidates, so the float sums
+// are identical), and emits c afterwards; remask zeroes rows on the fly.
+inline void candidate_build_stage(
+    hls::stream<data_t>& in_x,
+    hls::stream<bool>& in_mask,
+    hls::stream<data_t>& out_x,
+    hls::stream<data_t>& out_c) {
+    bool mask[N_MAX];
+    stream_to_array1d<N_MAX>(in_mask, mask);     // not used by the build, drained as before
+
+    data_t c[T_DIM][E_DIM];
+    #pragma HLS ARRAY_PARTITION variable=c complete dim=0
+    CB_ZERO_T: for (int t = 0; t < T_DIM; t++) {
+        #pragma HLS UNROLL
+        CB_ZERO_E: for (int e = 0; e < E_DIM; e++) {
+            #pragma HLS UNROLL
+            c[t][e] = 0;
+        }
+    }
+    CB_ROW: for (int i = 0; i < N_MAX; i++) {
+        data_t row[E_DIM];
+        #pragma HLS ARRAY_PARTITION variable=row complete
+        CB_READ: for (int e = 0; e < E_DIM; e++) {
+            #pragma HLS PIPELINE II=1
+            data_t v = in_x.read();
+            if (e == 2) v = v - (data_t)1;       // isr bias (build_candidates)
+            row[e] = v;
+            out_x.write(v);
+        }
+        // argmax over the first T_DIM features -> category
+        data_t best_val = row[0];
+        int best_idx = 0;
+        CB_ARGMAX: for (int t = 1; t < T_DIM; t++) {
+            #pragma HLS UNROLL
+            if (row[t] > best_val) { best_val = row[t]; best_idx = t; }
+        }
+        CB_ACC: for (int e = 0; e < E_DIM; e++) {
+            #pragma HLS UNROLL
+            c[best_idx][e] += row[e];
+        }
+    }
+    array2d_to_stream<T_DIM, E_DIM>(c, out_c);
+}
+
+inline void remask_stage(
+    hls::stream<data_t>& in_x,
+    hls::stream<bool>& in_mask,
+    hls::stream<data_t>& out_x
+) {
+    bool mask[N_MAX];
+    stream_to_array1d<N_MAX>(in_mask, mask);
+    RM_ROW: for (int i = 0; i < N_MAX; i++) {
+        RM_E: for (int e = 0; e < E_DIM; e++) {
+            #pragma HLS PIPELINE II=1
+            data_t v = in_x.read();
+            out_x.write(mask[i] ? (data_t)0 : v);
+        }
+    }
+}
+#else
 inline void candidate_build_stage(
     hls::stream<data_t>& in_x, 
     hls::stream<bool>& in_mask,
@@ -73,6 +140,8 @@ inline void remask_stage(
     remask(x, mask);
     array2d_to_stream<N_MAX, E_DIM>(x, out_x);
 }
+
+#endif // HYB_FAST_STAGES
 
 // top level dataflow
 

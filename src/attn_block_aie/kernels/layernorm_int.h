@@ -53,6 +53,46 @@ static inline int bitlen32(uint32 v)
     return n + (int)v;
 }
 
+// One row. Branch-free (the clamps are selects) so the scheduler can
+// interleave two rows: the chain is latency-bound (three vector reductions
+// and a dozen dependent scalar steps, ~150 cycles/row), and two independent
+// rows overlap almost fully.
+template <int F_UNUSED = 0>
+static inline void layernorm_one(int16* __restrict row,
+                                 const aie::vector<int16, 16>& gv,
+                                 const aie::vector<int32, 16>& bv,
+                                 int32 EPS_W4, int KD_MIN)
+{
+    const aie::vector<int32, 16> x32 = aie::from_vector<acc48>(aie::load_v<16>(row)).to_vector<int32>(0);
+    const int32 sum = aie::reduce_add(x32);
+    const aie::vector<int32, 16> d32 =
+        aie::sub(aie::upshift(x32, 4), aie::broadcast<int32, 16>(sum));   // |d| < 2^20
+    const int32 m = aie::reduce_max(aie::abs(d32));
+
+    int kd = bitlen32((uint32)m) - 14; kd = (kd < KD_MIN) ? KD_MIN : kd;   // |dn| <= 2^14
+    const int up = (kd < 0) ? -kd : 0, down = (kd > 0) ? kd : 0;
+    const aie::vector<int16, 16> dn = aie::from_vector<acc80>(d32, up).to_vector<int16>(down);
+    const int32 S = aie::reduce_add(aie::mul(dn, dn).to_vector<int32>(2)); // <= 2^30
+    const int32 W = S + ((kd >= 0) ? (EPS_W4 >> (2 * kd + 2)) : (EPS_W4 << (2 * up - 2))); // < 2^31
+
+    const int e = (32 - bitlen32((uint32)W)) & ~1;                        // even
+    const uint32 Wn = (uint32)W << e;                                     // [2^30, 2^32)
+    const int idx = (int)(Wn >> 23) - 128;                                // [0, 384)
+    const int32 frac = (int32)((Wn >> 7) & 0xFFFF);
+    const int32 l0 = LN_RSQRT_LUT[idx], l1 = LN_RSQRT_LUT[idx + 1];
+    const int32 R16 = l0 + (((l1 - l0) * frac) >> 16);                    // Q16, (2^16, 2^17]
+    int32 Rq = (R16 + 2) >> 2; Rq = (Rq > 32767) ? 32767 : Rq;            // Q14
+
+    const int32 mq = (kd >= 0) ? (m >> kd) : (m << up);                   // ~max |dn|, <= 2^14
+    int sd = bitlen32((uint32)(mq * Rq)) - 15; sd = (sd < 0) ? 0 : sd;    // |dn2| <= 2^15
+    const aie::vector<int16, 16> dn2 = aie::mul(dn, (int16)Rq).to_vector<int16>(sd);
+
+    int sy = 29 - sd - (e >> 1); sy = (sy < 0) ? 0 : sy;                 // >= 11 in practice
+    aie::vector<int32, 16> y32 = aie::mul(gv, dn2).to_vector<int32>(sy);
+    y32 = aie::add(y32, bv);
+    aie::store_v(row, aie::from_vector<acc80>(y32).to_vector<int16>(0));  // saturate
+}
+
 static void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
                           const int16* __restrict gamma,
                           const int16* __restrict beta)
@@ -69,37 +109,13 @@ static void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
     const aie::vector<int16, 16> gv = aie::load_v<16>(gamma);
     const aie::vector<int32, 16> bv = aie::from_vector<acc48>(aie::load_v<16>(beta)).to_vector<int32>(0); // int16 -> int32 (unpack() is int8-only in the 2022.2 API)
 
-    for (int r = 0; r < n_rows; r++) {
-        int16* row = x + r * n_cols;
-        const aie::vector<int32, 16> x32 = aie::from_vector<acc48>(aie::load_v<16>(row)).to_vector<int32>(0);
-        const int32 sum = aie::reduce_add(x32);
-        const aie::vector<int32, 16> d32 =
-            aie::sub(aie::upshift(x32, 4), aie::broadcast<int32, 16>(sum));   // |d| < 2^20
-        const int32 m = aie::reduce_max(aie::abs(d32));
-
-        int kd = bitlen32((uint32)m) - 14; if (kd < KD_MIN) kd = KD_MIN;     // |dn| <= 2^14
-        const int up = kd < 0 ? -kd : 0, down = kd > 0 ? kd : 0;
-        const aie::vector<int16, 16> dn = aie::from_vector<acc80>(d32, up).to_vector<int16>(down);
-        const int32 S = aie::reduce_add(aie::mul(dn, dn).to_vector<int32>(2)); // <= 2^30
-        const int32 W = S + (kd >= 0 ? (EPS_W4 >> (2 * kd + 2)) : (EPS_W4 << (2 * up - 2))); // < 2^31
-
-        const int e = (32 - bitlen32((uint32)W)) & ~1;                        // even
-        const uint32 Wn = (uint32)W << e;                                     // [2^30, 2^32)
-        const int idx = (int)(Wn >> 23) - 128;                                // [0, 384)
-        const int32 frac = (int32)((Wn >> 7) & 0xFFFF);
-        const int32 l0 = LN_RSQRT_LUT[idx], l1 = LN_RSQRT_LUT[idx + 1];
-        const int32 R16 = l0 + (((l1 - l0) * frac) >> 16);                    // Q16, (2^16, 2^17]
-        int32 Rq = (R16 + 2) >> 2; if (Rq > 32767) Rq = 32767;                // Q14
-
-        const int32 mq = kd >= 0 ? (m >> kd) : (m << up);                     // ~max |dn|, <= 2^14
-        int sd = bitlen32((uint32)(mq * Rq)) - 15; if (sd < 0) sd = 0;        // |dn2| <= 2^15
-        const aie::vector<int16, 16> dn2 = aie::mul(dn, (int16)Rq).to_vector<int16>(sd);
-
-        int sy = 29 - sd - (e >> 1); if (sy < 0) sy = 0;                     // >= 11 in practice
-        aie::vector<int32, 16> y32 = aie::mul(gv, dn2).to_vector<int32>(sy);
-        y32 = aie::add(y32, bv);
-        aie::store_v(row, aie::from_vector<acc80>(y32).to_vector<int16>(0));  // saturate
+    // two rows per iteration, independent chains
+    int r = 0;
+    for (; r + 1 < n_rows; r += 2) {
+        layernorm_one(x + r * n_cols, gv, bv, EPS_W4, KD_MIN);
+        layernorm_one(x + (r + 1) * n_cols, gv, bv, EPS_W4, KD_MIN);
     }
+    if (r < n_rows) layernorm_one(x + r * n_cols, gv, bv, EPS_W4, KD_MIN);
 
     aie::set_rounding(rnd_save);
     aie::set_saturation(sat_save);
