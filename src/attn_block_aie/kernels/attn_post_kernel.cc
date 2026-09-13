@@ -31,6 +31,7 @@
 #define POST_B1_FN       _POST_FN_2(ATTN_TYPE_TAG, b1,       ATTN_LAYER)
 #define POST_B2_FN       _POST_FN_2(ATTN_TYPE_TAG, b2,       ATTN_LAYER)
 #define POST_C_FN        _POST_FN_2(ATTN_TYPE_TAG, c,        ATTN_LAYER)
+#define POST_BC_FN       _POST_FN_2(ATTN_TYPE_TAG, bc,       ATTN_LAYER)
 
 // Pipeline-wide scale: cand uses Q6.9; obj/cross use Q4.11. See attn_head_kernel.cc.
 #if defined(ATTN_TYPE_CAND)
@@ -334,4 +335,55 @@ void POST_C_FN(input_window_int16* __restrict ffn_in,
     aie::set_saturation(sat_save);
 }
 #endif // POST_STAGE_C
+
+// =====================================================================
+// post_bc (POST_MERGED): FFN layers 0, 1, 2 + skip + LN in ONE kernel.
+// Same arithmetic as b1 -> b2 -> c; the two intermediate windows become
+// local packs (pack_local16), and the FFN residual is the proj window this
+// kernel already reads. Saves two window hops per block on the one-event
+// chain; costs interval, since one tile now does the work of three.
+// =====================================================================
+#if defined(POST_STAGE_BC)
+void POST_BC_FN(input_window_int16* __restrict proj_in,
+                  output_window_int16* __restrict x_out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    // proj: row-major copy for the skip, packed copy for the first gemm
+    alignas(16) int16 proj[POST_N_ROWS_PAD * E_DIM];
+    win_read_v<POST_N_ROWS * E_DIM>(proj_in, proj);
+    if constexpr (POST_N_ROWS_PAD > POST_N_ROWS)
+        zero_v<(POST_N_ROWS_PAD - POST_N_ROWS) * E_DIM>(proj + POST_N_ROWS * E_DIM);
+    alignas(16) int16 pk[POST_N_ROWS_PAD * E_DIM];
+    pack_local16<POST_N_ROWS_PAD>(proj, pk);
+
+    // FFN layer 0
+    alignas(16) int16 h[POST_N_ROWS_PAD * E_DIM];
+    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>(pk, ffn_W0, h, PIPE_ACC_SHIFT);
+    add_bias_v16<POST_N_ROWS>(h, ffn_b0);
+    layernorm_row(h, POST_N_ROWS, E_DIM, ffn_ln_gamma0, ffn_ln_beta0);
+    relu_inplace(h, POST_N_ROWS * E_DIM);
+    if constexpr (POST_N_ROWS_PAD > POST_N_ROWS)
+        zero_v<(POST_N_ROWS_PAD - POST_N_ROWS) * E_DIM>(h + POST_N_ROWS * E_DIM);
+    pack_local16<POST_N_ROWS_PAD>(h, pk);
+
+    // FFN layer 1
+    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>(pk, ffn_W1, h, PIPE_ACC_SHIFT);
+    add_bias_v16<POST_N_ROWS>(h, ffn_b1);
+    layernorm_row(h, POST_N_ROWS, E_DIM, ffn_ln_gamma1, ffn_ln_beta1);
+    relu_inplace(h, POST_N_ROWS * E_DIM);
+    if constexpr (POST_N_ROWS_PAD > POST_N_ROWS)
+        zero_v<(POST_N_ROWS_PAD - POST_N_ROWS) * E_DIM>(h + POST_N_ROWS * E_DIM);
+    pack_local16<POST_N_ROWS_PAD>(h, pk);
+
+    // FFN layer 2 + skip + LN (post_c)
+    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>(pk, ffn_W2, h, PIPE_ACC_SHIFT);
+    add_bias_v16<POST_N_ROWS>(h, ffn_b2);
+    layernorm_row(h, POST_N_ROWS, E_DIM, ffn_ln_gamma2, ffn_ln_beta2);
+    relu_inplace(h, POST_N_ROWS * E_DIM);
+    add_rows_v16<POST_N_ROWS>(h, proj);
+    layernorm_row(h, POST_N_ROWS, E_DIM, post_ffn_ln_gamma, post_ffn_ln_beta);
+    win_write_v<POST_N_ROWS * E_DIM>(x_out, h);
+    aie::set_saturation(sat_save);
+}
+#endif // POST_STAGE_BC
 #endif // !FLOAT_AIE

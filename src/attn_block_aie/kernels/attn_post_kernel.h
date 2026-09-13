@@ -40,6 +40,14 @@
     AIE_IW* __restrict ffn_in, \
     AIE_IW* __restrict residual_b_in, \
     AIE_OW* __restrict x_out)
+// POST_MERGED: b1 + b2 + c in one kernel (proj in, x out; the FFN residual is
+// the same proj window, so post_a's broadcast and two window hops are gone)
+#define DECL_POST_BC(t, l) void t##_post_bc_L##l( \
+    AIE_IW* __restrict proj_in, \
+    AIE_OW* __restrict x_out)
+DECL_POST_BC(obj, 0);  DECL_POST_BC(obj, 1);
+DECL_POST_BC(cand, 0); DECL_POST_BC(cand, 1);
+DECL_POST_BC(cross, 0);DECL_POST_BC(cross, 1);
 
 DECL_POST_PROJ(obj, 0);  DECL_POST_PROJ(obj, 1);
 DECL_POST_PROJ(cand, 0); DECL_POST_PROJ(cand, 1);

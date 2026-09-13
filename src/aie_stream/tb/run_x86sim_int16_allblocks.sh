@@ -14,7 +14,7 @@ python3 gen_attn_inputs.py --phase3 $PE --event 0 --num-events $NEV --data-dir .
 echo "[2/4] aiecompiler x86sim (int16)"
 rm -rf Work_x86_int x86simulator_output
 aiecompiler --target=x86sim --platform=$PLAT --stacksize=2048 --workdir=Work_x86_int \
-  --Xpreproc="-DAIE_NUM_EVENTS=$NEV" aie_attn_test.cpp > aiec_x86_int.log 2>&1
+  --Xpreproc="-DAIE_NUM_EVENTS=$NEV $AIE_XPRE" aie_attn_test.cpp > aiec_x86_int.log 2>&1
 echo "AIEC_DONE rc=$?"
 echo "[3/4] run x86simulator"
 x86simulator --pkg-dir=Work_x86_int > x86run_int.log 2>&1

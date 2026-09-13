@@ -30,7 +30,11 @@ public:
 public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
+#ifdef POST_MERGED
+    kernel k_post_ap, k_post_bc;      // b1 + b2 + c in one kernel
+#else
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
+#endif
 public:
     ObjAttnGraphL() {
         const std::string suffix = "_L" + std::to_string(LAYER) +
@@ -80,23 +84,36 @@ public:
 
         if constexpr (LAYER == 0) {
             k_post_ap = kernel::create(obj_post_a_proj_L0);
+#ifndef POST_MERGED
             k_post_b1 = kernel::create(obj_post_b1_L0);
             k_post_b2 = kernel::create(obj_post_b2_L0);
             k_post_c  = kernel::create(obj_post_c_L0);
+#else
+            k_post_bc = kernel::create(obj_post_bc_L0);
+#endif
         } else {
             k_post_ap = kernel::create(obj_post_a_proj_L1);
+#ifndef POST_MERGED
             k_post_b1 = kernel::create(obj_post_b1_L1);
             k_post_b2 = kernel::create(obj_post_b2_L1);
             k_post_c  = kernel::create(obj_post_c_L1);
+#else
+            k_post_bc = kernel::create(obj_post_bc_L1);
+#endif
         }
         source(k_post_ap) = ("kernels/obj_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
+#ifndef POST_MERGED
         source(k_post_b1) = ("kernels/obj_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_b1) = 0.9;
         source(k_post_b2) = ("kernels/obj_post_b2_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_b2) = 0.9;
         source(k_post_c) = ("kernels/obj_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_c) = 0.9;
+#else
+        source(k_post_bc) = ("kernels/obj_post_bc_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_bc) = 0.9;
+#endif
 
         // window sizes. obj x INPUT carries N_MAX+1 rows: row N_MAX is the
         // padding mask (nonzero = padded), giving both layers true key
@@ -137,6 +154,7 @@ public:
         connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[N_HEADS]);
 
         // post_a_proj -> post_b1 (ffn0) and post_a_proj -> post_c (FFN-residual broadcast)
+#ifndef POST_MERGED
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
 
@@ -144,6 +162,10 @@ public:
         connect<window<proj_sz>>(k_post_b1.out[0], k_post_b2.in[0]);
         connect<window<proj_sz>>(k_post_b2.out[0], k_post_c.in[0]);
         connect<window<x_out_sz>>(k_post_c.out[0], plio_x_out.in[0]);
+#else
+        connect<window<proj_sz>>(k_post_ap.out[0], k_post_bc.in[0]);
+        connect<window<x_out_sz>>(k_post_bc.out[0], plio_x_out.in[0]);
+#endif
     }
 };
 
@@ -157,7 +179,11 @@ public:
 public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
+#ifdef POST_MERGED
+    kernel k_post_ap, k_post_bc;      // b1 + b2 + c in one kernel
+#else
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
+#endif
 public:
     CandAttnGraphL() {
         const std::string suffix = "_L" + std::to_string(LAYER);
@@ -196,23 +222,36 @@ public:
 
         if constexpr (LAYER == 0) {
             k_post_ap = kernel::create(cand_post_a_proj_L0);
+#ifndef POST_MERGED
             k_post_b1 = kernel::create(cand_post_b1_L0);
             k_post_b2 = kernel::create(cand_post_b2_L0);
             k_post_c  = kernel::create(cand_post_c_L0);
+#else
+            k_post_bc = kernel::create(cand_post_bc_L0);
+#endif
         } else {
             k_post_ap = kernel::create(cand_post_a_proj_L1);
+#ifndef POST_MERGED
             k_post_b1 = kernel::create(cand_post_b1_L1);
             k_post_b2 = kernel::create(cand_post_b2_L1);
             k_post_c  = kernel::create(cand_post_c_L1);
+#else
+            k_post_bc = kernel::create(cand_post_bc_L1);
+#endif
         }
         source(k_post_ap) = ("kernels/cand_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
+#ifndef POST_MERGED
         source(k_post_b1) = ("kernels/cand_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_b1) = 0.9;
         source(k_post_b2) = ("kernels/cand_post_b2_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_b2) = 0.9;
         source(k_post_c) = ("kernels/cand_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_c) = 0.9;
+#else
+        source(k_post_bc) = ("kernels/cand_post_bc_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_bc) = 0.9;
+#endif
 
         constexpr int c_sz      = T_DIM * E_DIM * sizeof(aiedt);
         constexpr int scores_sz = 4 * T_KV * sizeof(aiedt);
@@ -229,11 +268,16 @@ public:
         }
         connect<window<c_sz>>(plio_c_in.out[0], k_post_ap.in[N_HEADS]);
 
+#ifndef POST_MERGED
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
         connect<window<proj_sz>>(k_post_b1.out[0], k_post_b2.in[0]);
         connect<window<proj_sz>>(k_post_b2.out[0], k_post_c.in[0]);
         connect<window<c_sz>>(k_post_c.out[0], plio_c_out.in[0]);
+#else
+        connect<window<proj_sz>>(k_post_ap.out[0], k_post_bc.in[0]);
+        connect<window<c_sz>>(k_post_bc.out[0], plio_c_out.in[0]);
+#endif
     }
 };
 
@@ -248,7 +292,11 @@ public:
 public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
+#ifdef POST_MERGED
+    kernel k_post_ap, k_post_bc;      // b1 + b2 + c in one kernel
+#else
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
+#endif
 public:
     CrossAttnGraphL() {
         const std::string suffix = "_L" + std::to_string(LAYER);
@@ -289,23 +337,36 @@ public:
 
         if constexpr (LAYER == 0) {
             k_post_ap = kernel::create(cross_post_a_proj_L0);
+#ifndef POST_MERGED
             k_post_b1 = kernel::create(cross_post_b1_L0);
             k_post_b2 = kernel::create(cross_post_b2_L0);
             k_post_c  = kernel::create(cross_post_c_L0);
+#else
+            k_post_bc = kernel::create(cross_post_bc_L0);
+#endif
         } else {
             k_post_ap = kernel::create(cross_post_a_proj_L1);
+#ifndef POST_MERGED
             k_post_b1 = kernel::create(cross_post_b1_L1);
             k_post_b2 = kernel::create(cross_post_b2_L1);
             k_post_c  = kernel::create(cross_post_c_L1);
+#else
+            k_post_bc = kernel::create(cross_post_bc_L1);
+#endif
         }
         source(k_post_ap) = ("kernels/cross_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
+#ifndef POST_MERGED
         source(k_post_b1) = ("kernels/cross_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_b1) = 0.9;
         source(k_post_b2) = ("kernels/cross_post_b2_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_b2) = 0.9;
         source(k_post_c) = ("kernels/cross_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_c) = 0.9;
+#else
+        source(k_post_bc) = ("kernels/cross_post_bc_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_bc) = 0.9;
+#endif
 
         constexpr int x_sz      = N_MAX * E_DIM * sizeof(aiedt);
         constexpr int c_sz      = T_DIM * E_DIM * sizeof(aiedt);
@@ -324,11 +385,16 @@ public:
         }
         connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[N_HEADS]);
 
+#ifndef POST_MERGED
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
         connect<window<proj_sz>>(k_post_b1.out[0], k_post_b2.in[0]);
         connect<window<proj_sz>>(k_post_b2.out[0], k_post_c.in[0]);
         connect<window<x_sz>>(k_post_c.out[0], plio_x_out.in[0]);
+#else
+        connect<window<proj_sz>>(k_post_ap.out[0], k_post_bc.in[0]);
+        connect<window<x_sz>>(k_post_bc.out[0], plio_x_out.in[0]);
+#endif
     }
 };
 
