@@ -211,3 +211,17 @@ cand_attn_head_post_h0_L0   22_3       0.5         0%         0%       0%      0
 cand_attn_head_post_h1_L0   24_2       0.5         0%         0%       0%      0%
 slowest cand_post_c_L0 = 1.6 us/event ; chain sum 9 us
 # critical path pre 0.6 + head post 0.5 + a_proj 1.2 + b1 0.9 + b2 0.9 + c 1.6 = 5.7 us; aiesim == x86sim.
+
+# NEGATIVE (2026-09-13): TRANSPOSED dataflow (activations as X^T, per-lane float LN and
+# softmax, W^T packed once, bias in the accumulator, int32-lane vector transposes at the
+# block edges; kernels/transposed.h, *_t.cc). x86sim vs PyTorch: all blocks pass, errors
+# equal or lower; aiesimulator == x86sim. Cycles (us/event, vector-I/O baseline in brackets):
+#   obj:   pre 2.6 (2.0), head post 4.4 (5.0), a_proj 4.6 (3.4), b1/b2 3.3 (3.3), c 6.4 (6.1)
+#          -> critical path 24.6 (23.0)
+#   cross: pre 2.7 (0.9), head post 1.0 (2.0), a_proj 3.2 (3.0), b1/b2 3.3, c 6.4 (6.0) -> 19.9 (18.5)
+#   cand:  26 (5.7) -- three candidates cannot fill 16 lanes (excluded early)
+#   embed: 10.6 (7.2) and 16.9 KB of program memory (excluded)
+# Why: at 12 x 16 a 16x16 transpose (~1 us even in int32 lanes) costs what the layout
+# saves, and the per-lane fp32 layer norm (~1.5 us) is no faster than the per-row
+# integer one -- the fp32 vector chain issues at ~3-5 cycles per op. Only the softmax
+# (keys in rows, no lane masks) wins. Default off; the row-major kernels stay.
