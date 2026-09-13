@@ -273,3 +273,16 @@ endpoints; routed 471,576 LUT (52%), 1,801 DSP (91.5%)):
 Data figs/latency_sweep_pl_t2h.csv. The three levers together (clock 1.28x, LN 2 and
 wide streams) gave 2.2x on one event and 2.5x on the interval. t2g (same at 78 MHz)
 separates the clock from the other two when it lands.
+
+t2g ON HARDWARE (2026-09-13 01:20; = t2h's flags at 78.125 MHz, the control that separates
+the clock from the layer norm + wide streams; BOOT.BIN md5 e71c39e0, SW_CRC 8cc4be95,
+WNS +0.601 ns):
+                       t2e (78)   t2g (78)   t2h (100)
+  one event (xrt::run)  319 us     182-188    145-149 us
+  one event, direct     299 us     165        129 us
+  interval (fit)        65.7 us    33.7       26.3 us
+  fixed cost (fit)      254 us     148        119 us
+  AUC / identical       0.9825     0.9825, scores identical to t2h and t2e 2000/2000
+So the DSP layer norm + wide streams are worth 319 -> 185 us (1.72x) and the clock
+185 -> 147 (1.26x, = 100/78.125 on the fabric share). Data figs/latency_sweep_pl_t2g.csv.
+Image on the board after this: plstream_t2g (t2h = BOOT.BIN.t2h on the FAT is the one to quote).
