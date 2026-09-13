@@ -225,3 +225,20 @@ slowest cand_post_c_L0 = 1.6 us/event ; chain sum 9 us
 # saves, and the per-lane fp32 layer norm (~1.5 us) is no faster than the per-row
 # integer one -- the fp32 vector chain issues at ~3-5 cycles per op. Only the softmax
 # (keys in rows, no lane masks) wins. Default off; the row-major kernels stay.
+
+=== bias/residual in the gemm accumulator (gemm_pk_biasc, 2026-09-13; row-major kernels, bit-identical) ===
+kernel                      tile  us/event  softfloat  layernorm   divide    gemm
+obj_post_c_L0               22_0       5.8         0%         2%       0%      0%
+obj_attn_head_post_h1_L0    23_3       5.0         0%         0%       0%      0%
+obj_attn_head_post_h3_L0    24_4       5.0         0%         0%       0%      0%
+obj_attn_head_post_h2_L0    23_1       5.0         0%         0%       0%      0%
+obj_attn_head_post_h0_L0    25_2       5.0         0%         0%       0%      0%
+obj_post_b2_L0              22_1       3.1         0%         0%       0%      0%
+obj_post_b1_L0              22_2       3.1         0%         0%       0%      0%
+obj_post_a_proj_L0          24_2       2.9         0%         0%       0%      0%
+obj_attn_head_pre_h1_L0     24_3       2.0         0%         0%       0%      0%
+obj_attn_head_pre_h3_L0     24_5       2.0         0%         0%       0%      0%
+obj_attn_head_pre_h2_L0     24_0       2.0         0%         0%       0%      0%
+obj_attn_head_pre_h0_L0     24_1       2.0         0%         0%       0%      0%
+slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
+# post_c 6.1 -> 5.8, a_proj 3.4 -> 2.9, b1/b2 3.3 -> 3.1 us; object critical path 23.0 -> 21.9 us.
