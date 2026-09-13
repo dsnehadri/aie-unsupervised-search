@@ -6,7 +6,10 @@
 // Both deployed designs (pl_stream_top, aie_stream_top) take the same
 // (in_buf, out_buf, n_events) argument prefix, so one binary covers both.
 //
-// usage: ./host_latency_sweep <xclbin> <kernel_name> [input.bin] [iters]
+// usage: ./host_latency_sweep <xclbin> <kernel_name> [input.bin] [iters] [direct]
+// 'direct' times each batch by direct register access (ap_start / poll ap_done /
+// ap_continue at the HLS control offsets) instead of xrt::run, i.e. without the
+// ERT scheduler; the same register map serves pl_stream_top and aie_stream_top.
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -26,6 +29,7 @@ int main(int argc, char** argv) {
   const std::string xclbin = argv[1], kname = argv[2];
   const char* inbin = (argc > 3) ? argv[3] : nullptr;
   const int ITERS = (argc > 4) ? atoi(argv[4]) : 30;
+  const bool DIRECT = (argc > 5) && std::string(argv[5]) == "direct";
   const int WIN = 72, WOUT = 3;
   const int NLIST[] = {1, 2, 4, 8, 16, 32, 64, 128, 256};
   const int NPTS = sizeof(NLIST) / sizeof(NLIST[0]);
@@ -50,7 +54,7 @@ int main(int argc, char** argv) {
   ib.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
   auto r = xrt::run(k); r.set_arg(0, ib); r.set_arg(1, ob);
-  printf("kernel,n_events,iters,min_ms,med_ms,us_per_event,out_changed\n");
+  printf("kernel,n_events,iters,min_ms,med_ms,us_per_event,out_changed%s\n", DIRECT ? "  [direct registers]" : "");
   for (int p = 0; p < NPTS; p++) {
     int N = NLIST[p];
     for (int i = 0; i < N * WOUT; i++) om[i] = 0xDEAD0000u | (uint32_t)i;
@@ -59,10 +63,26 @@ int main(int argc, char** argv) {
     r.start();
     if ((int)r.wait(60000) != 4) { printf("%s,%d,WARMUP_FAIL\n", kname.c_str(), N); continue; }
     std::vector<double> ms;
-    for (int it = 0; it < ITERS; it++) {
-      auto t0 = clk::now(); r.start(); auto st = r.wait(60000); auto t1 = clk::now();
-      if ((int)st != 4) { printf("%s,%d,ITER_FAIL\n", kname.c_str(), N); break; }
-      ms.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+    if (DIRECT) {
+      // args are already latched by the warm-up run; only n_events is rewritten
+      const uint32_t CTRL = 0x00, NEV = 0x28;
+      k.write_register(NEV, (uint32_t)N);
+      for (int it = 0; it < ITERS; it++) {
+        auto t0 = clk::now();
+        k.write_register(CTRL, 0x1);                       // ap_start
+        uint32_t c = 0; long spins = 0; bool ok = true;
+        do { c = k.read_register(CTRL); if (++spins > 200000000L) { ok = false; break; } } while (!(c & 0x2));
+        auto t1 = clk::now();
+        if (!ok) { printf("%s,%d,DIRECT_TIMEOUT\n", kname.c_str(), N); break; }
+        k.write_register(CTRL, 0x10);                      // ap_continue
+        ms.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+      }
+    } else {
+      for (int it = 0; it < ITERS; it++) {
+        auto t0 = clk::now(); r.start(); auto st = r.wait(60000); auto t1 = clk::now();
+        if ((int)st != 4) { printf("%s,%d,ITER_FAIL\n", kname.c_str(), N); break; }
+        ms.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+      }
     }
     if (ms.empty()) continue;
     ob.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
