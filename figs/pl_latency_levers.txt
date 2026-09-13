@@ -263,7 +263,7 @@ t2h ON HARDWARE (2026-09-13 01:00; plstream_t2h = t2e flags + LN_MODE=2 (row-pip
 integer layer norm on DSPs, same 15 cycles/LN as mode 6; the DSPs freed by NARROW_MUL and
 the fabric linears make room) + WIDE_STREAMS (8 lanes per stream word), 100 MHz (clk_pl_0,
 no divider); BOOT.BIN md5 8ae84cb2, SW_CRC c85ab82c; post-route WNS +0.623 ns, 0 failing
-endpoints; routed 471,576 LUT (52%), DSP see below):
+endpoints; routed 471,576 LUT (52%), 1,801 DSP (91.5%)):
                        t2e (78 MHz)   t2h (100 MHz)
   one event (xrt::run)  319 us         145-149 us   (baseline 521: 3.5x)
   one event, direct     299 us         129 us       scheduler 19.8 us median
