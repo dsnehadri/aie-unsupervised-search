@@ -43,7 +43,8 @@ COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C, "AIE-PL hybrid, embedding on arr
 #   two layers, 45% LUT). t2a without the last two levers: 79.8 / 363 us.
 #   Hybrid smvec: every AI Engine kernel moves its windows 16 lanes at a time and
 #   the object head post uses an 8-lane float softmax (11.3 us/event, one event
-#   181 us, 160 us with direct-register launch). AUC 0.9825 / 0.9817.
+#   181 us, 160 us with direct-register launch). Hybrid v3 adds single-pass
+#   fabric stages: 7.4 us/event, one event 159 us (137 direct). AUC 0.9825 / 0.9825.
 def _csv(path, kernel):
     pts = []
     for l in open(path):
@@ -52,7 +53,7 @@ def _csv(path, kernel):
     return pts
 _F = "/home/snehadri/repos/aie-unsupervised-search/figs/"
 SWEEP["PL-only, attention blocks optimised"] = _csv(_F + "latency_sweep_pl_t2e.csv", "pl_stream_top")
-SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_smvec.csv", "aie_stream_top")
+SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_v3.csv", "aie_stream_top")
 NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
