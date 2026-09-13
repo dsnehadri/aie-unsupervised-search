@@ -66,7 +66,39 @@ Lever 2 -- vector float softmax in the object head post kernels (softmax_vec.h, 
   N=128  median 1.622 ms  12.6 us/event
   N=256  median 3.069 ms  12.0 us/event
 
-Summary, one event: 355 -> 181 us (1.96x), 160 us with direct-register launch (2.22x);
-interval 17.3 -> 11.3 us (1.53x). Fabric-only two-layer design for comparison: 363 / 342 us.
+Lever 3 -- the hybrid's fabric kernel (aie_hybrid_plfast2, commit f3109af)
+  Flags -DNARROW_MUL -DLORENTZ_PIPE -DLN_MODE=6 (AE 358+368 -> 111+121 cycles, pairwise
+  675 -> 385) and HYB_FAST_STAGES: candidate build and remask stream x through in ONE
+  pass (candidate build 920 -> 346 cycles; both run twice per event). Stages unit-tested
+  bit-identical on 2000 random events; the AE layer norm changes from float to the
+  integer LN, which is why the scores move (AUC 0.9817 -> 0.9825 = the fabric design's).
+  HLS full design 684 DSP (34%), 373k LUT est (41%).
+
+  HARDWARE (hybrid v3 = this fabric kernel + the smvec AIE kernels, BOOT.BIN md5 311d1cff,
+  SW_CRC 918a51ae, 2026-09-12 23:40):
+                              smvec           v3
+    one event (xrt::run)       181 us          159 us  (161 in the direct test's ERT loop)
+    one event, direct regs     160 us          137 us            scheduler 23.4 us median
+    interval (fit N>=8)        11.3 us         7.41 us           134,921 events/s
+    interval, direct sweep      --             7.41 us           (host_latency_sweep_d 'direct')
+    fixed cost (fit)           172 us          155 us  (130 direct)
+    AUC (2000 labelled)        0.9817          0.9825   rank corr vs software 0.9966, vs smvec 0.9987
+  batch sweep (figs/latency_sweep_hybrid_v3.csv, _direct.csv):
+  N=1    median 0.159 ms  157.9 us/event
+  N=2    median 0.167 ms  82.8 us/event
+  N=4    median 0.185 ms  45.4 us/event
+  N=8    median 0.214 ms  26.7 us/event
+  N=16   median 0.273 ms  17.1 us/event
+  N=32   median 0.392 ms  12.2 us/event
+  N=64   median 0.629 ms  9.8 us/event
+  N=128  median 1.104 ms  8.6 us/event
+  N=256  median 2.052 ms  8.0 us/event
+
+  NEGATIVES on the AIE side (both bit-identical, aiesim == x86sim): the interleaved
+  branch-free layer norm (post_c 6.0 -> 6.1 us) and POST_MERGED, b1+b2+c in one kernel
+  (12.7 us = the sum; first output 0.2 us earlier; interval would double). Default off.
+
+Summary, one event: 355 -> 159 us (2.23x), 137 us with direct-register launch (2.59x);
+interval 17.3 -> 7.4 us (2.34x). Fabric-only two-layer (t2e): 319 / 299 us, 65.7 us/event.
 Left on the table: post_c layer norm (43-48% of the now-slowest 6 us kernel), the fabric
 candidate-build stage (9.2 us, sets the interval), merging b1+b2+c (saves window hops).
