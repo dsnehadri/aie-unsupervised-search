@@ -249,13 +249,16 @@ void POST_A_PROJ_FN(input_window_int16* __restrict head0_in,
             aie::store_v(concat + (rb * N_HEADS + h) * 16, win_read16(heads[h]));
 #endif
 
+    // bias (and, except for cross, the residual) added in the gemm accumulator
     alignas(16) int16 proj[POST_N_ROWS_PAD * E_DIM];
-    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>( concat, Wout, proj, PIPE_ACC_SHIFT);
-    add_bias_v16<POST_N_ROWS>(proj, bout);
-
+    BIAS_REPC(bout_r, E_DIM, bout);
     #if !defined(ATTN_TYPE_CROSS)
-    for (int r = 0; r < POST_N_ROWS; r++)
-        aie::store_v(proj + r * E_DIM, add_sat16(aie::load_v<16>(proj + r * E_DIM), win_read16(residual_in)));
+    alignas(16) int16 resid[POST_N_ROWS_PAD * E_DIM];
+    win_read_v<POST_N_ROWS * E_DIM>(residual_in, resid);
+    if constexpr (POST_N_ROWS_PAD > POST_N_ROWS) zero_v<(POST_N_ROWS_PAD - POST_N_ROWS) * E_DIM>(resid + POST_N_ROWS * E_DIM);
+    gemm_pk_biasc<POST_N_ROWS_PAD, E_DIM, E_DIM>(concat, Wout, proj, PIPE_ACC_SHIFT, bout_r.r, resid);
+    #else
+    gemm_pk_biasc<POST_N_ROWS_PAD, E_DIM, E_DIM>(concat, Wout, proj, PIPE_ACC_SHIFT, bout_r.r);
     #endif
 
     layernorm_row(proj, POST_N_ROWS, E_DIM, post_attn_ln_gamma, post_attn_ln_beta);
@@ -280,8 +283,8 @@ void POST_B1_FN(input_window_int16* __restrict proj_in,
     win_read_packed16<POST_N_ROWS>(proj_in, in);
 
     alignas(16) int16 out[POST_N_ROWS_PAD * E_DIM];
-    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>( in, ffn_W0, out, PIPE_ACC_SHIFT);
-    add_bias_v16<POST_N_ROWS>(out, ffn_b0);
+    BIAS_REPC(b0_r, E_DIM, ffn_b0);
+    gemm_pk_biasc<POST_N_ROWS_PAD, E_DIM, E_DIM>(in, ffn_W0, out, PIPE_ACC_SHIFT, b0_r.r);
     layernorm_row(out, POST_N_ROWS, E_DIM, ffn_ln_gamma0, ffn_ln_beta0);
     relu_inplace(out, POST_N_ROWS * E_DIM);
 
@@ -299,8 +302,8 @@ void POST_B2_FN(input_window_int16* __restrict ffn0_in,
     win_read_packed16<POST_N_ROWS>(ffn0_in, in);
 
     alignas(16) int16 out[POST_N_ROWS_PAD * E_DIM];
-    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>( in, ffn_W1, out, PIPE_ACC_SHIFT);
-    add_bias_v16<POST_N_ROWS>(out, ffn_b1);
+    BIAS_REPC(b1_r, E_DIM, ffn_b1);
+    gemm_pk_biasc<POST_N_ROWS_PAD, E_DIM, E_DIM>(in, ffn_W1, out, PIPE_ACC_SHIFT, b1_r.r);
     layernorm_row(out, POST_N_ROWS, E_DIM, ffn_ln_gamma1, ffn_ln_beta1);
     relu_inplace(out, POST_N_ROWS * E_DIM);
 
@@ -324,8 +327,8 @@ void POST_C_FN(input_window_int16* __restrict ffn_in,
     win_read_packed16<POST_N_ROWS>(ffn_in, ffn1);
 
     alignas(16) int16 ffn2[POST_N_ROWS_PAD * E_DIM];
-    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>(ffn1, ffn_W2, ffn2, PIPE_ACC_SHIFT);
-    add_bias_v16<POST_N_ROWS>(ffn2, ffn_b2);
+    BIAS_REPC(b2_r, E_DIM, ffn_b2);
+    gemm_pk_biasc<POST_N_ROWS_PAD, E_DIM, E_DIM>(ffn1, ffn_W2, ffn2, PIPE_ACC_SHIFT, b2_r.r);
     layernorm_row(ffn2, POST_N_ROWS, E_DIM, ffn_ln_gamma2, ffn_ln_beta2);
     relu_inplace(ffn2, POST_N_ROWS * E_DIM);
 

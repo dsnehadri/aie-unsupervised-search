@@ -69,24 +69,24 @@ void embed_mlp(input_window_int16* __restrict jets_in,
             a[pk_idx<EMBED_IN_PAD>(r, c)] = raw[r * EMBED_IN + c];
 
     alignas(32) int16 h[EMBED_ROWS * E_DIM];
-    GEMM_PK<EMBED_ROWS, EMBED_IN_PAD, E_DIM>(a, embed_W0, h, ACC_SHIFT);
-    add_bias_v16<EMBED_ROWS>(h, embed_b0);
+    BIAS_REPC(b0_r, E_DIM, embed_b0);
+    gemm_pk_biasc<EMBED_ROWS, EMBED_IN_PAD, E_DIM>(a, embed_W0, h, ACC_SHIFT, b0_r.r);
     layernorm_row(h, EMBED_ROWS, E_DIM, embed_ln0_g, embed_ln0_b);
     relu_inplace(h, EMBED_ROWS * E_DIM);
 
     // layer 1: 16 -> 16
     alignas(32) int16 ap[EMBED_ROWS * E_DIM];
     pack_local16<EMBED_ROWS>(h, ap);
-    GEMM_PK<EMBED_ROWS, E_DIM, E_DIM>(ap, embed_W1, h, ACC_SHIFT);
-    add_bias_v16<EMBED_ROWS>(h, embed_b1);
+    BIAS_REPC(b1_r, E_DIM, embed_b1);
+    gemm_pk_biasc<EMBED_ROWS, E_DIM, E_DIM>(ap, embed_W1, h, ACC_SHIFT, b1_r.r);
     layernorm_row(h, EMBED_ROWS, E_DIM, embed_ln1_g, embed_ln1_b);
     relu_inplace(h, EMBED_ROWS * E_DIM);
 
     // layer 2: 16 -> 16, no norm
     pack_local16<EMBED_ROWS>(h, ap);
     alignas(32) int16 out[EMBED_ROWS * E_DIM];
-    GEMM_PK<EMBED_ROWS, E_DIM, E_DIM>(ap, embed_W2, out, ACC_SHIFT);
-    add_bias_v16<EMBED_ROWS>(out, embed_b2);
+    BIAS_REPC(b2_r, E_DIM, embed_b2);
+    gemm_pk_biasc<EMBED_ROWS, E_DIM, E_DIM>(ap, embed_W2, out, ACC_SHIFT, b2_r.r);
 
     win_write_v<EMBED_ROWS * E_DIM>(embed_out, out);
     aie::set_saturation(sat_save);
