@@ -337,6 +337,9 @@ void HEAD_POST_FN(input_window_float* __restrict scores_in,
 #endif // ATTN_TYPE_CROSS
 
 #else  // !FLOAT_AIE -- the deployed int16 kernels
+#ifdef TRANSPOSED
+#include "attn_head_kernel_t.cc"
+#else
 // vectorized tiled gemm: A packed 4x4-block-major, B row-major (gemm_utils.h)
 #include "gemm_utils.h"
 #include "win_vec.h"
@@ -703,4 +706,5 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 }
 #endif // HEAD_STAGE_POST
 #endif
+#endif // TRANSPOSED
 #endif // !FLOAT_AIE

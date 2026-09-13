@@ -184,6 +184,9 @@ void POST_C_FN(input_window_float* __restrict ffn_in,
 #endif
 
 #else  // !FLOAT_AIE -- the deployed int16 kernels
+#ifdef TRANSPOSED
+#include "attn_post_kernel_t.cc"
+#else
 // vectorized tiled gemm: A packed 4x4-block-major, B row-major (gemm_utils.h)
 #include "gemm_utils.h"
 #include "win_vec.h"
@@ -386,4 +389,5 @@ void POST_BC_FN(input_window_int16* __restrict proj_in,
     aie::set_saturation(sat_save);
 }
 #endif // POST_STAGE_BC
+#endif // TRANSPOSED
 #endif // !FLOAT_AIE

@@ -121,11 +121,20 @@ public:
         constexpr int x_sz       = (N_MAX + 1) * E_DIM * sizeof(aiedt);
         constexpr int x_out_sz   = N_MAX * E_DIM * sizeof(aiedt);
         constexpr int wij_sz     = N_MAX * N_KV * sizeof(aiedt);
+#ifdef TRANSPOSED
+        // S^T 16 keys x 16 lanes, V^T 4 x 16, O^T 4 x 16, proj^T 16 x 16
+        constexpr int scores_sz  = 16 * 16 * sizeof(aiedt);
+        constexpr int v_sz       = D_HEAD * 16 * sizeof(aiedt);
+        constexpr int hout       = D_HEAD * 16 * sizeof(aiedt);
+        constexpr int concat_sz  = 16 * 16 * sizeof(aiedt);
+        constexpr int proj_sz    = 16 * 16 * sizeof(aiedt);
+#else
         constexpr int scores_sz  = N_MAX * N_KV_PAD * sizeof(aiedt);
         constexpr int v_sz       = N_KV_PAD * D_HEAD * sizeof(aiedt);
         constexpr int hout       = N_MAX * D_HEAD * sizeof(aiedt);
         constexpr int concat_sz  = N_MAX * E_DIM * sizeof(aiedt);
         constexpr int proj_sz    = N_MAX * E_DIM * sizeof(aiedt);
+#endif
 
         // plio -> pre (X for all 4 heads)
         for (int h = 0; h < N_HEADS; h++) {
@@ -254,11 +263,19 @@ public:
 #endif
 
         constexpr int c_sz      = T_DIM * E_DIM * sizeof(aiedt);
+#ifdef TRANSPOSED
+        constexpr int scores_sz = T_KV * 16 * sizeof(aiedt);
+        constexpr int v_sz      = D_HEAD * T_KV * sizeof(aiedt);
+        constexpr int hout      = D_HEAD * 16 * sizeof(aiedt);
+        constexpr int concat_sz = 16 * 16 * sizeof(aiedt);
+        constexpr int proj_sz   = 16 * 16 * sizeof(aiedt);
+#else
         constexpr int scores_sz = 4 * T_KV * sizeof(aiedt);
         constexpr int v_sz      = T_KV * D_HEAD * sizeof(aiedt);
         constexpr int hout      = T_DIM * D_HEAD * sizeof(aiedt);
         constexpr int concat_sz = T_DIM * E_DIM * sizeof(aiedt);
         constexpr int proj_sz   = T_DIM * E_DIM * sizeof(aiedt);
+#endif
 
         for (int h = 0; h < N_HEADS; h++) {
             connect<window<c_sz>>(plio_c_in.out[0], k_pre[h].in[0]);
@@ -370,11 +387,19 @@ public:
 
         constexpr int x_sz      = N_MAX * E_DIM * sizeof(aiedt);
         constexpr int c_sz      = T_DIM * E_DIM * sizeof(aiedt);
+#ifdef TRANSPOSED
+        constexpr int scores_sz = T_KV * 16 * sizeof(aiedt);
+        constexpr int v_sz      = D_HEAD * T_KV * sizeof(aiedt);
+        constexpr int hout      = D_HEAD * 16 * sizeof(aiedt);
+        constexpr int concat_sz = 16 * 16 * sizeof(aiedt);
+        constexpr int proj_sz   = 16 * 16 * sizeof(aiedt);
+#else
         constexpr int scores_sz = N_MAX * T_KV * sizeof(aiedt);
         constexpr int v_sz      = T_KV * D_HEAD * sizeof(aiedt);
         constexpr int hout      = N_MAX * D_HEAD * sizeof(aiedt);
         constexpr int concat_sz = N_MAX * E_DIM * sizeof(aiedt);
         constexpr int proj_sz   = N_MAX * E_DIM * sizeof(aiedt);
+#endif
 
         for (int h = 0; h < N_HEADS; h++) {
             connect<window<x_sz>>(plio_x_in.out[0], k_pre[h].in[0]);

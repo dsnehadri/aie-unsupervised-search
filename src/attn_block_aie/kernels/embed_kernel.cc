@@ -47,6 +47,9 @@ static void relu_inplace(int16* __restrict x, int n)
     }
 }
 
+#ifdef TRANSPOSED
+#include "embed_kernel_t.cc"
+#else
 void embed_mlp(input_window_int16* __restrict jets_in,
                output_window_int16* __restrict embed_out)
 {
@@ -85,3 +88,4 @@ void embed_mlp(input_window_int16* __restrict jets_in,
     win_write_v<EMBED_ROWS * E_DIM>(embed_out, out);
     aie::set_saturation(sat_save);
 }
+#endif // TRANSPOSED
