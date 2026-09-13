@@ -77,4 +77,35 @@ static inline void gemm_pk(const int16* __restrict Ap, const int16* __restrict B
     }
 }
 
+// C = Ap x B + bias per row, bias added in the accumulator (at 2^shift), one
+// saturating srs. biasrep holds 8 copies of each row's bias, row-major
+// (M x 8), so a 4-row block is one 32-lane vector. Replaces a separate
+// saturating-add pass (~40 cycles a row on AIE1).
+template <int M, int K, int N>
+static inline void gemm_pk_bias(const int16* __restrict Ap, const int16* __restrict B,
+                                int16* __restrict C, int shift, const int16* __restrict biasrep)
+{
+    static_assert(M % 4 == 0 && K % 4 == 0 && N % 8 == 0, "gemm_pk_bias: M,K multiples of 4, N of 8");
+    for (int m = 0; m < M; m += 4) {
+        const aie::vector<int16, 32> bv = aie::load_v<32>(&biasrep[m * 8]);
+        const aie::vector<int16, 32> sc = aie::broadcast<int16, 32>((int16)(1 << shift));   // bias at 2^shift
+        for (int n = 0; n < N; n += 8) {
+            aie::mmul<4, 4, 8, int16, int16> acc;
+            for (int k = 0; k < K; k += 4) {
+                aie::vector<int16, 16> va = aie::load_v<16>(&Ap[((m / 4) * (K / 4) + (k / 4)) * 16]);
+                aie::vector<int16, 32> vb = aie::concat(
+                    aie::load_v<8>(&B[(k + 0) * N + n]), aie::load_v<8>(&B[(k + 1) * N + n]),
+                    aie::load_v<8>(&B[(k + 2) * N + n]), aie::load_v<8>(&B[(k + 3) * N + n]));
+                if (k == 0) acc.mul(va, vb); else acc.mac(va, vb);
+            }
+            const aie::accum<acc48, 32> sum = aie::mac(acc.to_accum(), bv, sc);
+            aie::vector<int16, 32> res = sum.template to_vector<int16>(shift);
+            aie::store_v(&C[(m + 0) * N + n], res.template extract<8>(0));
+            aie::store_v(&C[(m + 1) * N + n], res.template extract<8>(1));
+            aie::store_v(&C[(m + 2) * N + n], res.template extract<8>(2));
+            aie::store_v(&C[(m + 3) * N + n], res.template extract<8>(3));
+        }
+    }
+}
+
 #endif // GEMM_UTILS_H

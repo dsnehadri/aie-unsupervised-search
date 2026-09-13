@@ -263,19 +263,13 @@ public:
 #endif
 
         constexpr int c_sz      = T_DIM * E_DIM * sizeof(aiedt);
-#ifdef TRANSPOSED
-        constexpr int scores_sz = T_KV * 16 * sizeof(aiedt);
-        constexpr int v_sz      = D_HEAD * T_KV * sizeof(aiedt);
-        constexpr int hout      = D_HEAD * 16 * sizeof(aiedt);
-        constexpr int concat_sz = 16 * 16 * sizeof(aiedt);
-        constexpr int proj_sz   = 16 * 16 * sizeof(aiedt);
-#else
+        // (the candidate block keeps the vector-I/O kernels under TRANSPOSED:
+        // three candidates do not fill 16 lanes)
         constexpr int scores_sz = 4 * T_KV * sizeof(aiedt);
         constexpr int v_sz      = T_KV * D_HEAD * sizeof(aiedt);
         constexpr int hout      = T_DIM * D_HEAD * sizeof(aiedt);
         constexpr int concat_sz = T_DIM * E_DIM * sizeof(aiedt);
         constexpr int proj_sz   = T_DIM * E_DIM * sizeof(aiedt);
-#endif
 
         for (int h = 0; h < N_HEADS; h++) {
             connect<window<c_sz>>(plio_c_in.out[0], k_pre[h].in[0]);

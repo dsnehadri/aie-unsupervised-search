@@ -45,22 +45,66 @@ struct PackedWT {
 };
 #define PACKED_WT(name, M, K, W) static PackedWT<M, K> name; if (!name.ready) name.build(W)
 
+// per-row bias replicated 8x (M x 8) for gemm_pk_bias, built once per tile
+template <int M>
+struct BiasRep {
+    alignas(32) int16 r[M * 8];
+    bool ready = false;
+    inline void build(const int16* __restrict b)
+    {
+        for (int m = 0; m < M; m++) for (int i = 0; i < 8; i++) r[m * 8 + i] = b[m];
+        ready = true;
+    }
+};
+#define BIAS_REP(name, M, b) static BiasRep<M> name; if (!name.ready) name.build(b)
+
+// layer-norm gamma/beta as float, converted once per tile (vector conversion)
+struct LnParamsF {
+    alignas(32) float g[16];
+    alignas(32) float b[16];
+    bool ready = false;
+    inline void build(const int16* __restrict gamma, const int16* __restrict beta)
+    {
+        const aie::vector<int32, 16> g32 = aie::from_vector<acc48>(aie::load_v<16>(gamma)).template to_vector<int32>(0);
+        const aie::vector<int32, 16> b32 = aie::from_vector<acc48>(aie::load_v<16>(beta)).template to_vector<int32>(0);
+        aie::store_v(g, aie::to_float(g32.template extract<8>(0))); aie::store_v(g + 8, aie::to_float(g32.template extract<8>(1)));
+        aie::store_v(b, aie::to_float(b32.template extract<8>(0))); aie::store_v(b + 8, aie::to_float(b32.template extract<8>(1)));
+        ready = true;
+    }
+};
+#define LN_PARAMS(name, gamma, beta) static LnParamsF name; if (!name.ready) name.build(gamma, beta)
+
+// 16 x 16 int16 transpose in int32 lanes: four interleave_zip stages (chunk
+// 1, 2, 4, 8; all 32-bit shuffles, native on AIE1 -- 16-bit chunk-1 zips are
+// serial there), after which vector i holds column bitrev4(i). ~300 cycles
+// against ~2000 for the scalar loops.
+static inline void transpose16(const int16* __restrict A, int R_valid, int16* __restrict T, int R_out)
+{
+    alignas(32) int32 buf[16 * 16];
+    const v16i z = aie::zeros<int32, 16>();
+    for (int i = 0; i < 16; i++)
+        aie::store_v(buf + i * 16, (i < R_valid)
+            ? aie::from_vector<acc48>(aie::load_v<16>(A + i * 16)).template to_vector<int32>(0) : z);
+    for (int s = 0; s < 4; s++) {
+        const unsigned c = 1u << s;
+        alignas(32) int32 nb[16 * 16];
+        for (int i = 0; i < 8; i++) {
+            const auto p = aie::interleave_zip(aie::load_v<16>(buf + (2 * i) * 16), aie::load_v<16>(buf + (2 * i + 1) * 16), c);
+            aie::store_v(nb + i * 16, p.first);
+            aie::store_v(nb + (8 + i) * 16, p.second);
+        }
+        for (int i = 0; i < 16; i++) aie::store_v(buf + i * 16, aie::load_v<16>(nb + i * 16));
+    }
+    static const int brev[16] = {0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15};
+    for (int col = 0; col < R_out; col++)
+        aie::store_v(T + col * 16, aie::from_vector<acc80>(aie::load_v<16>(buf + brev[col] * 16)).template to_vector<int16>(0));
+}
 // row-major R x 16 -> 16 x 16 transposed, lanes >= R zero
 template <int R>
-static inline void to_T(const int16* __restrict A, int16* __restrict T)
-{
-    for (int f = 0; f < 16; f++)
-        for (int j = 0; j < 16; j++)
-            T[f * 16 + j] = (j < R) ? A[j * 16 + f] : (int16)0;
-}
+static inline void to_T(const int16* __restrict A, int16* __restrict T) { transpose16(A, R, T, 16); }
 // 16 x 16 transposed -> row-major R x 16
 template <int R>
-static inline void from_T(const int16* __restrict T, int16* __restrict A)
-{
-    for (int j = 0; j < R; j++)
-        for (int f = 0; f < 16; f++)
-            A[j * 16 + f] = T[f * 16 + j];
-}
+static inline void from_T(const int16* __restrict T, int16* __restrict A) { transpose16(T, 16, A, R); }
 
 static inline v8f fmul8(const v8f& a, const v8f& b) { return aie::mul(a, b).template to_vector<float>(); }
 
@@ -96,33 +140,29 @@ static inline v16s f_to_row(const v8f& f0, const v8f& f1)
 
 // Layer norm over the 16 rows of XT, per lane. x, gamma, beta at the same
 // fixed-point scale S; y = (x - mean) / sqrt(var + eps) * gamma + beta, eps in
-// x^2 units (eps * S^2).
-static inline void ln_lanes(int16* __restrict XT, const int16* __restrict gamma,
-                            const int16* __restrict beta, float eps_q2)
+// x^2 units (eps * S^2). One statistics pass (sum and sum of squares, fp32:
+// var = E[x^2] - mean^2 is fine at these magnitudes), one normalising pass.
+static inline void ln_lanes(int16* __restrict XT, const float* __restrict gf,
+                            const float* __restrict bf, float eps_q2)
 {
-    alignas(32) float xf[16 * 16];
     v8f s0 = aie::zeros<float, 8>(), s1 = aie::zeros<float, 8>();
+    v8f q0 = aie::zeros<float, 8>(), q1 = aie::zeros<float, 8>();
     for (int r = 0; r < 16; r++) {
         v8f f0, f1; row_to_f(XT + r * 16, f0, f1);
-        aie::store_v(xf + r * 16, f0); aie::store_v(xf + r * 16 + 8, f1);
         s0 = aie::add(s0, f0); s1 = aie::add(s1, f1);
+        q0 = aie::add(q0, fmul8(f0, f0)); q1 = aie::add(q1, fmul8(f1, f1));
     }
     const v8f inv16 = aie::broadcast<float, 8>(1.0f / 16.0f);
     const v8f m0 = fmul8(s0, inv16), m1 = fmul8(s1, inv16);
-    v8f v0 = aie::zeros<float, 8>(), v1 = aie::zeros<float, 8>();
-    for (int r = 0; r < 16; r++) {
-        const v8f d0 = aie::sub(aie::load_v<8>(xf + r * 16), m0);
-        const v8f d1 = aie::sub(aie::load_v<8>(xf + r * 16 + 8), m1);
-        v0 = aie::add(v0, fmul8(d0, d0)); v1 = aie::add(v1, fmul8(d1, d1));
-    }
     const v8f epsv = aie::broadcast<float, 8>(eps_q2);
-    const v8f r0 = rsqrt8(aie::add(fmul8(v0, inv16), epsv));
-    const v8f r1 = rsqrt8(aie::add(fmul8(v1, inv16), epsv));
+    const v8f r0 = rsqrt8(aie::add(aie::sub(fmul8(q0, inv16), fmul8(m0, m0)), epsv));
+    const v8f r1 = rsqrt8(aie::add(aie::sub(fmul8(q1, inv16), fmul8(m1, m1)), epsv));
     for (int r = 0; r < 16; r++) {
-        const v8f g = aie::broadcast<float, 8>((float)gamma[r]);
-        const v8f b = aie::broadcast<float, 8>((float)beta[r]);
-        const v8f y0 = aie::add(fmul8(fmul8(aie::sub(aie::load_v<8>(xf + r * 16), m0), r0), g), b);
-        const v8f y1 = aie::add(fmul8(fmul8(aie::sub(aie::load_v<8>(xf + r * 16 + 8), m1), r1), g), b);
+        v8f f0, f1; row_to_f(XT + r * 16, f0, f1);
+        const v8f g = aie::broadcast<float, 8>(gf[r]);
+        const v8f b = aie::broadcast<float, 8>(bf[r]);
+        const v8f y0 = aie::add(fmul8(fmul8(aie::sub(f0, m0), r0), g), b);
+        const v8f y1 = aie::add(fmul8(fmul8(aie::sub(f1, m1), r1), g), b);
         aie::store_v(XT + r * 16, f_to_row(y0, y1));
     }
 }

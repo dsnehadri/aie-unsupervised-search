@@ -27,9 +27,12 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
     PACKED_WT(Wk_t, D_HEAD, E_DIM, Wk);
     PACKED_WT(Wv_t, D_HEAD, E_DIM, Wv);
     alignas(16) int16 QT[D_HEAD * 16], KT[D_HEAD * 16], VT[D_HEAD * 16];
-    gemm_pk<D_HEAD, E_DIM, 16>(Wq_t.p, XT, QT, PIPE_ACC_SHIFT); bias_rows<D_HEAD>(QT, bq);
-    gemm_pk<D_HEAD, E_DIM, 16>(Wk_t.p, XT, KT, PIPE_ACC_SHIFT); bias_rows<D_HEAD>(KT, bk);
-    gemm_pk<D_HEAD, E_DIM, 16>(Wv_t.p, XT, VT, PIPE_ACC_SHIFT); bias_rows<D_HEAD>(VT, bv);
+    BIAS_REP(Wq_t_b, D_HEAD, bq);
+    gemm_pk_bias<D_HEAD, E_DIM, 16>(Wq_t.p, XT, QT, PIPE_ACC_SHIFT, Wq_t_b.r);
+    BIAS_REP(Wk_t_b, D_HEAD, bk);
+    gemm_pk_bias<D_HEAD, E_DIM, 16>(Wk_t.p, XT, KT, PIPE_ACC_SHIFT, Wk_t_b.r);
+    BIAS_REP(Wv_t_b, D_HEAD, bv);
+    gemm_pk_bias<D_HEAD, E_DIM, 16>(Wv_t.p, XT, VT, PIPE_ACC_SHIFT, Wv_t_b.r);
     // key lane N_MAX is the learned bias key/value; lanes beyond it are zero
     for (int d = 0; d < D_HEAD; d++) {
         KT[d * 16 + N_MAX] = bias_k_row[d]; VT[d * 16 + N_MAX] = bias_v_row[d];
@@ -129,8 +132,10 @@ static inline void kv_from_c(input_window_int16* __restrict c_in, int16* __restr
     PACKED_WT(Wk_t, D_HEAD, E_DIM, T_Wk);
     PACKED_WT(Wv_t, D_HEAD, E_DIM, T_Wv);
     alignas(16) int16 KT[D_HEAD * 16], VT[D_HEAD * 16];
-    gemm_pk<D_HEAD, E_DIM, 16>(Wk_t.p, CT, KT, PIPE_ACC_SHIFT); bias_rows<D_HEAD>(KT, T_bk);
-    gemm_pk<D_HEAD, E_DIM, 16>(Wv_t.p, CT, VT, PIPE_ACC_SHIFT); bias_rows<D_HEAD>(VT, T_bv);
+    BIAS_REP(Wk_t_b, D_HEAD, T_bk);
+    gemm_pk_bias<D_HEAD, E_DIM, 16>(Wk_t.p, CT, KT, PIPE_ACC_SHIFT, Wk_t_b.r);
+    BIAS_REP(Wv_t_b, D_HEAD, T_bv);
+    gemm_pk_bias<D_HEAD, E_DIM, 16>(Wv_t.p, CT, VT, PIPE_ACC_SHIFT, Wv_t_b.r);
     for (int d = 0; d < D_HEAD; d++) {
         KT[d * 16 + T_DIM] = T_bias_k[d]; VT[d * 16 + T_DIM] = T_bias_v[d];
         for (int k = 0; k < T_KV; k++) { Kp[k * D_HEAD + d] = KT[d * 16 + k]; Vp[d * T_KV + k] = VT[d * 16 + k]; }
@@ -164,7 +169,8 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
 #endif
     PACKED_WT(Wq_t, D_HEAD, E_DIM, T_Wq);
     alignas(16) int16 QT[D_HEAD * 16];
-    gemm_pk<D_HEAD, E_DIM, 16>(Wq_t.p, QsrcT, QT, PIPE_ACC_SHIFT); bias_rows<D_HEAD>(QT, T_bq);
+    BIAS_REP(Wq_t_b, D_HEAD, T_bq);
+    gemm_pk_bias<D_HEAD, E_DIM, 16>(Wq_t.p, QsrcT, QT, PIPE_ACC_SHIFT, Wq_t_b.r);
 
     alignas(16) int16 Kp[T_KV * D_HEAD], Vp[D_HEAD * T_KV];
 #if defined(ATTN_TYPE_CAND)
@@ -174,8 +180,10 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
         PACKED_WT(Wk_t, D_HEAD, E_DIM, T_Wk);
         PACKED_WT(Wv_t, D_HEAD, E_DIM, T_Wv);
         alignas(16) int16 KT[D_HEAD * 16], VT[D_HEAD * 16];
-        gemm_pk<D_HEAD, E_DIM, 16>(Wk_t.p, CT2, KT, PIPE_ACC_SHIFT); bias_rows<D_HEAD>(KT, T_bk);
-        gemm_pk<D_HEAD, E_DIM, 16>(Wv_t.p, CT2, VT, PIPE_ACC_SHIFT); bias_rows<D_HEAD>(VT, T_bv);
+        BIAS_REP(Wk_t_b, D_HEAD, T_bk);
+    gemm_pk_bias<D_HEAD, E_DIM, 16>(Wk_t.p, CT2, KT, PIPE_ACC_SHIFT, Wk_t_b.r);
+        BIAS_REP(Wv_t_b, D_HEAD, T_bv);
+    gemm_pk_bias<D_HEAD, E_DIM, 16>(Wv_t.p, CT2, VT, PIPE_ACC_SHIFT, Wv_t_b.r);
         for (int d = 0; d < D_HEAD; d++) {
             KT[d * 16 + T_DIM] = T_bias_k[d]; VT[d * 16 + T_DIM] = T_bias_v[d];
             for (int k = 0; k < T_KV; k++) { Kp[k * D_HEAD + d] = KT[d * 16 + k]; Vp[d * T_KV + k] = VT[d * 16 + k]; }
