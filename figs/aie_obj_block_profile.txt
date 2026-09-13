@@ -194,3 +194,20 @@ slowest cross_post_c_L0 = 6.0 us/event ; chain sum 27 us
 # exactly, and the block's first output lands 0.2 us earlier (the two window hops
 # cost ~0.1 us each, not the ~0.6 us guessed from the block-level handoff), while
 # the block interval would go from 6.1 to 12.7 us. Kept in the code, default off.
+
+=== candidate block, vector I/O (2026-09-13, aiesimulator, CandAttnGraphL<0>, 4 events) ===
+kernel                      tile  us/event  softfloat  layernorm   divide    gemm
+cand_post_c_L0              27_0       1.6         0%         3%       0%      0%
+cand_post_a_proj_L0         23_2       1.2         0%         0%       0%      0%
+cand_post_b1_L0             27_1       0.9         0%         0%       0%      0%
+cand_post_b2_L0             27_2       0.9         0%         0%       0%      0%
+cand_attn_head_pre_h0_L0    23_3       0.6         0%         0%       0%      0%
+cand_attn_head_pre_h3_L0    23_0       0.6         0%         0%       0%      0%
+cand_attn_head_pre_h1_L0    23_1       0.6         0%         0%       0%      0%
+cand_attn_head_pre_h2_L0    23_5       0.6         0%         0%       0%      0%
+cand_attn_head_post_h2_L0   23_4       0.6         0%         0%       0%      0%
+cand_attn_head_post_h3_L0   22_1       0.5         0%         0%       0%      0%
+cand_attn_head_post_h0_L0   22_3       0.5         0%         0%       0%      0%
+cand_attn_head_post_h1_L0   24_2       0.5         0%         0%       0%      0%
+slowest cand_post_c_L0 = 1.6 us/event ; chain sum 9 us
+# critical path pre 0.6 + head post 0.5 + a_proj 1.2 + b1 0.9 + b2 0.9 + c 1.6 = 5.7 us; aiesim == x86sim.
