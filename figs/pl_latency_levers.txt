@@ -258,3 +258,18 @@ t2e ON HARDWARE (2026-09-12 18:55; plstream_t2e = t2a + HEADS_BATCHED + LIN_FABR
 Data figs/latency_sweep_pl_t2e.csv. t2f (all levers incl. LN6) was killed before Vivado:
 csynth full-design 1,648,774 LUT (183%). Remaining fabric room at 45% LUT: LN6 on a
 subset of the layer norms, or WIDE_STREAMS (untested at two layers).
+
+t2h ON HARDWARE (2026-09-13 01:00; plstream_t2h = t2e flags + LN_MODE=2 (row-pipelined
+integer layer norm on DSPs, same 15 cycles/LN as mode 6; the DSPs freed by NARROW_MUL and
+the fabric linears make room) + WIDE_STREAMS (8 lanes per stream word), 100 MHz (clk_pl_0,
+no divider); BOOT.BIN md5 8ae84cb2, SW_CRC c85ab82c; post-route WNS +0.623 ns, 0 failing
+endpoints; routed 471,576 LUT (52%), DSP see below):
+                       t2e (78 MHz)   t2h (100 MHz)
+  one event (xrt::run)  319 us         145-149 us   (baseline 521: 3.5x)
+  one event, direct     299 us         129 us       scheduler 19.8 us median
+  interval (fit N>=8)   65.7 us        26.3 us      38,013 events/s (baseline 7,788: 4.9x)
+  fixed cost (fit)      254 us         119 us
+  AUC                   0.9825         0.9825       scores identical to t2e 2000/2000, rank corr vs software 0.9967
+Data figs/latency_sweep_pl_t2h.csv. The three levers together (clock 1.28x, LN 2 and
+wide streams) gave 2.2x on one event and 2.5x on the interval. t2g (same at 78 MHz)
+separates the clock from the other two when it lands.
