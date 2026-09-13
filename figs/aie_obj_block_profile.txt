@@ -183,3 +183,8 @@ slowest cross_post_c_L0 = 6.0 us/event ; chain sum 27 us
 # PROJECTION (obj 23 + cross 18.5 + cand ~6 per layer, x2, + embed 7 = ~103 us of AIE
 # chain, + ~30 us fabric + ~25 us launch): one event ~160 us (~140 direct registers);
 # interval set by the fabric candidate-build stage (9.2 us) once post_c is at 6 us.
+
+# NEGATIVE (2026-09-12): layernorm_row rewritten branch-free with two rows interleaved
+# (layernorm_one): bit-identical, aiesim == x86sim, but post_c 6.0 -> 6.1 us, b1/b2
+# 3.3 -> 3.3. The row chain does not overlap any better; the cost is elsewhere
+# (the reductions' shuffle latency, the acc-detour saturating adds, the packs).
