@@ -82,7 +82,7 @@ static inline void gemm_pk(const int16* __restrict Ap, const int16* __restrict B
 // (M x 8), so a 4-row block is one 32-lane vector. Replaces a separate
 // saturating-add pass (~40 cycles a row on AIE1).
 template <int M, int K, int N>
-static inline void gemm_pk_bias(const int16* __restrict Ap, const int16* __restrict B,
+__attribute__((noinline)) static void gemm_pk_bias(const int16* __restrict Ap, const int16* __restrict B,
                                 int16* __restrict C, int shift, const int16* __restrict biasrep)
 {
     static_assert(M % 4 == 0 && K % 4 == 0 && N % 8 == 0, "gemm_pk_bias: M,K multiples of 4, N of 8");

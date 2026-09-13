@@ -74,17 +74,20 @@ struct LnParamsF {
 };
 #define LN_PARAMS(name, gamma, beta) static LnParamsF name; if (!name.ready) name.build(gamma, beta)
 
+// Helpers below are noinline: the embedding tile overflowed its 16 KB program
+// memory (16,468 B) with everything inlined.
 // 16 x 16 int16 transpose in int32 lanes: four interleave_zip stages (chunk
 // 1, 2, 4, 8; all 32-bit shuffles, native on AIE1 -- 16-bit chunk-1 zips are
 // serial there), after which vector i holds column bitrev4(i). ~300 cycles
 // against ~2000 for the scalar loops.
-static inline void transpose16(const int16* __restrict A, int R_valid, int16* __restrict T, int R_out)
+__attribute__((noinline)) static void transpose16(const int16* __restrict A, int R_valid, int16* __restrict T, int R_out)
 {
     alignas(32) int32 buf[16 * 16];
     const v16i z = aie::zeros<int32, 16>();
-    for (int i = 0; i < 16; i++)
-        aie::store_v(buf + i * 16, (i < R_valid)
-            ? aie::from_vector<acc48>(aie::load_v<16>(A + i * 16)).template to_vector<int32>(0) : z);
+    for (int i = 0; i < 16; i++) {
+        if (i < R_valid) aie::store_v(buf + i * 16, aie::from_vector<acc48>(aie::load_v<16>(A + i * 16)).template to_vector<int32>(0));
+        else             aie::store_v(buf + i * 16, z);
+    }
     for (int s = 0; s < 4; s++) {
         const unsigned c = 1u << s;
         alignas(32) int32 nb[16 * 16];
@@ -142,7 +145,7 @@ static inline v16s f_to_row(const v8f& f0, const v8f& f1)
 // fixed-point scale S; y = (x - mean) / sqrt(var + eps) * gamma + beta, eps in
 // x^2 units (eps * S^2). One statistics pass (sum and sum of squares, fp32:
 // var = E[x^2] - mean^2 is fine at these magnitudes), one normalising pass.
-static inline void ln_lanes(int16* __restrict XT, const float* __restrict gf,
+__attribute__((noinline)) static void ln_lanes(int16* __restrict XT, const float* __restrict gf,
                             const float* __restrict bf, float eps_q2)
 {
     v8f s0 = aie::zeros<float, 8>(), s1 = aie::zeros<float, 8>();
@@ -193,7 +196,7 @@ static inline void scale_rows(int16* __restrict XT, int16 scale, int shift)
 // exp(-d) = 2^-(d log2e / score_scale): k = round(t), degree-4 poly for 2^-f,
 // 2^-k by exponent-bit subtraction, sums by vector adds, one vector reciprocal.
 template <int KEYS, int ROWS_OUT>
-static inline void softmax_lanes(const int16* __restrict ST, int16* __restrict PT,
+__attribute__((noinline)) static void softmax_lanes(const int16* __restrict ST, int16* __restrict PT,
                                  float score_scale, float out_scale)
 {
     v16i m = aie::from_vector<acc48>(aie::load_v<16>(ST)).template to_vector<int32>(0);

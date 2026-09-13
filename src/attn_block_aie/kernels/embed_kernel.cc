@@ -47,7 +47,10 @@ static void relu_inplace(int16* __restrict x, int n)
     }
 }
 
-#ifdef TRANSPOSED
+// TRANSPOSED_EMBED: the transposed embedding overflowed the 16 KB program memory
+// (16,900 B with three layers and two transposes) and was no faster in round 1;
+// the embedding keeps the vector-I/O kernel unless asked for explicitly.
+#if defined(TRANSPOSED) && defined(TRANSPOSED_EMBED)
 #include "embed_kernel_t.cc"
 #else
 void embed_mlp(input_window_int16* __restrict jets_in,
