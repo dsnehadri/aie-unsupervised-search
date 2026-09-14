@@ -2,8 +2,7 @@
 // the first attention block (read, fork, embedding send, pairwise wij) and what
 // follows the last (lorentz, autoencoder, write). One dataflow region, every
 // stage a persistent process over n_events (as aie_stream_top_pipe.cpp).
-// Ports: embed_j_out, mask_out, obj0_w0..3_out, x1_out (PL->AIE); x0_in, x_in, c_in (AIE->PL).
-// x0_in -> x1_out is the layer-0 -> layer-1 loopback (the stack is two on-array halves).
+// Ports: embed_j_out, mask_out, obj0_w0..3_out (PL->AIE); x_in, c_in (AIE->PL).
 #include "/home/snehadri/repos/aie-unsupervised-search/src/aie_stream/pl/aie_stream.h"
 #include "/home/snehadri/repos/aie-unsupervised-search/src/pl_stream/weights_rom.h"
 
@@ -99,15 +98,6 @@ static void wij_send_loop(hls::stream<score_t>& wij, hls::stream<pkt64_t>& w0, h
     hls::stream<pkt64_t>& w2, hls::stream<pkt64_t>& w3, int n) {
     for (int e = 0; e < n; e++) wij_send(wij, w0, w1, w2, w3);
 }
-// layer 0 -> layer 1 loopback: the array's x after cross L0 goes straight back
-// in as the object L1 input (48 x 64-bit beats, no unpacking)
-static void x_loop_loop(hls::stream<pkt64_t>& xi, hls::stream<pkt64_t>& xo, int n) {
-    for (int e = 0; e < n; e++)
-        for (int i = 0; i < (N_MAX * E_DIM) / 4; i++) {
-            #pragma HLS PIPELINE II=1
-            xo.write(xi.read());
-        }
-}
 static void x_recv_loop(hls::stream<pkt64_t>& xi, hls::stream<data_t>& o, int n) {
     for (int e = 0; e < n; e++) unpack_axi_to_stream<N_MAX * E_DIM>(xi, o);
 }
@@ -134,7 +124,6 @@ static void run_chain(const ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n,
     hls::stream<pkt64_t>& obj0_w0_out, hls::stream<pkt64_t>& obj0_w1_out,
     hls::stream<pkt64_t>& obj0_w2_out, hls::stream<pkt64_t>& obj0_w3_out,
     hls::stream<pkt64_t>& x_in, hls::stream<pkt64_t>& c_in,
-    hls::stream<pkt64_t>& x0_in, hls::stream<pkt64_t>& x1_out,
     const MLPWeights& mlp_w, const AEEncoderWeights& ae_enc_w, const AEDecoderWeights& ae_dec_w)
 {
     #pragma HLS DATAFLOW
@@ -164,7 +153,6 @@ static void run_chain(const ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n,
     mask_send_loop(s_mask_aie, mask_out, n);
     pairwise_loop(s_jets_pairwise, mlp_w, s_wij0, n);
     wij_send_loop(s_wij0, obj0_w0_out, obj0_w1_out, obj0_w2_out, obj0_w3_out, n);
-    x_loop_loop(x0_in, x1_out, n);
     x_recv_loop(x_in, s_x1, n);
     c_recv_loop(c_in, s_c1, n);
     lorentz_loop(s_jets_cand, s_x1, s_c1, s_mask_cand, s_ae, n);
@@ -182,8 +170,7 @@ extern "C" void aie_stream_top(
     hls::stream<pkt64_t>& embed_j_out, hls::stream<pkt64_t>& mask_out,
     hls::stream<pkt64_t>& obj0_w0_out, hls::stream<pkt64_t>& obj0_w1_out,
     hls::stream<pkt64_t>& obj0_w2_out, hls::stream<pkt64_t>& obj0_w3_out,
-    hls::stream<pkt64_t>& x_in, hls::stream<pkt64_t>& c_in,
-    hls::stream<pkt64_t>& x0_in, hls::stream<pkt64_t>& x1_out)
+    hls::stream<pkt64_t>& x_in, hls::stream<pkt64_t>& c_in)
 {
     #pragma HLS INTERFACE m_axi port=in_buf offset=slave bundle=gmem0 depth=720
     #pragma HLS INTERFACE m_axi port=out_buf offset=slave bundle=gmem1 depth=30
@@ -195,8 +182,6 @@ extern "C" void aie_stream_top(
     #pragma HLS INTERFACE axis port=obj0_w3_out
     #pragma HLS INTERFACE axis port=x_in
     #pragma HLS INTERFACE axis port=c_in
-    #pragma HLS INTERFACE axis port=x0_in
-    #pragma HLS INTERFACE axis port=x1_out
     #pragma HLS INTERFACE s_axilite port=in_buf
     #pragma HLS INTERFACE s_axilite port=out_buf
     #pragma HLS INTERFACE s_axilite port=n_events
@@ -207,6 +192,6 @@ extern "C" void aie_stream_top(
         weights_initialized = true;
     }
     run_chain(in_buf, out_buf, n_events, embed_j_out, mask_out,
-              obj0_w0_out, obj0_w1_out, obj0_w2_out, obj0_w3_out, x_in, c_in, x0_in, x1_out,
+              obj0_w0_out, obj0_w1_out, obj0_w2_out, obj0_w3_out, x_in, c_in,
               mlp_w, ae_enc_w, ae_dec_w);
 }

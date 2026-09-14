@@ -8,27 +8,37 @@
 // 16-bit fixed-point type at scale 512 with wrap-around on overflow, so the
 // candidate sums and the isr bias wrap here too (saturation mode "none").
 
+// N int16 (N % 8 == 0) from local memory onto a stream, 128 bits per write
+template <int N>
+static inline void stream_out(output_stream_int16* __restrict s, const int16* __restrict buf)
+{
+    for (int i = 0; i < N; i += 8) {
+        const aie::vector<int16, 8> v = aie::load_v<8>(buf + i);
+        writeincr_v8(s, v.to_native());
+    }
+}
+
 static inline void assemble(input_window_int16* __restrict x_in, input_window_int16* __restrict mask_in,
-                            output_window_int16* __restrict x_out, bool zero_padded)
+                            output_stream_int16* __restrict x_out, bool zero_padded)
 {
     alignas(16) int16 mask[E_DIM];
     aie::store_v(mask, win_read16(mask_in));
+    alignas(16) int16 xm[(N_MAX + 1) * E_DIM];
+    win_read_v<N_MAX * E_DIM>(x_in, xm);
     const v16_t z = aie::zeros<int16, 16>();
-    for (int j = 0; j < N_MAX; j++) {
-        const v16_t row = win_read16(x_in);
-        win_write16(x_out, (zero_padded && mask[j] != 0) ? z : row);
-    }
-    alignas(16) int16 mrow[E_DIM];
-    for (int j = 0; j < E_DIM; j++) mrow[j] = (j < N_MAX && mask[j] != 0) ? 1 : 0;   // mask row
-    win_write16(x_out, aie::load_v<16>(mrow));
+    if (zero_padded)
+        for (int j = 0; j < N_MAX; j++)
+            if (mask[j] != 0) aie::store_v(xm + j * E_DIM, z);
+    for (int j = 0; j < E_DIM; j++) xm[N_MAX * E_DIM + j] = (j < N_MAX && mask[j] != 0) ? 1 : 0;   // mask row
+    stream_out<(N_MAX + 1) * E_DIM>(x_out, xm);
 }
 void chain_assemble_zero(input_window_int16* __restrict x_in, input_window_int16* __restrict mask_in,
-                         output_window_int16* __restrict x_out) { assemble(x_in, mask_in, x_out, true); }
+                         output_stream_int16* __restrict x_out) { assemble(x_in, mask_in, x_out, true); }
 void chain_assemble(input_window_int16* __restrict x_in, input_window_int16* __restrict mask_in,
-                    output_window_int16* __restrict x_out) { assemble(x_in, mask_in, x_out, false); }
+                    output_stream_int16* __restrict x_out) { assemble(x_in, mask_in, x_out, false); }
 
 void chain_post_obj(input_window_int16* __restrict x_in, input_window_int16* __restrict mask_in,
-                    output_window_int16* __restrict x_out, output_window_int16* __restrict c_out)
+                    output_stream_int16* __restrict x_out, output_stream_int16* __restrict c_out)
 {
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::none);
     alignas(16) int16 mask[E_DIM];
@@ -48,16 +58,14 @@ void chain_post_obj(input_window_int16* __restrict x_in, input_window_int16* __r
         const aie::vector<int32, 16> b = aie::from_vector<acc48>(aie::load_v<16>(row)).to_vector<int32>(0);
         aie::store_v(c + t * E_DIM, aie::from_vector<acc80>(aie::add(a, b)).to_vector<int16>(0));   // wraps
     }
-    win_write_v<N_MAX * E_DIM>(x_out, xr);
-    win_write_v<T_DIM * E_DIM>(c_out, c);
+    stream_out<N_MAX * E_DIM>(x_out, xr);
+    stream_out<T_DIM * E_DIM>(c_out, c);
     aie::set_saturation(sat_save);
 }
 
-template <int N>
-static inline void dup2(input_window_int16* __restrict in, output_window_int16* __restrict o0, output_window_int16* __restrict o1)
+void chain_w2s_48(input_window_int16* __restrict c_in, output_stream_int16* __restrict c_out)
 {
-    for (int i = 0; i < N; i += 16) { const v16_t v = win_read16(in); win_write16(o0, v); win_write16(o1, v); }
+    alignas(16) int16 c[T_DIM * E_DIM];
+    win_read_v<T_DIM * E_DIM>(c_in, c);
+    stream_out<T_DIM * E_DIM>(c_out, c);
 }
-void chain_dup2_208(input_window_int16* __restrict in, output_window_int16* __restrict o0, output_window_int16* __restrict o1) { dup2<208>(in, o0, o1); }
-void chain_dup2_192(input_window_int16* __restrict in, output_window_int16* __restrict o0, output_window_int16* __restrict o1) { dup2<192>(in, o0, o1); }
-void chain_dup2_48 (input_window_int16* __restrict in, output_window_int16* __restrict o0, output_window_int16* __restrict o1) { dup2<48>(in, o0, o1); }
