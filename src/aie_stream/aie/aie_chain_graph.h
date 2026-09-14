@@ -2,8 +2,8 @@
 // subgraphs are the ones in aie_graph.h with graph ports instead of PLIOs, so
 // the blocks hand their windows to each other on the array; small tile kernels
 // (chain_kernels.h) do what the fabric did between blocks (mask row, remask,
-// candidate build) and write ONE window per consumer: a kernel window fanned
-// out 4-5 ways mis-delivered in aiesimulator. PLIOs left: raw jets and the
+// candidate build); windows with more than two consumers go through trees of
+// 2-output copy kernels (a tile has two MM2S DMA channels). PLIOs left: raw jets and the
 // mask in, the four wij slices in (layer 0), x and c out for the lorentz /
 // autoencoder stages on the fabric. 8 PLIOs instead of 20.
 #ifndef AIE_CHAIN_GRAPH_H
@@ -378,14 +378,59 @@ public:
     }
 };
 
+// Fan-out trees of 2-output copy kernels (each tile: 1 window in, 2 out).
+//   fan4: R -> A -> (d0, d1), R -> B -> (d2, d3)            3 kernels, 2 hops
+//   fan5: R -> A -> (d0, d1), R -> B -> (d2, C -> (d3, d4)) 4 kernels, 2-3 hops
 class PasswdChainGraph : public graph {
 public:
     input_plio  plio_jets_in, plio_mask_in;
     input_plio  plio_wij_h0, plio_wij_h1, plio_wij_h2, plio_wij_h3;
     output_plio plio_x_out, plio_c_out;
-    kernel k_embed, k_asm0, k_pobj0, k_fan0, k_asm1, k_pobj1, k_fan1;
+    kernel k_embed, k_asm0, k_pobj0, k_asm1, k_pobj1;
+    static constexpr int NDUP = 40;
+    kernel dup[NDUP]; int ndup = 0;
     ObjChainL<0> obj0;  CandChainL<0> cand0;  CrossChainL<0> cross0;
     ObjChainL<1> obj1;  CandChainL<1> cand1;  CrossChainL<1> cross1;
+
+    static constexpr int jets_sz = EMBED_IN_WORDS * sizeof(int16);       // 128 B
+    static constexpr int mask_sz = E_DIM * sizeof(int16);                //  32 B
+    static constexpr int x_sz    = N_MAX * E_DIM * sizeof(int16);        // 384 B
+    static constexpr int xm_sz   = (N_MAX + 1) * E_DIM * sizeof(int16);  // 416 B, with the mask row
+    static constexpr int c_sz    = T_DIM * E_DIM * sizeof(int16);        //  96 B
+    static constexpr int wij_sz  = N_MAX * N_KV * sizeof(int16);         // 312 B
+
+    // the graph front-end needs the kernel function named literally at each
+    // kernel::create, so the copy kernel is chosen by size with plain ifs
+    kernel& mkdup(int sz) {
+        kernel& k = dup[ndup++];
+        if (sz == xm_sz) {
+            k = kernel::create(chain_dup2_208);
+        } else if (sz == x_sz) {
+            k = kernel::create(chain_dup2_192);
+        } else {
+            k = kernel::create(chain_dup2_48);
+        }
+        source(k) = "kernels/chain_kernels.cc"; runtime<ratio>(k) = 0.9;
+        return k;
+    }
+    template <int SZ, typename SRC>
+    void fan4(SRC& src, port<input>& d0, port<input>& d1, port<input>& d2, port<input>& d3) {
+        kernel& R = mkdup(SZ); kernel& A = mkdup(SZ); kernel& B = mkdup(SZ);
+        connect<window<SZ>>(src, R.in[0]);
+        connect<window<SZ>>(R.out[0], A.in[0]); connect<window<SZ>>(R.out[1], B.in[0]);
+        connect<window<SZ>>(A.out[0], d0); connect<window<SZ>>(A.out[1], d1);
+        connect<window<SZ>>(B.out[0], d2); connect<window<SZ>>(B.out[1], d3);
+    }
+    template <int SZ, typename SRC, typename D4>
+    void fan5(SRC& src, port<input>& d0, port<input>& d1, port<input>& d2, port<input>& d3, D4& d4) {
+        kernel& R = mkdup(SZ); kernel& A = mkdup(SZ); kernel& B = mkdup(SZ); kernel& C = mkdup(SZ);
+        connect<window<SZ>>(src, R.in[0]);
+        connect<window<SZ>>(R.out[0], A.in[0]); connect<window<SZ>>(R.out[1], B.in[0]);
+        connect<window<SZ>>(A.out[0], d0); connect<window<SZ>>(A.out[1], d1);
+        connect<window<SZ>>(B.out[0], d2); connect<window<SZ>>(B.out[1], C.in[0]);
+        connect<window<SZ>>(C.out[0], d3); connect<window<SZ>>(C.out[1], d4);
+    }
+
     PasswdChainGraph() {
         plio_jets_in = input_plio::create("embed_jets_in", plio_64_bits, "data/embed_jets_in.txt");
         plio_mask_in = input_plio::create("mask_in",       plio_64_bits, "data/mask_in.txt");
@@ -399,55 +444,38 @@ public:
         k_embed = kernel::create(embed_mlp);           source(k_embed) = "kernels/embed_kernel.cc";
         k_asm0  = kernel::create(chain_assemble_zero); source(k_asm0)  = "kernels/chain_kernels.cc";
         k_pobj0 = kernel::create(chain_post_obj);      source(k_pobj0) = "kernels/chain_kernels.cc";
-        k_fan0  = kernel::create(chain_fanout_c4);     source(k_fan0)  = "kernels/chain_kernels.cc";
         k_asm1  = kernel::create(chain_assemble);      source(k_asm1)  = "kernels/chain_kernels.cc";
         k_pobj1 = kernel::create(chain_post_obj);      source(k_pobj1) = "kernels/chain_kernels.cc";
-        k_fan1  = kernel::create(chain_fanout_c);      source(k_fan1)  = "kernels/chain_kernels.cc";
-        for (kernel* k : {&k_embed, &k_asm0, &k_pobj0, &k_fan0, &k_asm1, &k_pobj1, &k_fan1}) runtime<ratio>(*k) = 0.9;
+        for (kernel* k : {&k_embed, &k_asm0, &k_pobj0, &k_asm1, &k_pobj1}) runtime<ratio>(*k) = 0.9;
 
-        constexpr int jets_sz = EMBED_IN_WORDS * sizeof(int16);       // 128 B
-        constexpr int mask_sz = E_DIM * sizeof(int16);                //  32 B
-        constexpr int x_sz    = N_MAX * E_DIM * sizeof(int16);        // 384 B
-        constexpr int xm_sz   = (N_MAX + 1) * E_DIM * sizeof(int16);  // 416 B, with the mask row
-        constexpr int c_sz    = T_DIM * E_DIM * sizeof(int16);        //  96 B
-        constexpr int wij_sz  = N_MAX * N_KV * sizeof(int16);         // 312 B
-
-        // embedding -> (zero padded rows, + mask row) x5 -> object L0
+        // embedding -> (zero padded rows, + mask row) -> object L0 (5 consumers)
         connect<window<jets_sz>>(plio_jets_in.out[0], k_embed.in[0]);
         connect<window<x_sz>>(k_embed.out[0], k_asm0.in[0]);
         connect<window<mask_sz>>(plio_mask_in.out[0], k_asm0.in[1]);
-        for (int h = 0; h < N_HEADS; h++) connect<window<xm_sz>>(k_asm0.out[h], obj0.x_in_h[h]);
-        connect<window<xm_sz>>(k_asm0.out[N_HEADS], obj0.x_in_res);
+        fan5<xm_sz>(k_asm0.out[0], obj0.x_in_h[0], obj0.x_in_h[1], obj0.x_in_h[2], obj0.x_in_h[3], obj0.x_in_res);
         connect<window<wij_sz>>(plio_wij_h0.out[0], obj0.wij_h0);
         connect<window<wij_sz>>(plio_wij_h1.out[0], obj0.wij_h1);
         connect<window<wij_sz>>(plio_wij_h2.out[0], obj0.wij_h2);
         connect<window<wij_sz>>(plio_wij_h3.out[0], obj0.wij_h3);
-        // object L0 -> remask + candidate build -> cross L0 (x x5), candidate L0 (c x5)
+        // object L0 -> remask + candidate build -> cross L0 (x, 5), candidate L0 (c, 5)
         connect<window<x_sz>>(obj0.x_out, k_pobj0.in[0]);
         connect<window<mask_sz>>(plio_mask_in.out[0], k_pobj0.in[1]);
-        for (int h = 0; h < N_HEADS; h++) connect<window<x_sz>>(k_pobj0.out[h], cross0.x_in_h[h]);
-        connect<window<x_sz>>(k_pobj0.out[N_HEADS], cross0.x_in_res);
-        for (int h = 0; h < N_HEADS; h++) connect<window<c_sz>>(k_pobj0.out[5 + h], cand0.c_in_h[h]);
-        connect<window<c_sz>>(k_pobj0.out[5 + N_HEADS], cand0.c_in_res);
-        // candidate L0 -> c x4 -> cross L0
-        connect<window<c_sz>>(cand0.c_out, k_fan0.in[0]);
-        for (int h = 0; h < N_HEADS; h++) connect<window<c_sz>>(k_fan0.out[h], cross0.c_in_h[h]);
+        fan5<x_sz>(k_pobj0.out[0], cross0.x_in_h[0], cross0.x_in_h[1], cross0.x_in_h[2], cross0.x_in_h[3], cross0.x_in_res);
+        fan5<c_sz>(k_pobj0.out[1], cand0.c_in_h[0], cand0.c_in_h[1], cand0.c_in_h[2], cand0.c_in_h[3], cand0.c_in_res);
+        // candidate L0 -> c (4) -> cross L0
+        fan4<c_sz>(cand0.c_out, cross0.c_in_h[0], cross0.c_in_h[1], cross0.c_in_h[2], cross0.c_in_h[3]);
         // layer 1
         connect<window<x_sz>>(cross0.x_out, k_asm1.in[0]);
         connect<window<mask_sz>>(plio_mask_in.out[0], k_asm1.in[1]);
-        for (int h = 0; h < N_HEADS; h++) connect<window<xm_sz>>(k_asm1.out[h], obj1.x_in_h[h]);
-        connect<window<xm_sz>>(k_asm1.out[N_HEADS], obj1.x_in_res);
+        fan5<xm_sz>(k_asm1.out[0], obj1.x_in_h[0], obj1.x_in_h[1], obj1.x_in_h[2], obj1.x_in_h[3], obj1.x_in_res);
         connect<window<x_sz>>(obj1.x_out, k_pobj1.in[0]);
         connect<window<mask_sz>>(plio_mask_in.out[0], k_pobj1.in[1]);
-        for (int h = 0; h < N_HEADS; h++) connect<window<x_sz>>(k_pobj1.out[h], cross1.x_in_h[h]);
-        connect<window<x_sz>>(k_pobj1.out[N_HEADS], cross1.x_in_res);
-        for (int h = 0; h < N_HEADS; h++) connect<window<c_sz>>(k_pobj1.out[5 + h], cand1.c_in_h[h]);
-        connect<window<c_sz>>(k_pobj1.out[5 + N_HEADS], cand1.c_in_res);
-        connect<window<c_sz>>(cand1.c_out, k_fan1.in[0]);
-        for (int h = 0; h < N_HEADS; h++) connect<window<c_sz>>(k_fan1.out[h], cross1.c_in_h[h]);
-        // out: x after cross L1, c after candidate L1 (lorentz + autoencoder on the fabric)
+        fan5<x_sz>(k_pobj1.out[0], cross1.x_in_h[0], cross1.x_in_h[1], cross1.x_in_h[2], cross1.x_in_h[3], cross1.x_in_res);
+        fan5<c_sz>(k_pobj1.out[1], cand1.c_in_h[0], cand1.c_in_h[1], cand1.c_in_h[2], cand1.c_in_h[3], cand1.c_in_res);
+        // candidate L1 -> c (4 cross heads + the c PLIO out)
+        fan5<c_sz>(cand1.c_out, cross1.c_in_h[0], cross1.c_in_h[1], cross1.c_in_h[2], cross1.c_in_h[3], plio_c_out.in[0]);
+        // out: x after cross L1
         connect<window<x_sz>>(cross1.x_out, plio_x_out.in[0]);
-        connect<window<c_sz>>(k_fan1.out[N_HEADS], plio_c_out.in[0]);
     }
 };
 #endif // AIE_CHAIN_GRAPH_H
