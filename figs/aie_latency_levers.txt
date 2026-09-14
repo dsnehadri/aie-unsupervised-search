@@ -98,7 +98,40 @@ Lever 3 -- the hybrid's fabric kernel (aie_hybrid_plfast2, commit f3109af)
   branch-free layer norm (post_c 6.0 -> 6.1 us) and POST_MERGED, b1+b2+c in one kernel
   (12.7 us = the sum; first output 0.2 us earlier; interval would double). Default off.
 
-Summary, one event: 355 -> 159 us (2.23x), 137 us with direct-register launch (2.59x);
-interval 17.3 -> 7.4 us (2.34x). Fabric-only two-layer (t2e): 319 / 299 us, 65.7 us/event.
-Left on the table: post_c layer norm (43-48% of the now-slowest 6 us kernel), the fabric
-candidate-build stage (9.2 us, sets the interval), merging b1+b2+c (saves window hops).
+Lever 4 -- the whole ABC stack on the array (aie_chain_graph.h, chain_kernels, commits
+06177aa..effa3f8). The six attention subgraphs hand their windows to each other on the
+array; small tile kernels do the mask row, remask and candidate build (bit-exact with the
+fabric's ap_fixed<16,7> wrap arithmetic). Fan-outs to a block's 4 heads + residual are
+kernel STREAMS multicast by the switch (connect<stream, window<>>), as a PLIO does --
+plain multi-consumer windows mis-delivered on the ISA model, one window per consumer,
+copy trees, and even two one-layer halves in one graph failed the AIE placer. 8 PLIOs
+instead of 20; the fabric keeps read/fork, embedding and wij sends, lorentz, AE, write.
+aiesimulator, whole stack: x after cross L1 at 111.2 us from t=0, 8.7 us/event; == x86.
+
+  HARDWARE (image aie_hybrid_chain, BOOT.BIN md5 763975f8, SW_CRC 8a7accb9, 2026-09-14 04:10):
+                              v3              chain
+    one event (xrt::run)       159-161 us      134-136 us   (scheduler 20.1 us median)
+    one event, direct regs     137 us          114 us
+    interval (fit N>=8)        7.41 us         8.40 us      119,059 events/s
+    fixed cost (fit)           155 us          129 us  (104 direct)
+    AUC (2000 labelled)        0.9825          0.9825   scores identical to v3 2000/2000
+  batch sweep (figs/latency_sweep_hybrid_chain.csv, _direct.csv):
+  N=1    median 0.136 ms  134.2 us/event
+  N=2    median 0.143 ms  71.3 us/event
+  N=4    median 0.164 ms  40.3 us/event
+  N=8    median 0.196 ms  24.4 us/event
+  N=16   median 0.265 ms  16.5 us/event
+  N=32   median 0.397 ms  12.4 us/event
+  N=64   median 0.667 ms  10.4 us/event
+  N=128  median 1.204 ms  9.4 us/event
+  N=256  median 2.280 ms  8.9 us/event
+
+  The interval is now the array's own (8.4 us; the simulator said 8.7): the obj block's
+  head post 5.0 + the assemble/post-obj hops and the stream fan-outs; v3's 7.4 was set by
+  fabric stages that no longer exist. One event: the ~39 us of fabric bridge stages
+  became ~5 us of tile kernels and DMA.
+
+Summary, one event: 355 -> 134 us (2.65x), 114 us with direct-register launch (3.11x);
+interval 17.3 -> 8.4 us (2.06x; 7.4 with v3). Fabric-only two-layer (t2i): 127-136 / 113 us,
+24.6 us/event. The two implementations are level on one event; the hybrid keeps 2.9x on
+throughput.
