@@ -286,3 +286,18 @@ WNS +0.601 ns):
 So the DSP layer norm + wide streams are worth 319 -> 185 us (1.72x) and the clock
 185 -> 147 (1.26x, = 100/78.125 on the fabric share). Data figs/latency_sweep_pl_t2g.csv.
 Image on the board after this: plstream_t2g (t2h = BOOT.BIN.t2h on the FAT is the one to quote).
+
+t2i ON HARDWARE (2026-09-13 20:55; = t2h + PAIRWISE_FAST (pairwise MLP at II=1, per-event
+2640 -> 428 cycles); BOOT.BIN md5 cb382ee6, SW_CRC a2822467; WNS +0.652 ns, 0 failing;
+routed 473,934 LUT (52.7%), DSP 1872 est):
+                       t2h            t2i
+  one event (xrt::run)  145-149 us     127-136 us   (baseline 521: 4.0x)
+  one event, direct     129 us         113 us       scheduler 22.9 us median
+  interval (fit)        26.3 us        24.6 us      40,716 events/s
+  fixed cost (fit)      119 us         105 us
+  AUC / identical       0.9825         0.9825, scores identical to t2h 2000/2000
+The stage chart said pairwise (26.4 us) set the rate; removing it moved the interval
+only 26.3 -> 24.6, so a per-event overhead near 25 us (the dataflow-in-loop stages do not
+overlap successive events; noted before as "~25 us above the longest stage") is the
+fabric's real interval floor now. One event did drop by the pairwise's share (~17 us).
+Data figs/latency_sweep_pl_t2i.csv. Board image after this: plstream_t2i.
