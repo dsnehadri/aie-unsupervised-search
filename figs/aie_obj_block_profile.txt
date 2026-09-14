@@ -251,3 +251,13 @@ slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
 #   ran cross0 (x86sim was clean); one output window per consumer fixed it.
 #   Two layers -> ~110 us of AIE chain + ~17 us fabric (read/fork, embed and wij sends,
 #   lorentz 7.6, AE 4.3, write) + ~20 us launch -> ~130 us one event expected (~108 direct).
+
+# WHOLE STACK ON THE ARRAY (2026-09-14, aiesimulator, PasswdChainGraph, 4 events):
+#   embed -> obj0 -> post-obj -> cand0 -> cross0 -> obj1 -> post-obj -> cand1 -> cross1
+#   x after cross L1 complete at 111.2 us from t=0 (c after cand L1 at 92.0);
+#   event-to-event 8.7 us average (5.8-14.5); outputs match x86sim line for line.
+#   The fan-outs are kernel STREAMS multicast to window inputs (as a PLIO does):
+#   plain multi-consumer windows mis-delivered, one-window-per-consumer and copy
+#   trees did not place (even as two one-layer halves). 
+#   Expected on hardware (old hybrid v3: ~102 us of AIE blocks + ~39 us of fabric
+#   bridge stages): one event ~130 us xrt::run / ~108 direct.
