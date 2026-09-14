@@ -184,7 +184,9 @@ void POST_C_FN(input_window_float* __restrict ffn_in,
 #endif
 
 #else  // !FLOAT_AIE -- the deployed int16 kernels
-#if defined(TRANSPOSED) && !defined(ATTN_TYPE_CAND)
+#if defined(POST_STREAM)
+#include "attn_post_kernel_s.cc"
+#elif defined(TRANSPOSED) && !defined(ATTN_TYPE_CAND)
 #include "attn_post_kernel_t.cc"
 #else
 // vectorized tiled gemm: A packed 4x4-block-major, B row-major (gemm_utils.h)

@@ -163,7 +163,14 @@ public:
         connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[N_HEADS]);
 
         // post_a_proj -> post_b1 (ffn0) and post_a_proj -> post_c (FFN-residual broadcast)
-#ifndef POST_MERGED
+#if defined(POST_STREAM)
+        // rows stream a_proj -> b1 -> b2 -> c; the block output is a stream
+        connect<stream>(k_post_ap.out[0], k_post_b1.in[0]);
+        connect<stream>(k_post_ap.out[0], k_post_c.in[1]);
+        connect<stream>(k_post_b1.out[0], k_post_b2.in[0]);
+        connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
+        connect<stream>(k_post_c.out[0], plio_x_out.in[0]);
+#elif !defined(POST_MERGED)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
 
@@ -279,7 +286,14 @@ public:
         }
         connect<window<c_sz>>(plio_c_in.out[0], k_post_ap.in[N_HEADS]);
 
-#ifndef POST_MERGED
+#if defined(POST_STREAM)
+        // rows stream a_proj -> b1 -> b2 -> c; the block output is a stream
+        connect<stream>(k_post_ap.out[0], k_post_b1.in[0]);
+        connect<stream>(k_post_ap.out[0], k_post_c.in[1]);
+        connect<stream>(k_post_b1.out[0], k_post_b2.in[0]);
+        connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
+        connect<stream>(k_post_c.out[0], plio_c_out.in[0]);
+#elif !defined(POST_MERGED)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
         connect<window<proj_sz>>(k_post_b1.out[0], k_post_b2.in[0]);
@@ -404,7 +418,14 @@ public:
         }
         connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[N_HEADS]);
 
-#ifndef POST_MERGED
+#if defined(POST_STREAM)
+        // rows stream a_proj -> b1 -> b2 -> c; the block output is a stream
+        connect<stream>(k_post_ap.out[0], k_post_b1.in[0]);
+        connect<stream>(k_post_ap.out[0], k_post_c.in[1]);
+        connect<stream>(k_post_b1.out[0], k_post_b2.in[0]);
+        connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
+        connect<stream>(k_post_c.out[0], plio_x_out.in[0]);
+#elif !defined(POST_MERGED)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
         connect<window<proj_sz>>(k_post_b1.out[0], k_post_b2.in[0]);

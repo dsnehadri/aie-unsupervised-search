@@ -49,6 +49,23 @@ DECL_POST_BC(obj, 0);  DECL_POST_BC(obj, 1);
 DECL_POST_BC(cand, 0); DECL_POST_BC(cand, 1);
 DECL_POST_BC(cross, 0);DECL_POST_BC(cross, 1);
 
+#ifdef POST_STREAM
+// POST_STREAM: rows stream from a_proj through b1, b2 and c (row-level
+// pipelining; a_proj still reads the head and residual windows). The block
+// output is a stream too; consumers connect with connect<stream, window<>>.
+#undef DECL_POST_PROJ
+#undef DECL_POST_B1
+#undef DECL_POST_B2
+#undef DECL_POST_C
+#define DECL_POST_PROJ(t, l) void t##_post_a_proj_L##l( \
+    AIE_IW* __restrict head0_in, AIE_IW* __restrict head1_in, AIE_IW* __restrict head2_in, \
+    AIE_IW* __restrict head3_in, AIE_IW* __restrict residual_in, output_stream_int16* __restrict proj_out)
+#define DECL_POST_B1(t, l) void t##_post_b1_L##l(input_stream_int16* __restrict proj_in, output_stream_int16* __restrict ffn0_out)
+#define DECL_POST_B2(t, l) void t##_post_b2_L##l(input_stream_int16* __restrict ffn0_in, output_stream_int16* __restrict ffn1_out)
+#define DECL_POST_C(t, l) void t##_post_c_L##l(input_stream_int16* __restrict ffn_in, \
+    input_stream_int16* __restrict residual_b_in, output_stream_int16* __restrict x_out)
+#endif
+
 DECL_POST_PROJ(obj, 0);  DECL_POST_PROJ(obj, 1);
 DECL_POST_PROJ(cand, 0); DECL_POST_PROJ(cand, 1);
 DECL_POST_PROJ(cross, 0);DECL_POST_PROJ(cross, 1);
