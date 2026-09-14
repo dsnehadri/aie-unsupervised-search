@@ -279,3 +279,13 @@ slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
 #   producer row by row, so the slowest kernel now carries some of that wait.
 #   aiesim == x86sim line for line on both outputs (192 / 48 lines).
 #   Expected on hardware: one event ~100 us xrt::run / ~80 us direct registers.
+#
+# PER-BLOCK, windows vs row streaming (aiesimulator, 4 events, from the block's
+# output timestamps; latency = last row of event 0, interval = (ev3-ev1)/2):
+#            latency        interval
+#   object   24.2 -> 14.9   5.9 -> 6.2
+#   cross    19.7 -> 10.7   6.4 -> 6.2
+#   candidate 6.7 ->  4.3   1.7 -> 1.6
+#   Streaming is a latency lever, not a rate one: the kernels overlap inside a
+#   block, so the block answers sooner, but the slowest kernel still sets the rate
+#   and now carries some stream-wait time.
