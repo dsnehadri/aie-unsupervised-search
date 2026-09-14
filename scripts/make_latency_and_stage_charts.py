@@ -48,7 +48,9 @@ COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C, "AIE-PL hybrid, embedding on arr
 #   181 us, 160 us with direct-register launch). Hybrid v3 adds single-pass
 #   fabric stages: 7.4 us/event, one event 159 us (137 direct). The 'chain' image
 #   puts the whole ABC stack on the array: 8.4 us/event, one event 134 us (114
-#   direct), scores identical to v3. AUC 0.9825 / 0.9825.
+#   direct), scores identical to v3. Row streaming between the post kernels then
+#   gives 9.5 us/event, one event 108 us (87 direct), same scores again.
+#   AUC 0.9825 / 0.9825.
 def _csv(path, kernel):
     pts = []
     for l in open(path):
@@ -82,7 +84,7 @@ NMIN = 8
 #     interval; figs/aie_obj_block_profile.txt), which predicted the board
 #     within 6% in every earlier check. Both clocks are exactly 100 MHz.
 PL_CLK, HYB_CLK = 100e6, 100e6
-AIE = {"Object attention": 6.1, "Candidate attention": 1.6, "Cross attention": 6.0}
+AIE = {"Object attention": 6.2, "Candidate attention": 1.6, "Cross attention": 6.2}
 EMBED_AIE_SIM = 7.2   # embed_mlp, aiesimulator, 8,998 cycles/event
 cyc = lambda c, clk: c / clk * 1e6
 cycpl = lambda c: c / PL_CLK * 1e6
@@ -95,9 +97,16 @@ cycpl = lambda c: c / PL_CLK * 1e6
 # bar is the longest one. The attention blocks have no fabric part any more:
 # the mask row, remask and candidate build run on tiles (~0.5 us, folded into
 # the candidate rows). AI Engine column: slowest kernel of each block from the
-# aiesimulator profiles. The measured 8.4 us interval is the array's own rate
-# (the simulator of the whole stack gave 8.7): the block kernels plus the
-# assemble/post-obj hops and stream fan-outs between them.
+# aiesimulator profiles, taken from the block's output timestamps. The measured
+# 9.5 us interval is the array's own rate (the simulator of the whole stack gave
+# 9.4): the block kernels plus the assemble/post-obj hops and stream fan-outs
+# between them.
+#   2026-09-14, row streaming inside each block (POST_STREAM): a_proj -> b1 -> b2
+#   -> c pass one 16-word row at a time on core streams. That is a LATENCY lever,
+#   not a rate one, so these bars hardly move (object block interval 5.9 -> 6.2,
+#   cross 6.4 -> 6.2, candidate 1.7 -> 1.6) while the block's own latency falls:
+#   object 24.2 -> 14.9 us, cross 19.7 -> 10.7, candidate 6.7 -> 4.3, whole stack
+#   111 -> 77 us in the simulator and 134 -> 108 us on the board (87 direct).
 ROWS = [
  ("Read input",                cycpl(152),   cyc(152, HYB_CLK),          0),
  ("Fork",                      cycpl(112),   cyc(161, HYB_CLK),          0),
