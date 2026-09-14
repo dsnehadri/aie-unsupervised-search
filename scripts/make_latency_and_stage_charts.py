@@ -87,25 +87,31 @@ EMBED_AIE_SIM = 7.2   # embed_mlp, aiesimulator, 8,998 cycles/event
 cyc = lambda c, clk: c / clk * 1e6
 cycpl = lambda c: c / PL_CLK * 1e6
 # rows: (label, PL-only us, hybrid PL-side us, hybrid AIE us)
-# Hybrid PL column: the fabric work of a row is several dataflow processes
-# (e.g. object L0 = send 699, recv 243, remask 213 cycles) that run as separate
-# pipeline stages, so the bar shows the LONGEST of them -- the one that can set
-# the rate -- not their sum (a single event pays the sum: 11.5 us for object L0).
-# rows: (label, PL-only us, hybrid PL-side us, hybrid AIE us)
+# Hybrid = the "chain" image (whole ABC stack on the array, 2026-09-14). PL
+# column: per-event iteration latency of each fabric stage loop in
+# aie_stream_top_chain.cpp (read 152, fork 161, embed send 92, mask send 29,
+# pairwise 661, wij send 482, x recv 243, c recv 63, lorentz 759, AE 429,
+# write 86 cycles at 100 MHz); where a row holds several dataflow processes the
+# bar is the longest one. The attention blocks have no fabric part any more:
+# the mask row, remask and candidate build run on tiles (~0.5 us, folded into
+# the candidate rows). AI Engine column: slowest kernel of each block from the
+# aiesimulator profiles. The measured 8.4 us interval is the array's own rate
+# (the simulator of the whole stack gave 8.7): the block kernels plus the
+# assemble/post-obj hops and stream fan-outs between them.
 ROWS = [
- ("Read input",                cycpl(152),   cyc(152, HYB_CLK),               0),
- ("Fork",                      cycpl(112),   cyc(161, HYB_CLK),               0),
- ("Embedding",                 cycpl(973),   cyc(max(92, 246), HYB_CLK),      EMBED_AIE_SIM),
- ("Pairwise $w_{ij}$",         cycpl(428),   cyc(661, HYB_CLK),               0),   # t2i: pairwise at II=1 (t2h: 2640)
- ("Object attention L0",       cycpl(1684),  cyc(max(699, 243, 213), HYB_CLK), AIE["Object attention"]),
- ("Build candidates + candidate attention L0", cycpl(708), cyc(max(348, 68, 63), HYB_CLK), AIE["Candidate attention"]),
- ("Cross attention L0",        cycpl(1880),  cyc(max(300, 243), HYB_CLK),     AIE["Cross attention"]),
- ("Object attention L1",       cycpl(1620),  cyc(max(273, 243, 213), HYB_CLK), AIE["Object attention"]),
- ("Build candidates + candidate attention L1", cycpl(719), cyc(max(348, 68, 63), HYB_CLK), AIE["Candidate attention"]),
- ("Cross attention L1",        cycpl(1880),  cyc(max(300, 243), HYB_CLK),     AIE["Cross attention"]),
- ("Candidate build* + mass",   cycpl(373),   cyc(759, HYB_CLK),               0),
- ("Autoencoder + MSE",         cycpl(281),   cyc(429, HYB_CLK),               0),
- ("Write DDR",                 cycpl(86),    cyc(86, HYB_CLK),                0),
+ ("Read input",                cycpl(152),   cyc(152, HYB_CLK),          0),
+ ("Fork",                      cycpl(112),   cyc(161, HYB_CLK),          0),
+ ("Embedding",                 cycpl(973),   cyc(max(92, 29), HYB_CLK),  EMBED_AIE_SIM),
+ ("Pairwise $w_{ij}$",         cycpl(428),   cyc(max(661, 482), HYB_CLK), 0),   # t2i: pairwise at II=1 (t2h: 2640)
+ ("Object attention L0",       cycpl(1684),  0,                          AIE["Object attention"]),
+ ("Build candidates + candidate attention L0", cycpl(708), 0,            AIE["Candidate attention"] + 0.5),
+ ("Cross attention L0",        cycpl(1880),  0,                          AIE["Cross attention"]),
+ ("Object attention L1",       cycpl(1620),  0,                          AIE["Object attention"]),
+ ("Build candidates + candidate attention L1", cycpl(719), 0,            AIE["Candidate attention"] + 0.5),
+ ("Cross attention L1",        cycpl(1880),  0,                          AIE["Cross attention"]),
+ ("Candidate build* + mass",   cycpl(373),   cyc(max(759, 243, 63), HYB_CLK), 0),
+ ("Autoencoder + MSE",         cycpl(281),   cyc(429, HYB_CLK),          0),
+ ("Write DDR",                 cycpl(86),    cyc(86, HYB_CLK),           0),
 ]
 labs = [r[0] for r in ROWS]
 y = np.arange(len(labs))[::-1]
@@ -155,8 +161,9 @@ axc.barh(y - hh/2, ha, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=hh,
          label="AI Engine compute (kernel interval, aiesimulator)")
 for yy, p, a in zip(y, hp, ha):
     # white background so the measured-interval line does not cross the digits
-    axc.text(p + 0.4, yy + hh/2, f"{p:.1f}", va="center", fontsize=8.2, color=INK, zorder=6,
-             bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
+    if p:
+        axc.text(p + 0.4, yy + hh/2, f"{p:.1f}", va="center", fontsize=8.2, color=INK, zorder=6,
+                 bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
     if a:
         axc.text(a + 0.4, yy - hh/2, f"{a:.1f}", va="center", fontsize=8.2, color=INK, zorder=6,
                  bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
