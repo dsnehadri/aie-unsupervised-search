@@ -271,3 +271,11 @@ slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
 #   the column no longer sums to the block latency; use the output timestamps.
 #   x86sim bit-identical to the window kernels on all 6 blocks (20 events) and on the
 #   whole chain; aiesim == x86sim line for line (obj block).
+#
+# WHOLE CHAIN with row streaming (POST_STREAM, 2026-09-14, aiesimulator, 4 events):
+#   x after cross L1 complete at 77.0 us from t=0 (was 111.2 with windows);
+#   c after cand L1 at 67.0 us (was 92.0); first x row out at 71.4 us.
+#   Event-to-event 9.4 us (was 8.7): the streams make every kernel wait on its
+#   producer row by row, so the slowest kernel now carries some of that wait.
+#   aiesim == x86sim line for line on both outputs (192 / 48 lines).
+#   Expected on hardware: one event ~100 us xrt::run / ~80 us direct registers.
