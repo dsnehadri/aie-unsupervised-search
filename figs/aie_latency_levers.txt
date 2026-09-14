@@ -157,3 +157,33 @@ Summary, one event: 355 -> 108 us (3.3x), 87 us direct (4.1x); interval 17.3 -> 
 (1.8x; the best interval was 8.4 with whole-window handoffs). Fabric-only two-layer
 (t2i): 127-136 us / 113 direct, 24.6 us/event. The hybrid now leads on one event by
 about 1.25x and on throughput by 2.6x.
+
+2026-09-14 second round of levers (row streaming was the first):
+  (a) vector head gather in a_proj: the four head windows were read one word at
+      a time (~18 cycles each, 16 a row). The smallest 16-bit vector is 8 lanes,
+      so two rows per head are read at once and split with two 4-lane zips.
+      x86 BIT-IDENTICAL on all six blocks.
+  (b) float-vector layer norm (layernorm_vec.h, LN_INT reverts): the integer one
+      is exact to half an LSB but a dependent chain of three reductions and a
+      dozen scalar steps (~135 cycles a row) with nothing to hide it behind once
+      rows stream. The float version is 8-lane fp32 with a bit-trick rsqrt and
+      two Newton steps. Per-block golden errors UNCHANGED (obj 0.034, cross
+      0.016), but on the whole chain ONE event of 20 flips a jet's argmax
+      category in chain_post_obj (c error 0.55 vs 0.5 tolerance; the other 19
+      events stay at 0.01-0.02). That is a decision boundary, not lost accuracy:
+      x max err 0.11 vs 0.07. Validate by AUC on hardware, fall back to LN_INT
+      for the object post_c kernels if the AUC moves.
+  (c) CHAIN_STREAM: the glue kernels (assemble, post-obj) take x as a row stream
+      and pass each row on as soon as it is remasked/biased; embed streams too.
+  (d) PRE_STREAM: the head-pre kernels project Q, K and V four rows at a time as
+      the rows land; only Q*K^T waits for the last row. Object and cross blocks.
+  (e) WIJ_ONE_PORT: the fabric sent the SAME pairwise slice to all four heads.
+      One port now feeds all four head-post kernels through the stream switch,
+      removing three quarters of that transfer (~4.8 us of fabric time).
+  (f) LORENTZ_WIDE: exponential cores per call (II 4 -> 1) and the candidate
+      sums as an unrolled ordered chain instead of an II=8 accumulator.
+  (g) PLIO_FREQ_MHZ so the interface can be declared above 100 MHz; the hybrid
+      fabric has 2.03 ns of slack at 100 MHz (critical path 7.97 ns), so 120 MHz
+      closes with margin and 125 does not.
+  Fabric-only: the kernel clock has 2.54 ns slack at 100 MHz (path 7.46 ns) ->
+  a 125 MHz build (plstream_t2j) is the whole lever, no source change.
