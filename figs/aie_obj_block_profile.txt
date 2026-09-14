@@ -261,3 +261,13 @@ slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
 #   trees did not place (even as two one-layer halves). 
 #   Expected on hardware (old hybrid v3: ~102 us of AIE blocks + ~39 us of fabric
 #   bridge stages): one event ~130 us xrt::run / ~108 direct.
+
+# ROW STREAMING BETWEEN THE POST KERNELS (POST_STREAM, 2026-09-14, aiesimulator, obj block, 4 events):
+#   a_proj -> b1 -> b2 -> c pass 16-word rows on core streams instead of whole windows,
+#   so each kernel starts on row 0 while the previous one is still on row 1.
+#   Object block, event 0: output complete at 14.9 us (24.2 us with windows), first
+#   output row at 9.3 us; interval 6.2 us (5.9 before). Per-kernel us/event now include
+#   stream-wait stalls (post_c 8.2, b1/b2 8.0, a_proj 5.3, head post 5.0, pre 2.0), so
+#   the column no longer sums to the block latency; use the output timestamps.
+#   x86sim bit-identical to the window kernels on all 6 blocks (20 events) and on the
+#   whole chain; aiesim == x86sim line for line (obj block).
