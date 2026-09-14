@@ -1,10 +1,11 @@
 // The whole two-layer ABC stack on the array (2026-09-13). The six attention
 // subgraphs are the ones in aie_graph.h with graph ports instead of PLIOs, so
-// the blocks hand their windows to each other on the array; three small tile
-// kernels (chain_kernels.h) do what the fabric did between blocks (mask row,
-// remask, candidate build). PLIOs left: raw jets and the mask in, the four
-// wij slices in (layer 0), x and c out for the lorentz/autoencoder stages on
-// the fabric. 8 PLIOs instead of 20; one PL->AIE->PL crossing instead of 7.
+// the blocks hand their windows to each other on the array; small tile kernels
+// (chain_kernels.h) do what the fabric did between blocks (mask row, remask,
+// candidate build) and write ONE window per consumer: a kernel window fanned
+// out 4-5 ways mis-delivered in aiesimulator. PLIOs left: raw jets and the
+// mask in, the four wij slices in (layer 0), x and c out for the lorentz /
+// autoencoder stages on the fabric. 8 PLIOs instead of 20.
 #ifndef AIE_CHAIN_GRAPH_H
 #define AIE_CHAIN_GRAPH_H
 #include "aie_graph.h"
@@ -12,7 +13,7 @@
 template <int LAYER, int INST = 0>
 class ObjChainL : public graph {
 public:
-    port<input> x_in;
+    port<input> x_in_h[N_HEADS], x_in_res;
     port<input> wij_h0, wij_h1, wij_h2, wij_h3;
     port<output> x_out;
     // wij PLIOs exist only for layer 0 (layer 1 has no wij bias; the old
@@ -114,7 +115,7 @@ public:
 
         // plio -> pre (X for all 4 heads)
         for (int h = 0; h < N_HEADS; h++) {
-            connect<window<x_sz>>(x_in, k_pre[h].in[0]);
+            connect<window<x_sz>>(x_in_h[h], k_pre[h].in[0]);
         }
 
         // pre -> post_h: scores + V
@@ -136,7 +137,7 @@ public:
         for (int h = 0; h < N_HEADS; h++) {
             connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
         }
-        connect<window<x_sz>>(x_in, k_post_ap.in[N_HEADS]);
+        connect<window<x_sz>>(x_in_res, k_post_ap.in[N_HEADS]);
 
         // post_a_proj -> post_b1 (ffn0) and post_a_proj -> post_c (FFN-residual broadcast)
 #ifndef POST_MERGED
@@ -156,7 +157,7 @@ public:
 template <int LAYER, int INST = 0>
 class CandChainL : public graph {
 public:
-    port<input> c_in;
+    port<input> c_in_h[N_HEADS], c_in_res;
     port<output> c_out;
 public:
     kernel k_pre[N_HEADS];
@@ -241,12 +242,12 @@ public:
         constexpr int proj_sz   = T_DIM * E_DIM * sizeof(aiedt);
 
         for (int h = 0; h < N_HEADS; h++) {
-            connect<window<c_sz>>(c_in, k_pre[h].in[0]);
+            connect<window<c_sz>>(c_in_h[h], k_pre[h].in[0]);
             connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
             connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
         }
-        connect<window<c_sz>>(c_in, k_post_ap.in[N_HEADS]);
+        connect<window<c_sz>>(c_in_res, k_post_ap.in[N_HEADS]);
 
 #ifndef POST_MERGED
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
@@ -263,8 +264,8 @@ public:
 template <int LAYER, int INST = 0>
 class CrossChainL : public graph {
 public:
-    port<input> x_in;
-    port<input> c_in;
+    port<input> x_in_h[N_HEADS], x_in_res;
+    port<input> c_in_h[N_HEADS];
     port<output> x_out;
 public:
     kernel k_pre[N_HEADS];
@@ -356,13 +357,13 @@ public:
 #endif
 
         for (int h = 0; h < N_HEADS; h++) {
-            connect<window<x_sz>>(x_in, k_pre[h].in[0]);
-            connect<window<c_sz>>(c_in, k_pre[h].in[1]);
+            connect<window<x_sz>>(x_in_h[h], k_pre[h].in[0]);
+            connect<window<c_sz>>(c_in_h[h], k_pre[h].in[1]);
             connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
             connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
         }
-        connect<window<x_sz>>(x_in, k_post_ap.in[N_HEADS]);
+        connect<window<x_sz>>(x_in_res, k_post_ap.in[N_HEADS]);
 
 #ifndef POST_MERGED
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
@@ -382,7 +383,7 @@ public:
     input_plio  plio_jets_in, plio_mask_in;
     input_plio  plio_wij_h0, plio_wij_h1, plio_wij_h2, plio_wij_h3;
     output_plio plio_x_out, plio_c_out;
-    kernel k_embed, k_asm0, k_pobj0, k_asm1, k_pobj1;
+    kernel k_embed, k_asm0, k_pobj0, k_fan0, k_asm1, k_pobj1, k_fan1;
     ObjChainL<0> obj0;  CandChainL<0> cand0;  CrossChainL<0> cross0;
     ObjChainL<1> obj1;  CandChainL<1> cand1;  CrossChainL<1> cross1;
     PasswdChainGraph() {
@@ -395,12 +396,14 @@ public:
         plio_x_out   = output_plio::create("chain_x_out", plio_64_bits, "data/chain_x_out.txt");
         plio_c_out   = output_plio::create("chain_c_out", plio_64_bits, "data/chain_c_out.txt");
 
-        k_embed = kernel::create(embed_mlp);          source(k_embed) = "kernels/embed_kernel.cc";
+        k_embed = kernel::create(embed_mlp);           source(k_embed) = "kernels/embed_kernel.cc";
         k_asm0  = kernel::create(chain_assemble_zero); source(k_asm0)  = "kernels/chain_kernels.cc";
         k_pobj0 = kernel::create(chain_post_obj);      source(k_pobj0) = "kernels/chain_kernels.cc";
+        k_fan0  = kernel::create(chain_fanout_c4);     source(k_fan0)  = "kernels/chain_kernels.cc";
         k_asm1  = kernel::create(chain_assemble);      source(k_asm1)  = "kernels/chain_kernels.cc";
         k_pobj1 = kernel::create(chain_post_obj);      source(k_pobj1) = "kernels/chain_kernels.cc";
-        for (kernel* k : {&k_embed, &k_asm0, &k_pobj0, &k_asm1, &k_pobj1}) runtime<ratio>(*k) = 0.9;
+        k_fan1  = kernel::create(chain_fanout_c);      source(k_fan1)  = "kernels/chain_kernels.cc";
+        for (kernel* k : {&k_embed, &k_asm0, &k_pobj0, &k_fan0, &k_asm1, &k_pobj1, &k_fan1}) runtime<ratio>(*k) = 0.9;
 
         constexpr int jets_sz = EMBED_IN_WORDS * sizeof(int16);       // 128 B
         constexpr int mask_sz = E_DIM * sizeof(int16);                //  32 B
@@ -409,33 +412,42 @@ public:
         constexpr int c_sz    = T_DIM * E_DIM * sizeof(int16);        //  96 B
         constexpr int wij_sz  = N_MAX * N_KV * sizeof(int16);         // 312 B
 
-        // embedding -> (zero padded rows, + mask row) -> object L0
+        // embedding -> (zero padded rows, + mask row) x5 -> object L0
         connect<window<jets_sz>>(plio_jets_in.out[0], k_embed.in[0]);
         connect<window<x_sz>>(k_embed.out[0], k_asm0.in[0]);
         connect<window<mask_sz>>(plio_mask_in.out[0], k_asm0.in[1]);
-        connect<window<xm_sz>>(k_asm0.out[0], obj0.x_in);
+        for (int h = 0; h < N_HEADS; h++) connect<window<xm_sz>>(k_asm0.out[h], obj0.x_in_h[h]);
+        connect<window<xm_sz>>(k_asm0.out[N_HEADS], obj0.x_in_res);
         connect<window<wij_sz>>(plio_wij_h0.out[0], obj0.wij_h0);
         connect<window<wij_sz>>(plio_wij_h1.out[0], obj0.wij_h1);
         connect<window<wij_sz>>(plio_wij_h2.out[0], obj0.wij_h2);
         connect<window<wij_sz>>(plio_wij_h3.out[0], obj0.wij_h3);
-        // object L0 -> remask + candidate build -> candidate L0, cross L0
+        // object L0 -> remask + candidate build -> cross L0 (x x5), candidate L0 (c x5)
         connect<window<x_sz>>(obj0.x_out, k_pobj0.in[0]);
         connect<window<mask_sz>>(plio_mask_in.out[0], k_pobj0.in[1]);
-        connect<window<c_sz>>(k_pobj0.out[1], cand0.c_in);
-        connect<window<x_sz>>(k_pobj0.out[0], cross0.x_in);
-        connect<window<c_sz>>(cand0.c_out, cross0.c_in);
+        for (int h = 0; h < N_HEADS; h++) connect<window<x_sz>>(k_pobj0.out[h], cross0.x_in_h[h]);
+        connect<window<x_sz>>(k_pobj0.out[N_HEADS], cross0.x_in_res);
+        for (int h = 0; h < N_HEADS; h++) connect<window<c_sz>>(k_pobj0.out[5 + h], cand0.c_in_h[h]);
+        connect<window<c_sz>>(k_pobj0.out[5 + N_HEADS], cand0.c_in_res);
+        // candidate L0 -> c x4 -> cross L0
+        connect<window<c_sz>>(cand0.c_out, k_fan0.in[0]);
+        for (int h = 0; h < N_HEADS; h++) connect<window<c_sz>>(k_fan0.out[h], cross0.c_in_h[h]);
         // layer 1
         connect<window<x_sz>>(cross0.x_out, k_asm1.in[0]);
         connect<window<mask_sz>>(plio_mask_in.out[0], k_asm1.in[1]);
-        connect<window<xm_sz>>(k_asm1.out[0], obj1.x_in);
+        for (int h = 0; h < N_HEADS; h++) connect<window<xm_sz>>(k_asm1.out[h], obj1.x_in_h[h]);
+        connect<window<xm_sz>>(k_asm1.out[N_HEADS], obj1.x_in_res);
         connect<window<x_sz>>(obj1.x_out, k_pobj1.in[0]);
         connect<window<mask_sz>>(plio_mask_in.out[0], k_pobj1.in[1]);
-        connect<window<c_sz>>(k_pobj1.out[1], cand1.c_in);
-        connect<window<x_sz>>(k_pobj1.out[0], cross1.x_in);
-        connect<window<c_sz>>(cand1.c_out, cross1.c_in);
-        // out: x after cross L1 and c after candidate L1 (lorentz + autoencoder on the fabric)
+        for (int h = 0; h < N_HEADS; h++) connect<window<x_sz>>(k_pobj1.out[h], cross1.x_in_h[h]);
+        connect<window<x_sz>>(k_pobj1.out[N_HEADS], cross1.x_in_res);
+        for (int h = 0; h < N_HEADS; h++) connect<window<c_sz>>(k_pobj1.out[5 + h], cand1.c_in_h[h]);
+        connect<window<c_sz>>(k_pobj1.out[5 + N_HEADS], cand1.c_in_res);
+        connect<window<c_sz>>(cand1.c_out, k_fan1.in[0]);
+        for (int h = 0; h < N_HEADS; h++) connect<window<c_sz>>(k_fan1.out[h], cross1.c_in_h[h]);
+        // out: x after cross L1, c after candidate L1 (lorentz + autoencoder on the fabric)
         connect<window<x_sz>>(cross1.x_out, plio_x_out.in[0]);
-        connect<window<c_sz>>(cand1.c_out, plio_c_out.in[0]);
+        connect<window<c_sz>>(k_fan1.out[N_HEADS], plio_c_out.in[0]);
     }
 };
 #endif // AIE_CHAIN_GRAPH_H
