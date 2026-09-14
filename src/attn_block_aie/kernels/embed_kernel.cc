@@ -53,8 +53,13 @@ static void relu_inplace(int16* __restrict x, int n)
 #if defined(TRANSPOSED) && defined(TRANSPOSED_EMBED)
 #include "embed_kernel_t.cc"
 #else
+#if defined(CHAIN_STREAM)
+void embed_mlp(input_window_int16* __restrict jets_in,
+               output_stream_int16* __restrict embed_out)
+#else
 void embed_mlp(input_window_int16* __restrict jets_in,
                output_window_int16* __restrict embed_out)
+#endif
 {
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     // layer 0: 5 -> 16. The 64-word window (12 x 5 features, then padding)
@@ -88,7 +93,11 @@ void embed_mlp(input_window_int16* __restrict jets_in,
     BIAS_REPC(b2_r, E_DIM, embed_b2);
     gemm_pk_biasc<EMBED_ROWS, E_DIM, E_DIM>(ap, embed_W2, out, ACC_SHIFT, b2_r.r);
 
+#if defined(CHAIN_STREAM)
+    stream_write_v<EMBED_ROWS * E_DIM>(embed_out, out);
+#else
     win_write_v<EMBED_ROWS * E_DIM>(embed_out, out);
+#endif
     aie::set_saturation(sat_save);
 }
 #endif // TRANSPOSED

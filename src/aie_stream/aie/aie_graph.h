@@ -136,9 +136,15 @@ public:
         constexpr int proj_sz    = N_MAX * E_DIM * sizeof(aiedt);
 #endif
 
-        // plio -> pre (X for all 4 heads)
+        // plio -> pre (X for all 4 heads). PRE_STREAM makes the pre kernels
+        // read x as a row stream; in the chain graph that stream comes from
+        // the previous block's glue kernel, here from the PLIO.
         for (int h = 0; h < N_HEADS; h++) {
+#if defined(PRE_STREAM)
+            connect<stream>(plio_x_in.out[0], k_pre[h].in[0]);
+#else
             connect<window<x_sz>>(plio_x_in.out[0], k_pre[h].in[0]);
+#endif
         }
 
         // pre -> post_h: scores + V
@@ -410,7 +416,11 @@ public:
 #endif
 
         for (int h = 0; h < N_HEADS; h++) {
+#if defined(PRE_STREAM)
+            connect<stream>(plio_x_in.out[0], k_pre[h].in[0]);
+#else
             connect<window<x_sz>>(plio_x_in.out[0], k_pre[h].in[0]);
+#endif
             connect<window<c_sz>>(plio_c_in.out[0], k_pre[h].in[1]);
             connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);

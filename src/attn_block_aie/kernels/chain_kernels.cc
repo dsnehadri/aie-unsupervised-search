@@ -18,6 +18,58 @@ static inline void stream_out(output_stream_int16* __restrict s, const int16* __
     }
 }
 
+#if defined(CHAIN_STREAM)
+// ---------------------------------------------------------------------------
+// Row-streaming glue: x arrives one 16-word row at a time from the producing
+// post_c kernel and leaves the same way, so the next block's kernels see row 0
+// while post_c is still on row 1. The arithmetic is unchanged.
+// ---------------------------------------------------------------------------
+static inline void assemble_s(input_stream_int16* __restrict x_in, input_window_int16* __restrict mask_in,
+                              output_stream_int16* __restrict x_out, bool zero_padded)
+{
+    alignas(16) int16 mask[E_DIM];
+    aie::store_v(mask, win_read16(mask_in));
+    const v16_t z = aie::zeros<int16, 16>();
+    for (int j = 0; j < N_MAX; j++) {
+        v16_t r = stream_read16(x_in);
+        if (zero_padded && mask[j] != 0) r = z;
+        stream_write16(x_out, r);
+    }
+    alignas(16) int16 mrow[E_DIM];
+    for (int j = 0; j < E_DIM; j++) mrow[j] = (j < N_MAX && mask[j] != 0) ? 1 : 0;   // mask row
+    stream_write16(x_out, aie::load_v<16>(mrow));
+}
+void chain_assemble_zero(input_stream_int16* __restrict x_in, input_window_int16* __restrict mask_in,
+                         output_stream_int16* __restrict x_out) { assemble_s(x_in, mask_in, x_out, true); }
+void chain_assemble(input_stream_int16* __restrict x_in, input_window_int16* __restrict mask_in,
+                    output_stream_int16* __restrict x_out) { assemble_s(x_in, mask_in, x_out, false); }
+
+void chain_post_obj(input_stream_int16* __restrict x_in, input_window_int16* __restrict mask_in,
+                    output_stream_int16* __restrict x_out, output_stream_int16* __restrict c_out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::none);
+    alignas(16) int16 mask[E_DIM];
+    aie::store_v(mask, win_read16(mask_in));
+    alignas(16) int16 c[T_DIM * E_DIM];
+    zero_v<T_DIM * E_DIM>(c);
+    const v16_t z = aie::zeros<int16, 16>();
+    alignas(16) int16 row[E_DIM];
+    for (int j = 0; j < N_MAX; j++) {
+        v16_t v = stream_read16(x_in);
+        if (mask[j] != 0) v = z;                                 // remask
+        aie::store_v(row, v);
+        row[2] = (int16)(row[2] - (int16)(1 << DATA_FRAC_BITS)); // isr bias: -1.0 at Q6.9, wraps
+        int16 best = row[0]; int t = 0;                          // argmax over the first T_DIM
+        for (int k = 1; k < T_DIM; k++) if (row[k] > best) { best = row[k]; t = k; }
+        const aie::vector<int32, 16> a = aie::from_vector<acc48>(aie::load_v<16>(c + t * E_DIM)).to_vector<int32>(0);
+        const aie::vector<int32, 16> b = aie::from_vector<acc48>(aie::load_v<16>(row)).to_vector<int32>(0);
+        aie::store_v(c + t * E_DIM, aie::from_vector<acc80>(aie::add(a, b)).to_vector<int16>(0));   // wraps
+        stream_write16(x_out, aie::load_v<16>(row));             // row leaves now
+    }
+    stream_out<T_DIM * E_DIM>(c_out, c);
+    aie::set_saturation(sat_save);
+}
+#else
 static inline void assemble(input_window_int16* __restrict x_in, input_window_int16* __restrict mask_in,
                             output_stream_int16* __restrict x_out, bool zero_padded)
 {
@@ -62,6 +114,8 @@ void chain_post_obj(input_window_int16* __restrict x_in, input_window_int16* __r
     stream_out<T_DIM * E_DIM>(c_out, c);
     aie::set_saturation(sat_save);
 }
+
+#endif  // CHAIN_STREAM
 
 void chain_w2s_48(input_window_int16* __restrict c_in, output_stream_int16* __restrict c_out)
 {

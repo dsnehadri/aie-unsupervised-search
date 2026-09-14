@@ -8,6 +8,11 @@
 // fabric. 8 PLIOs instead of 20.
 #ifndef AIE_CHAIN_GRAPH_H
 #define AIE_CHAIN_GRAPH_H
+// The interface tiles run at the fabric clock, so the PLIO rate has to be
+// declared with it: -DPLIO_FREQ_MHZ=120 alongside a 120 MHz link.
+#ifndef PLIO_FREQ_MHZ
+#define PLIO_FREQ_MHZ 100
+#endif
 #include "aie_graph.h"
 #include "../../attn_block_aie/kernels/chain_kernels.h"
 template <int LAYER, int INST = 0>
@@ -382,20 +387,25 @@ public:
 class PasswdChainGraph : public graph {
 public:
     input_plio  plio_jets_in, plio_mask_in;
-    input_plio  plio_wij_h0, plio_wij_h1, plio_wij_h2, plio_wij_h3;
+    input_plio  plio_wij_h0;
+#if !defined(WIJ_ONE_PORT)
+    input_plio  plio_wij_h1, plio_wij_h2, plio_wij_h3;
+#endif
     output_plio plio_x_out, plio_c_out;
     kernel k_embed, k_asm0, k_pobj0, k_asm1, k_pobj1;
     ObjChainL<0> obj0;  CandChainL<0> cand0;  CrossChainL<0> cross0;
     ObjChainL<1> obj1;  CandChainL<1> cand1;  CrossChainL<1> cross1;
     PasswdChainGraph() {
-        plio_jets_in = input_plio::create("embed_jets_in", plio_64_bits, "data/embed_jets_in.txt");
-        plio_mask_in = input_plio::create("mask_in",       plio_64_bits, "data/mask_in.txt");
-        plio_wij_h0  = input_plio::create("obj_wij_h0_L0", plio_64_bits, "data/obj_wij_h0_L0.txt");
-        plio_wij_h1  = input_plio::create("obj_wij_h1_L0", plio_64_bits, "data/obj_wij_h1_L0.txt");
-        plio_wij_h2  = input_plio::create("obj_wij_h2_L0", plio_64_bits, "data/obj_wij_h2_L0.txt");
-        plio_wij_h3  = input_plio::create("obj_wij_h3_L0", plio_64_bits, "data/obj_wij_h3_L0.txt");
-        plio_x_out   = output_plio::create("chain_x_out", plio_64_bits, "data/chain_x_out.txt");
-        plio_c_out   = output_plio::create("chain_c_out", plio_64_bits, "data/chain_c_out.txt");
+        plio_jets_in = input_plio::create("embed_jets_in", plio_64_bits, "data/embed_jets_in.txt", PLIO_FREQ_MHZ);
+        plio_mask_in = input_plio::create("mask_in",       plio_64_bits, "data/mask_in.txt", PLIO_FREQ_MHZ);
+        plio_wij_h0  = input_plio::create("obj_wij_h0_L0", plio_64_bits, "data/obj_wij_h0_L0.txt", PLIO_FREQ_MHZ);
+#if !defined(WIJ_ONE_PORT)
+        plio_wij_h1  = input_plio::create("obj_wij_h1_L0", plio_64_bits, "data/obj_wij_h1_L0.txt", PLIO_FREQ_MHZ);
+        plio_wij_h2  = input_plio::create("obj_wij_h2_L0", plio_64_bits, "data/obj_wij_h2_L0.txt", PLIO_FREQ_MHZ);
+        plio_wij_h3  = input_plio::create("obj_wij_h3_L0", plio_64_bits, "data/obj_wij_h3_L0.txt", PLIO_FREQ_MHZ);
+#endif
+        plio_x_out   = output_plio::create("chain_x_out", plio_64_bits, "data/chain_x_out.txt", PLIO_FREQ_MHZ);
+        plio_c_out   = output_plio::create("chain_c_out", plio_64_bits, "data/chain_c_out.txt", PLIO_FREQ_MHZ);
 
         k_embed = kernel::create(embed_mlp);           source(k_embed) = "kernels/embed_kernel.cc";
         k_asm0  = kernel::create(chain_assemble_zero); source(k_asm0)  = "kernels/chain_kernels.cc";
@@ -413,31 +423,73 @@ public:
 
         // embedding -> (zero padded rows, + mask row) -> stream -> object L0 (4 heads + residual)
         connect<window<jets_sz>>(plio_jets_in.out[0], k_embed.in[0]);
+#if defined(CHAIN_STREAM)
+        connect<stream>(k_embed.out[0], k_asm0.in[0]);
+#else
         connect<window<x_sz>>(k_embed.out[0], k_asm0.in[0]);
+#endif
         connect<window<mask_sz>>(plio_mask_in.out[0], k_asm0.in[1]);
+#if defined(PRE_STREAM)
+        for (int h = 0; h < N_HEADS; h++) connect<stream>(k_asm0.out[0], obj0.k_pre[h].in[0]);
+#else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<xm_sz>>(k_asm0.out[0], obj0.k_pre[h].in[0]);
+#endif
         connect<stream, window<xm_sz>>(k_asm0.out[0], obj0.k_post_ap.in[N_HEADS]);
+#if defined(WIJ_ONE_PORT)
+        // The fabric used to send the SAME wij slice four times, once per head.
+        // One PLIO feeds all four head-post kernels instead: a PLIO already
+        // multicasts to five kernels elsewhere in this graph.
+        connect<window<wij_sz>>(plio_wij_h0.out[0], obj0.wij_h0);
+        connect<window<wij_sz>>(plio_wij_h0.out[0], obj0.wij_h1);
+        connect<window<wij_sz>>(plio_wij_h0.out[0], obj0.wij_h2);
+        connect<window<wij_sz>>(plio_wij_h0.out[0], obj0.wij_h3);
+#else
         connect<window<wij_sz>>(plio_wij_h0.out[0], obj0.wij_h0);
         connect<window<wij_sz>>(plio_wij_h1.out[0], obj0.wij_h1);
         connect<window<wij_sz>>(plio_wij_h2.out[0], obj0.wij_h2);
         connect<window<wij_sz>>(plio_wij_h3.out[0], obj0.wij_h3);
+#endif
         // object L0 (stream out) -> remask + candidate build -> streams -> cross L0 (x), candidate L0 (c)
+#if defined(CHAIN_STREAM)
+        connect<stream>(obj0.k_post_c.out[0], k_pobj0.in[0]);
+#else
         connect<stream, window<x_sz>>(obj0.k_post_c.out[0], k_pobj0.in[0]);
+#endif
         connect<window<mask_sz>>(plio_mask_in.out[0], k_pobj0.in[1]);
+#if defined(PRE_STREAM)
+        for (int h = 0; h < N_HEADS; h++) connect<stream>(k_pobj0.out[0], cross0.k_pre[h].in[0]);
+#else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<x_sz>>(k_pobj0.out[0], cross0.k_pre[h].in[0]);
+#endif
         connect<stream, window<x_sz>>(k_pobj0.out[0], cross0.k_post_ap.in[N_HEADS]);
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(k_pobj0.out[1], cand0.k_pre[h].in[0]);
         connect<stream, window<c_sz>>(k_pobj0.out[1], cand0.k_post_ap.in[N_HEADS]);
         // candidate L0 (stream out) -> cross L0 heads
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(cand0.k_post_c.out[0], cross0.k_pre[h].in[1]);
         // layer 1
+#if defined(CHAIN_STREAM)
+        connect<stream>(cross0.k_post_c.out[0], k_asm1.in[0]);
+#else
         connect<stream, window<x_sz>>(cross0.k_post_c.out[0], k_asm1.in[0]);
+#endif
         connect<window<mask_sz>>(plio_mask_in.out[0], k_asm1.in[1]);
+#if defined(PRE_STREAM)
+        for (int h = 0; h < N_HEADS; h++) connect<stream>(k_asm1.out[0], obj1.k_pre[h].in[0]);
+#else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<xm_sz>>(k_asm1.out[0], obj1.k_pre[h].in[0]);
+#endif
         connect<stream, window<xm_sz>>(k_asm1.out[0], obj1.k_post_ap.in[N_HEADS]);
+#if defined(CHAIN_STREAM)
+        connect<stream>(obj1.k_post_c.out[0], k_pobj1.in[0]);
+#else
         connect<stream, window<x_sz>>(obj1.k_post_c.out[0], k_pobj1.in[0]);
+#endif
         connect<window<mask_sz>>(plio_mask_in.out[0], k_pobj1.in[1]);
+#if defined(PRE_STREAM)
+        for (int h = 0; h < N_HEADS; h++) connect<stream>(k_pobj1.out[0], cross1.k_pre[h].in[0]);
+#else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<x_sz>>(k_pobj1.out[0], cross1.k_pre[h].in[0]);
+#endif
         connect<stream, window<x_sz>>(k_pobj1.out[0], cross1.k_post_ap.in[N_HEADS]);
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(k_pobj1.out[1], cand1.k_pre[h].in[0]);
         connect<stream, window<c_sz>>(k_pobj1.out[1], cand1.k_post_ap.in[N_HEADS]);

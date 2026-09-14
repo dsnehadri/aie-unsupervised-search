@@ -450,6 +450,60 @@ static inline void transpose_k4(const int16* __restrict K, int16* __restrict Kt)
 // stage 1: Q/K/V projection + scores = Q*K^T scaled
 
 #if defined(HEAD_STAGE_PRE)
+#if defined(PRE_STREAM)
+// PRE_STREAM: x arrives one row at a time from the previous block's glue
+// kernel. The three projections (Q, K, V) are per row, so they run on each
+// group of four rows as it lands -- the packed gemm works on 4-row blocks
+// anyway -- and only Q*K^T, which needs every key, waits for the last row.
+void HEAD_PRE_FN(input_stream_int16* __restrict x_in,
+                       output_window_int16* __restrict scores_out,
+                       output_window_int16* __restrict v_out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    static_assert(N_MAX % 4 == 0, "PRE_STREAM reads four rows at a time");
+
+    alignas(16) int16 V[N_KV_PAD * D_HEAD];
+    alignas(16) int16 Q[N_MAX * D_HEAD];
+    alignas(16) int16 K[N_KV_PAD * D_HEAD];
+    zero_v<N_KV_PAD * D_HEAD>(V);
+    zero_v<N_KV_PAD * D_HEAD>(K);
+
+    for (int b = 0; b < N_MAX / 4; b++) {
+        const v16_t r0 = stream_read16(x_in);
+        const v16_t r1 = stream_read16(x_in);
+        const v16_t r2 = stream_read16(x_in);
+        const v16_t r3 = stream_read16(x_in);
+        alignas(16) int16 Xb[4 * E_DIM];
+        pack_rows4(r0, r1, r2, r3, Xb);
+        gemm_pk<4, E_DIM, D_HEAD>(Xb, Wv, V + b * 4 * D_HEAD, PIPE_ACC_SHIFT);
+        add_bias_v4<4>(V + b * 4 * D_HEAD, bv);
+        gemm_pk<4, E_DIM, D_HEAD>(Xb, Wq, Q + b * 4 * D_HEAD, PIPE_ACC_SHIFT);
+        add_bias_v4<4>(Q + b * 4 * D_HEAD, bq);
+        gemm_pk<4, E_DIM, D_HEAD>(Xb, Wk, K + b * 4 * D_HEAD, PIPE_ACC_SHIFT);
+        add_bias_v4<4>(K + b * 4 * D_HEAD, bk);
+    }
+    alignas(16) int16 kmask[E_DIM];
+    aie::store_v(kmask, stream_read16(x_in));          // the mask row closes the tensor
+    for (int j = 0; j < D_HEAD; j++) V[N_MAX * D_HEAD + j] = bias_v_row[j];
+    for (int j = 0; j < D_HEAD; j++) K[N_MAX * D_HEAD + j] = bias_k_row[j];
+
+    alignas(16) int16 scores[N_MAX * N_KV_PAD];
+    {
+        alignas(16) int16 Kt[D_HEAD * N_KV_PAD];
+        transpose_k4<N_KV_PAD>(K, Kt);
+        gemm_pk<N_MAX, D_HEAD, N_KV_PAD>(Q, Kt, scores, PIPE_QKT_SHIFT);
+    }
+    scale_scores_v<N_MAX * N_KV_PAD>(scores, 0.5f);
+    for (int j = 0; j < N_MAX; j++)
+        if (kmask[j] != 0)
+            for (int i = 0; i < N_MAX; i++)
+                scores[i * N_KV_PAD + j] = -32000;
+
+    win_write_v<N_MAX * N_KV_PAD>(scores_out, scores);
+    win_write_v<N_KV_PAD * D_HEAD>(v_out, V);
+    aie::set_saturation(sat_save);
+}
+#else
 void HEAD_PRE_FN(input_window_int16* __restrict x_in,
                        output_window_int16* __restrict scores_out,
                        output_window_int16* __restrict v_out)
@@ -504,6 +558,7 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
     win_write_v<N_KV_PAD * D_HEAD>(v_out, V);
     aie::set_saturation(sat_save);
 }
+#endif // PRE_STREAM
 #endif // HEAD_STAGE_PRE
 
 // stage 2: + wij (layer 0 only) + softmax + attn*V
@@ -642,6 +697,55 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 #if defined(ATTN_TYPE_CROSS)
 
 #if defined(HEAD_STAGE_PRE)
+#if defined(PRE_STREAM)
+// PRE_STREAM: the queries arrive row by row from the object block's glue
+// kernel, so Q is projected four rows at a time while they land. The keys and
+// values come from the candidate block, which is still running, so they stay
+// a window.
+void HEAD_PRE_FN(input_stream_int16* __restrict x_in,
+                         input_window_int16* __restrict c_in,
+                         output_window_int16* __restrict scores_out,
+                         output_window_int16* __restrict v_out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    static_assert(N_MAX % 4 == 0, "PRE_STREAM reads four rows at a time");
+
+    alignas(16) int16 Q[N_MAX * D_HEAD];
+    for (int b = 0; b < N_MAX / 4; b++) {
+        const v16_t r0 = stream_read16(x_in);
+        const v16_t r1 = stream_read16(x_in);
+        const v16_t r2 = stream_read16(x_in);
+        const v16_t r3 = stream_read16(x_in);
+        alignas(16) int16 Xb[4 * E_DIM];
+        pack_rows4(r0, r1, r2, r3, Xb);
+        gemm_pk<4, E_DIM, D_HEAD>(Xb, cross_Wq, Q + b * 4 * D_HEAD, PIPE_ACC_SHIFT);
+        add_bias_v4<4>(Q + b * 4 * D_HEAD, cross_bq);
+    }
+
+    alignas(16) int16 Cp[4 * E_DIM];  // packed; padded row 3 is zero
+    win_read_packed16<T_DIM>(c_in, Cp);
+
+    alignas(16) int16 V[T_KV * D_HEAD];
+    gemm_pk<4, E_DIM, D_HEAD>(Cp, cross_Wv, V, PIPE_ACC_SHIFT);
+    add_bias_v4<4>(V, cross_bv);
+    for (int j = 0; j < D_HEAD; j++) V[T_DIM * D_HEAD + j] = cross_bias_v_row[j];
+
+    alignas(16) int16 scores[N_MAX * T_KV];
+    {
+        alignas(16) int16 K[T_KV * D_HEAD];
+        gemm_pk<4, E_DIM, D_HEAD>(Cp, cross_Wk, K, PIPE_ACC_SHIFT);
+        add_bias_v4<4>(K, cross_bk);
+        for (int j = 0; j < D_HEAD; j++) K[T_DIM * D_HEAD + j] = cross_bias_k_row[j];
+        alignas(16) int16 Kt[D_HEAD * T_KV];
+        transpose_k4<T_KV>(K, Kt);
+        gemm_pk<N_MAX, D_HEAD, T_KV>(Q, Kt, scores, PIPE_QKT_SHIFT);
+    }
+    scale_scores_v<N_MAX * T_KV>(scores, 0.5f);
+    win_write_v<N_MAX * T_KV>(scores_out, scores);
+    win_write_v<T_KV * D_HEAD>(v_out, V);
+    aie::set_saturation(sat_save);
+}
+#else
 void HEAD_PRE_FN(input_window_int16* __restrict x_in,
                          input_window_int16* __restrict c_in,
                          output_window_int16* __restrict scores_out,
@@ -682,6 +786,7 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
     win_write_v<T_KV * D_HEAD>(v_out, V);
     aie::set_saturation(sat_save);
 }
+#endif // PRE_STREAM
 #endif // HEAD_STAGE_PRE
 
 #if defined(HEAD_STAGE_POST)

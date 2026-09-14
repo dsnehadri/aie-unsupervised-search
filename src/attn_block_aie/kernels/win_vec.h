@@ -93,6 +93,24 @@ static inline void win_read_v(input_window_int16* __restrict w, int16* __restric
     for (int i = 0; i < N; i += 16) aie::store_v(A + i, win_read16(w));
 }
 
+// N int16 (N % 8 == 0) between local memory and a core stream, 128 bits a beat
+template <int N>
+static inline void stream_write_v(output_stream_int16* __restrict s, const int16* __restrict A)
+{
+    for (int i = 0; i < N; i += 8) writeincr_v8(s, aie::load_v<8>(A + i).to_native());
+}
+static inline v16_t stream_read16(input_stream_int16* __restrict s)
+{
+    const aie::vector<int16, 8> a(readincr_v8(s));
+    const aie::vector<int16, 8> b(readincr_v8(s));
+    return aie::concat(a, b);
+}
+static inline void stream_write16(output_stream_int16* __restrict s, const v16_t& v)
+{
+    writeincr_v8(s, v.template extract<8>(0).to_native());
+    writeincr_v8(s, v.template extract<8>(1).to_native());
+}
+
 template <int N>
 static inline void zero_v(int16* __restrict A)
 {

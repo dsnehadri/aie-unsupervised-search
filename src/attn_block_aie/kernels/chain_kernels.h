@@ -19,11 +19,24 @@
 #ifndef CHAIN_KERNELS_H
 #define CHAIN_KERNELS_H
 #include "attn_aie_types.h"
+
+// CHAIN_STREAM: the glue kernels take their x as a STREAM of rows as well, so
+// a row leaves for the next block as soon as it has been remasked/biased
+// instead of after the whole tensor has landed in a window.
+#if defined(CHAIN_STREAM)
+void chain_assemble_zero(input_stream_int16* __restrict x_in, input_window_int16* __restrict mask_in,
+                         output_stream_int16* __restrict x_out);
+void chain_assemble(input_stream_int16* __restrict x_in, input_window_int16* __restrict mask_in,
+                    output_stream_int16* __restrict x_out);
+void chain_post_obj(input_stream_int16* __restrict x_in, input_window_int16* __restrict mask_in,
+                    output_stream_int16* __restrict x_out, output_stream_int16* __restrict c_out);
+#else
 void chain_assemble_zero(input_window_int16* __restrict x_in, input_window_int16* __restrict mask_in,
                          output_stream_int16* __restrict x_out);
 void chain_assemble(input_window_int16* __restrict x_in, input_window_int16* __restrict mask_in,
                     output_stream_int16* __restrict x_out);
 void chain_post_obj(input_window_int16* __restrict x_in, input_window_int16* __restrict mask_in,
                     output_stream_int16* __restrict x_out, output_stream_int16* __restrict c_out);
+#endif  // CHAIN_STREAM
 void chain_w2s_48(input_window_int16* __restrict c_in, output_stream_int16* __restrict c_out);
 #endif

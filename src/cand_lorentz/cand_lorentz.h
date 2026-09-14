@@ -69,8 +69,15 @@ inline void x_to_p4_hw(
 ) {
     for (int i = 0; i < N_MAX; i++) {
         // II=4 lets HLS share one float-exp core across the 3 calls below
-        // instead of instantiating 3 (all-PL is DSP-tight)
+        // instead of instantiating 3 (all-PL is DSP-tight). LORENTZ_WIDE gives
+        // each call its own core: the hybrid leaves the fabric with DSPs to
+        // spare once attention runs on the array, and this loop is on the tail
+        // of the event, after the array has finished.
+#if defined(LORENTZ_WIDE)
+        #pragma HLS PIPELINE II=1
+#else
         #pragma HLS PIPELINE II=4
+#endif
 
         if (mask[i]) {
             p4[i][0] = 0.0f;
@@ -122,6 +129,24 @@ inline void build_candidates_p4(
 
     // accumulate
 
+#if defined(LORENTZ_WIDE)
+    // One accumulator per (t, d) as a fully unrolled chain over the jets: the
+    // II=8 version below re-reads the same accumulator every iteration, so the
+    // float-add latency sets the initiation interval (8 cycles x 12 jets). The
+    // adds stay in jet order, so the sums are bit-identical.
+    for (int t = 0; t < T_DIM; t++) {
+        #pragma HLS UNROLL
+        for (int d = 0; d < P4_DIM; d++) {
+            #pragma HLS UNROLL
+            float s = 0.0f;
+            for (int i = 0; i < N_MAX; i++) {
+                #pragma HLS UNROLL
+                if (jet_choice[i][t] > 0.5f) s += jp4[i][d];
+            }
+            cand_p4[t][d] = s;
+        }
+    }
+#else
     for (int i = 0; i < N_MAX; i++) {
         #pragma HLS PIPELINE II=8
         for (int t = 0; t < T_DIM; t++) {
@@ -132,6 +157,7 @@ inline void build_candidates_p4(
             }
         }
     }
+#endif
 }
 
 
