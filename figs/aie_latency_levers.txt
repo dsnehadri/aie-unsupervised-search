@@ -135,3 +135,25 @@ Summary, one event: 355 -> 134 us (2.65x), 114 us with direct-register launch (3
 interval 17.3 -> 8.4 us (2.06x; 7.4 with v3). Fabric-only two-layer (t2i): 127-136 / 113 us,
 24.6 us/event. The two implementations are level on one event; the hybrid keeps 2.9x on
 throughput.
+
+ROW STREAMING BETWEEN THE POST KERNELS (POST_STREAM, image aie_hybrid_chain rebuilt
+2026-09-14, md5 0c0e0d25, BOOT.BIN.pstream on the FAT, deployed 10:19):
+  a_proj -> b1 -> b2 -> c hand over one 16-word row at a time on core streams
+  instead of a whole window, so the next kernel starts on row 0 while the previous
+  one is on row 1. a_proj keeps its five window inputs; c takes the FFN stream and
+  the projection stream (the residual). Block outputs stay stream-multicast to the
+  consumers' windows, so the blocks themselves are still serial.
+  MEASURED: one event 134 -> 108 us, 114 -> 87 us with direct-register launch;
+  interval 8.4 -> 9.5 us (105k events/s, the streams make each kernel wait on its
+  producer row by row). Scores identical 2000/2000 vs the chain image, AUC 0.9825.
+  aiesimulator predicted it: whole stack 111 -> 77 us, object block 24.2 -> 14.9 us.
+  x86sim bit-identical per block (20 events x 6 blocks) and on the chain; the ISA
+  model matches x86sim line for line.
+  GOTCHA: the port types come from the kernel sources, so every compile of the
+  kernels needs --Xpreproc=-DPOST_STREAM (the graph header's #define is not enough;
+  without it the graph fails with "adf::stream does not match port type window").
+
+Summary, one event: 355 -> 108 us (3.3x), 87 us direct (4.1x); interval 17.3 -> 9.5 us
+(1.8x; the best interval was 8.4 with whole-window handoffs). Fabric-only two-layer
+(t2i): 127-136 us / 113 direct, 24.6 us/event. The hybrid now leads on one event by
+about 1.25x and on throughput by 2.6x.

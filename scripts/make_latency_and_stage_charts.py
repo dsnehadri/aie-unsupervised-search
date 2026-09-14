@@ -57,7 +57,7 @@ def _csv(path, kernel):
     return pts
 _F = "/home/snehadri/repos/aie-unsupervised-search/figs/"
 SWEEP["PL-only, attention blocks optimised"] = _csv(_F + "latency_sweep_pl_t2i.csv", "pl_stream_top")
-SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_chain.csv", "aie_stream_top")
+SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_pstream.csv", "aie_stream_top")
 NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
