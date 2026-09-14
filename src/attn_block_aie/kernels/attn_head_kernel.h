@@ -21,20 +21,36 @@
 #define AIE_OW output_window_int16
 #endif
 
-// pre signatures
+// pre signatures. PRE_STREAM: x arrives as a row stream (the object and cross
+// blocks); the candidate block's c stays a window.
+#if defined(PRE_STREAM)
+#define DECLARE_OBJ_PRE(h, l)   void obj_attn_head_pre_h##h##_L##l ( \
+    input_stream_int16* __restrict x_in, \
+    AIE_OW* __restrict scores_out, \
+    AIE_OW* __restrict v_out)
+#else
 #define DECLARE_OBJ_PRE(h, l)   void obj_attn_head_pre_h##h##_L##l ( \
     AIE_IW* __restrict x_in, \
     AIE_OW* __restrict scores_out, \
     AIE_OW* __restrict v_out)
+#endif
 #define DECLARE_CAND_PRE(h, l)  void cand_attn_head_pre_h##h##_L##l ( \
     AIE_IW* __restrict c_in, \
     AIE_OW* __restrict scores_out, \
     AIE_OW* __restrict v_out)
+#if defined(PRE_STREAM)
+#define DECLARE_CROSS_PRE(h, l) void cross_attn_head_pre_h##h##_L##l ( \
+    input_stream_int16* __restrict x_in, \
+    AIE_IW* __restrict c_in, \
+    AIE_OW* __restrict scores_out, \
+    AIE_OW* __restrict v_out)
+#else
 #define DECLARE_CROSS_PRE(h, l) void cross_attn_head_pre_h##h##_L##l ( \
     AIE_IW* __restrict x_in, \
     AIE_IW* __restrict c_in, \
     AIE_OW* __restrict scores_out, \
     AIE_OW* __restrict v_out)
+#endif
 
 // post signatures (obj layer 1 has no wij port -- the bias only exists in
 // layer 0; streaming zeros to a dummy port wasted 624 words/event of NoC
