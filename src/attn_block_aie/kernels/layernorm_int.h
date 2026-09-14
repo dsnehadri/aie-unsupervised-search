@@ -93,6 +93,17 @@ static inline void layernorm_one(int16* __restrict row,
     aie::store_v(row, aie::from_vector<acc80>(y32).to_vector<int16>(0));  // saturate
 }
 
+// LN_VEC (default): the float-vector layer norm. LN_INT goes back to the
+// integer one below, which is exact to half an LSB but a long scalar chain.
+#if !defined(LN_INT)
+#include "layernorm_vec.h"
+static inline void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
+                                 const int16* __restrict gamma,
+                                 const int16* __restrict beta)
+{
+    layernorm_row_vf(x, n_rows, n_cols, gamma, beta);
+}
+#else
 static void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
                           const int16* __restrict gamma,
                           const int16* __restrict beta)
@@ -120,5 +131,6 @@ static void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
     aie::set_rounding(rnd_save);
     aie::set_saturation(sat_save);
 }
+#endif // !LN_INT
 
 #endif // LAYERNORM_INT_H

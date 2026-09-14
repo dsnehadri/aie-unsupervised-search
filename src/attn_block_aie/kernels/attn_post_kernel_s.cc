@@ -44,9 +44,16 @@ void POST_A_PROJ_FN(input_window_int16* __restrict head0_in,
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     input_window_int16* __restrict heads[N_HEADS] = {head0_in, head1_in, head2_in, head3_in};
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    for (int r = 0; r < POST_N_ROWS; r++) {
-        for (int h = 0; h < N_HEADS; h++)
-            for (int d = 0; d < D_HEAD; d++) xrow[h * D_HEAD + d] = window_readincr(heads[h]);
+
+    // One row is D_HEAD = 4 words from each of the four head windows, and the
+    // smallest 16-bit vector this device loads is 8 lanes, so take TWO rows
+    // from every head at once and separate them with two 4-lane zips:
+    //   A = [h0r0 h0r1 h1r0 h1r1], B = [h2r0 h2r1 h3r0 h3r1]
+    //   zip(A,B,4)   -> [h0r0 h2r0 h0r1 h2r1] , [h1r0 h3r0 h1r1 h3r1]
+    //   zip(lo,hi,4) -> [h0r0 h1r0 h2r0 h3r0] = row 0, and row 1 in the other half
+    // The scalar gather this replaces cost ~18 cycles per word, 16 per row.
+    auto do_row = [&](const v16_t& xv) {
+        aie::store_v(xrow, xv);
 #if !defined(ATTN_TYPE_CROSS)
         alignas(16) int16 res[E_DIM];
         aie::store_v(res, win_read16(residual_in));
@@ -56,6 +63,23 @@ void POST_A_PROJ_FN(input_window_int16* __restrict head0_in,
 #endif
         layernorm_row(row, 1, E_DIM, post_attn_ln_gamma, post_attn_ln_beta);
         row_write(proj_out, aie::load_v<16>(row));
+    };
+
+    int r = 0;
+    for (; r + 1 < POST_N_ROWS; r += 2) {
+        const aie::vector<int16, 8> a0(window_readincr_v8(head0_in));
+        const aie::vector<int16, 8> a1(window_readincr_v8(head1_in));
+        const aie::vector<int16, 8> a2(window_readincr_v8(head2_in));
+        const aie::vector<int16, 8> a3(window_readincr_v8(head3_in));
+        const auto z = aie::interleave_zip(aie::concat(a0, a1), aie::concat(a2, a3), 4);
+        const auto w = aie::interleave_zip(z.first, z.second, 4);
+        do_row(w.first);
+        do_row(w.second);
+    }
+    for (; r < POST_N_ROWS; r++) {           // odd tail (candidate blocks: 3 rows)
+        for (int h = 0; h < N_HEADS; h++)
+            for (int d = 0; d < D_HEAD; d++) xrow[h * D_HEAD + d] = window_readincr(heads[h]);
+        do_row(aie::load_v<16>(xrow));
     }
     aie::set_saturation(sat_save);
 }
