@@ -60,9 +60,10 @@ NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
 # 2026-09-13: both designs restated with the latest measured builds.
-#   PL-only = plstream_t2h: softmax pipelined, heads batched, narrow multipliers,
+#   PL-only = plstream_t2i: softmax pipelined, heads batched, narrow multipliers,
 #     fast reshape, fabric linears, row-pipelined integer layer norm on DSPs,
-#     wide streams, 100 MHz. Per-stage cost = the event loop's iteration latency
+#     wide streams, pairwise MLP at II=1, 100 MHz (t2h = the same without the
+#     pairwise lever; only the pairwise row differs). Per-stage cost = the event loop's iteration latency
 #     of each stage from the full-design csynth report (VITIS_LOOP_<line>_1 rows
 #     of pl_stream.h: 754 read, 761 fork, 775 embed, 779 pairwise, 783 obj0,
 #     787 obj1, 790 cand, 794 cand2, 798 cross (both layers), 802 lorentz, 806 AE,
@@ -93,7 +94,7 @@ ROWS = [
  ("Read input",                cycpl(152),   cyc(152, HYB_CLK),               0),
  ("Fork",                      cycpl(112),   cyc(161, HYB_CLK),               0),
  ("Embedding",                 cycpl(973),   cyc(max(92, 246), HYB_CLK),      EMBED_AIE_SIM),
- ("Pairwise $w_{ij}$",         cycpl(2640),  cyc(661, HYB_CLK),               0),
+ ("Pairwise $w_{ij}$",         cycpl(428),   cyc(661, HYB_CLK),               0),   # t2i: pairwise at II=1 (t2h: 2640)
  ("Object attention L0",       cycpl(1684),  cyc(max(699, 243, 213), HYB_CLK), AIE["Object attention"]),
  ("Build candidates + candidate attention L0", cycpl(708), cyc(max(348, 68, 63), HYB_CLK), AIE["Candidate attention"]),
  ("Cross attention L0",        cycpl(1880),  cyc(max(300, 243), HYB_CLK),     AIE["Cross attention"]),
