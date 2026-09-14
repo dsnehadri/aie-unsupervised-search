@@ -242,3 +242,12 @@ obj_attn_head_pre_h2_L0     24_0       2.0         0%         0%       0%      0
 obj_attn_head_pre_h0_L0     24_1       2.0         0%         0%       0%      0%
 slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
 # post_c 6.1 -> 5.8, a_proj 3.4 -> 2.9, b1/b2 3.3 -> 3.1 us; object critical path 23.0 -> 21.9 us.
+
+# ON-ARRAY ONE-LAYER SLICE (2026-09-13, aiesimulator, tb/chain1_prof_main.cc: embed ->
+# assemble -> obj0 -> post-obj (remask + candidate build) -> cand0 -> fan-out -> cross0):
+#   c after cand0 at 42.4 us, x after cross0 at 61.4 us from t=0 for the first event;
+#   second event's x 5.8 us later (block interval = post_c). A first attempt with kernel
+#   windows fanned out to 4-5 consumers ran cand0 more often than its producer and never
+#   ran cross0 (x86sim was clean); one output window per consumer fixed it.
+#   Two layers -> ~110 us of AIE chain + ~17 us fabric (read/fork, embed and wij sends,
+#   lorentz 7.6, AE 4.3, write) + ~20 us launch -> ~130 us one event expected (~108 direct).
