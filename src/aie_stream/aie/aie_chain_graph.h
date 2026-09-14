@@ -478,4 +478,134 @@ public:
         connect<window<x_sz>>(cross1.x_out, plio_x_out.in[0]);
     }
 };
+
+// Two on-array halves (one layer each) joined by a PL loopback of 48 AXI beats:
+// the AIE placer failed on the whole stack in one graph (no reason given, at
+// 19% utilization) while a one-layer slice placed at once. Fan-out helpers as
+// in PasswdChainGraph.
+class ChainHalfBase : public graph {
+public:
+    static constexpr int NDUP = 24;
+    kernel dup[NDUP]; int ndup = 0;
+    static constexpr int jets_sz = EMBED_IN_WORDS * sizeof(int16);
+    static constexpr int mask_sz = E_DIM * sizeof(int16);
+    static constexpr int x_sz    = N_MAX * E_DIM * sizeof(int16);
+    static constexpr int xm_sz   = (N_MAX + 1) * E_DIM * sizeof(int16);
+    static constexpr int c_sz    = T_DIM * E_DIM * sizeof(int16);
+    static constexpr int wij_sz  = N_MAX * N_KV * sizeof(int16);
+    kernel& mkdup(int sz) {
+        kernel& k = dup[ndup++];
+        if (sz == xm_sz) {
+            k = kernel::create(chain_dup2_208);
+        } else if (sz == x_sz) {
+            k = kernel::create(chain_dup2_192);
+        } else {
+            k = kernel::create(chain_dup2_48);
+        }
+        source(k) = "kernels/chain_kernels.cc"; runtime<ratio>(k) = 0.9;
+        return k;
+    }
+    template <int SZ, typename SRC>
+    void fan4(SRC& src, port<input>& d0, port<input>& d1, port<input>& d2, port<input>& d3) {
+        kernel& R = mkdup(SZ); kernel& A = mkdup(SZ); kernel& B = mkdup(SZ);
+        connect<window<SZ>>(src, R.in[0]);
+        connect<window<SZ>>(R.out[0], A.in[0]); connect<window<SZ>>(R.out[1], B.in[0]);
+        connect<window<SZ>>(A.out[0], d0); connect<window<SZ>>(A.out[1], d1);
+        connect<window<SZ>>(B.out[0], d2); connect<window<SZ>>(B.out[1], d3);
+    }
+    template <int SZ, typename SRC, typename D4>
+    void fan5(SRC& src, port<input>& d0, port<input>& d1, port<input>& d2, port<input>& d3, D4& d4) {
+        kernel& R = mkdup(SZ); kernel& A = mkdup(SZ); kernel& B = mkdup(SZ); kernel& C = mkdup(SZ);
+        connect<window<SZ>>(src, R.in[0]);
+        connect<window<SZ>>(R.out[0], A.in[0]); connect<window<SZ>>(R.out[1], B.in[0]);
+        connect<window<SZ>>(A.out[0], d0); connect<window<SZ>>(A.out[1], d1);
+        connect<window<SZ>>(B.out[0], d2); connect<window<SZ>>(B.out[1], C.in[0]);
+        connect<window<SZ>>(C.out[0], d3); connect<window<SZ>>(C.out[1], d4);
+    }
+};
+
+// layer 0: jets, mask, wij in -> x after cross L0 out
+class ChainHalfL0 : public ChainHalfBase {
+public:
+    port<input> jets_in, mask_in, wij_h0, wij_h1, wij_h2, wij_h3;
+    port<output> x_out;
+    kernel k_embed, k_asm0, k_pobj0;
+    ObjChainL<0> obj0;  CandChainL<0> cand0;  CrossChainL<0> cross0;
+    ChainHalfL0() {
+        k_embed = kernel::create(embed_mlp);           source(k_embed) = "kernels/embed_kernel.cc";
+        k_asm0  = kernel::create(chain_assemble_zero); source(k_asm0)  = "kernels/chain_kernels.cc";
+        k_pobj0 = kernel::create(chain_post_obj);      source(k_pobj0) = "kernels/chain_kernels.cc";
+        for (kernel* k : {&k_embed, &k_asm0, &k_pobj0}) runtime<ratio>(*k) = 0.9;
+        connect<window<jets_sz>>(jets_in, k_embed.in[0]);
+        connect<window<x_sz>>(k_embed.out[0], k_asm0.in[0]);
+        connect<window<mask_sz>>(mask_in, k_asm0.in[1]);
+        fan5<xm_sz>(k_asm0.out[0], obj0.x_in_h[0], obj0.x_in_h[1], obj0.x_in_h[2], obj0.x_in_h[3], obj0.x_in_res);
+        connect<window<wij_sz>>(wij_h0, obj0.wij_h0);
+        connect<window<wij_sz>>(wij_h1, obj0.wij_h1);
+        connect<window<wij_sz>>(wij_h2, obj0.wij_h2);
+        connect<window<wij_sz>>(wij_h3, obj0.wij_h3);
+        connect<window<x_sz>>(obj0.x_out, k_pobj0.in[0]);
+        connect<window<mask_sz>>(mask_in, k_pobj0.in[1]);
+        fan5<x_sz>(k_pobj0.out[0], cross0.x_in_h[0], cross0.x_in_h[1], cross0.x_in_h[2], cross0.x_in_h[3], cross0.x_in_res);
+        fan5<c_sz>(k_pobj0.out[1], cand0.c_in_h[0], cand0.c_in_h[1], cand0.c_in_h[2], cand0.c_in_h[3], cand0.c_in_res);
+        fan4<c_sz>(cand0.c_out, cross0.c_in_h[0], cross0.c_in_h[1], cross0.c_in_h[2], cross0.c_in_h[3]);
+        connect<window<x_sz>>(cross0.x_out, x_out);
+    }
+};
+
+// layer 1: x after cross L0 (looped back through the PL), mask in -> x after cross L1, c after cand L1 out
+class ChainHalfL1 : public ChainHalfBase {
+public:
+    port<input> x_in, mask_in;
+    port<output> x_out, c_out;
+    kernel k_asm1, k_pobj1;
+    ObjChainL<1> obj1;  CandChainL<1> cand1;  CrossChainL<1> cross1;
+    ChainHalfL1() {
+        k_asm1  = kernel::create(chain_assemble); source(k_asm1)  = "kernels/chain_kernels.cc";
+        k_pobj1 = kernel::create(chain_post_obj); source(k_pobj1) = "kernels/chain_kernels.cc";
+        for (kernel* k : {&k_asm1, &k_pobj1}) runtime<ratio>(*k) = 0.9;
+        connect<window<x_sz>>(x_in, k_asm1.in[0]);
+        connect<window<mask_sz>>(mask_in, k_asm1.in[1]);
+        fan5<xm_sz>(k_asm1.out[0], obj1.x_in_h[0], obj1.x_in_h[1], obj1.x_in_h[2], obj1.x_in_h[3], obj1.x_in_res);
+        connect<window<x_sz>>(obj1.x_out, k_pobj1.in[0]);
+        connect<window<mask_sz>>(mask_in, k_pobj1.in[1]);
+        fan5<x_sz>(k_pobj1.out[0], cross1.x_in_h[0], cross1.x_in_h[1], cross1.x_in_h[2], cross1.x_in_h[3], cross1.x_in_res);
+        fan5<c_sz>(k_pobj1.out[1], cand1.c_in_h[0], cand1.c_in_h[1], cand1.c_in_h[2], cand1.c_in_h[3], cand1.c_in_res);
+        fan5<c_sz>(cand1.c_out, cross1.c_in_h[0], cross1.c_in_h[1], cross1.c_in_h[2], cross1.c_in_h[3], c_out);
+        connect<window<x_sz>>(cross1.x_out, x_out);
+    }
+};
+
+// hardware graph: the two halves with PLIOs; x0 goes to the PL and comes back as x1
+class PasswdChainHalvesGraph : public graph {
+public:
+    input_plio  plio_jets_in, plio_mask_in, plio_wij_h0, plio_wij_h1, plio_wij_h2, plio_wij_h3, plio_x1_in;
+    output_plio plio_x0_out, plio_x_out, plio_c_out;
+    ChainHalfL0 l0; ChainHalfL1 l1;
+    PasswdChainHalvesGraph() {
+        plio_jets_in = input_plio::create("embed_jets_in", plio_64_bits, "data/embed_jets_in.txt");
+        plio_mask_in = input_plio::create("mask_in",       plio_64_bits, "data/mask_in.txt");
+        plio_wij_h0  = input_plio::create("obj_wij_h0_L0", plio_64_bits, "data/obj_wij_h0_L0.txt");
+        plio_wij_h1  = input_plio::create("obj_wij_h1_L0", plio_64_bits, "data/obj_wij_h1_L0.txt");
+        plio_wij_h2  = input_plio::create("obj_wij_h2_L0", plio_64_bits, "data/obj_wij_h2_L0.txt");
+        plio_wij_h3  = input_plio::create("obj_wij_h3_L0", plio_64_bits, "data/obj_wij_h3_L0.txt");
+        plio_x1_in   = input_plio::create("chain_x1_in",   plio_64_bits, "data/chain_x1_in.txt");
+        plio_x0_out  = output_plio::create("chain_x0_out", plio_64_bits, "data/chain_x0_out.txt");
+        plio_x_out   = output_plio::create("chain_x_out",  plio_64_bits, "data/chain_x_out.txt");
+        plio_c_out   = output_plio::create("chain_c_out",  plio_64_bits, "data/chain_c_out.txt");
+        constexpr int jets_sz = ChainHalfBase::jets_sz, mask_sz = ChainHalfBase::mask_sz;
+        constexpr int x_sz = ChainHalfBase::x_sz, c_sz = ChainHalfBase::c_sz, wij_sz = ChainHalfBase::wij_sz;
+        connect<window<jets_sz>>(plio_jets_in.out[0], l0.jets_in);
+        connect<window<mask_sz>>(plio_mask_in.out[0], l0.mask_in);
+        connect<window<mask_sz>>(plio_mask_in.out[0], l1.mask_in);
+        connect<window<wij_sz>>(plio_wij_h0.out[0], l0.wij_h0);
+        connect<window<wij_sz>>(plio_wij_h1.out[0], l0.wij_h1);
+        connect<window<wij_sz>>(plio_wij_h2.out[0], l0.wij_h2);
+        connect<window<wij_sz>>(plio_wij_h3.out[0], l0.wij_h3);
+        connect<window<x_sz>>(l0.x_out, plio_x0_out.in[0]);
+        connect<window<x_sz>>(plio_x1_in.out[0], l1.x_in);
+        connect<window<x_sz>>(l1.x_out, plio_x_out.in[0]);
+        connect<window<c_sz>>(l1.c_out, plio_c_out.in[0]);
+    }
+};
 #endif // AIE_CHAIN_GRAPH_H

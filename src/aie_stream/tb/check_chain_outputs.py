@@ -8,8 +8,11 @@ outdir = sys.argv[1]; nev = int(sys.argv[2]) if len(sys.argv) > 2 else 20
 tv = "/home/snehadri/repos/unsupervised-search/phase3_export_retrained/test_vectors"
 mask = np.load(f"{tv}/stage0_padding_mask.npy")[:nev]      # (nev, 12) True = padded
 fails = 0
-for name, fname, gname, rows, masked in (("x after cross L1", "chain_x_out.txt", "stage3_layer1_post_cross_attn.npy", N_MAX, True),
-                                          ("c after cand L1",  "chain_c_out.txt", "stage3_layer1_post_cand_selfattn.npy", T_DIM, False)):
+checks = [("x after cross L1", "chain_x_out.txt", "stage3_layer1_post_cross_attn.npy", N_MAX, True),
+          ("c after cand L1",  "chain_c_out.txt", "stage3_layer1_post_cand_selfattn.npy", T_DIM, False)]
+if os.path.exists(os.path.join(outdir, "chain_x0_out.txt")):   # the two-half graph
+    checks.insert(0, ("x after cross L0", "chain_x0_out.txt", "stage3_layer0_post_cross_attn.npy", N_MAX, True))
+for name, fname, gname, rows, masked in checks:
     d = parse_plio_text_float(os.path.join(outdir, fname)) / DATA_SCALE
     gold = np.load(f"{tv}/{gname}")[:nev]
     per = rows * E_DIM; errs = []
