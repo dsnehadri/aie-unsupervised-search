@@ -187,3 +187,23 @@ about 1.25x and on throughput by 2.6x.
       closes with margin and 125 does not.
   Fabric-only: the kernel clock has 2.54 ns slack at 100 MHz (path 7.46 ns) ->
   a 125 MHz build (plstream_t2j) is the whole lever, no source change.
+
+MEASURED 2026-09-15 (image aie_hybrid_chain rebuilt, md5 b8431ab5, BOOT.BIN.allv2
+on the FAT, deployed 02:5x; fabric at 120 MHz, met timing with 1.479 ns slack so
+the path would take ~146 MHz):
+  one event      108 -> 98 us
+  direct regs     87 -> 77.5 us
+  interval        9.5 -> 9.6 us/event (105k ev/s)
+  scores IDENTICAL 2000/2000 vs the previous image, AUC 0.9825.
+  Of the ~9.5 us, essentially ALL came from the array (simulator 77.0 -> 67.8).
+  The fabric levers (one wij port, 120 MHz, wider lorentz) cost nothing and
+  gained nothing measurable on one event: the array is the critical path and the
+  fabric head and tail hide behind it. They would matter again if the array got
+  much faster.
+  NEGATIVE, reverted: the float-vector layer norm (see the block profile notes).
+  NEGATIVE, deadlocks: streaming x into the cross pre kernel (PRE_STREAM_CROSS).
+
+Standing, one event: fabric-only 106 us (90 direct), 19.7 us/event; hybrid 98 us
+(77.5 direct), 9.6 us/event. From the start of the latency work: hybrid 355 ->
+98 us (3.6x), 77.5 direct (4.6x), interval 17.3 -> 9.6 us; fabric-only 363 ->
+106 us, 79.8 -> 19.7 us/event.
