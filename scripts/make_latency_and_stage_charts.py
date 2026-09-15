@@ -173,25 +173,18 @@ axc.barh(y + hh/2, hp, color=AIEC, edgecolor=INK, linewidth=0.8, height=hh,
 axc.barh(y - hh/2, ha, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=hh,
          label="AI Engine compute (kernel interval, aiesimulator)")
 for yy, p, a in zip(y, hp, ha):
-    # white background so the measured-interval line does not cross the digits
     if p:
-        axc.text(p + 0.4, yy + hh/2, f"{p:.1f}", va="center", fontsize=8.2, color=INK, zorder=6,
-                 bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
+        axc.text(p + 0.4, yy + hh/2, f"{p:.1f}", va="center", fontsize=8.2, color=INK, zorder=6)
     if a:
-        axc.text(a + 0.4, yy - hh/2, f"{a:.1f}", va="center", fontsize=8.2, color=INK, zorder=6,
-                 bbox=dict(facecolor="white", edgecolor="none", pad=0.6))
+        axc.text(a + 0.4, yy - hh/2, f"{a:.1f}", va="center", fontsize=8.2, color=INK, zorder=6)
 
-# hybrid panel: the deep-FIFO build's interval (the pipeline with enough buffering
-# for its stages to overlap). With the vector integer layer norm the AI Engine
-# compute is well under the interval and the PL embedding stage sets the rate.
-for ax, meas, letter in ((axb, fits["PL-only, attention blocks optimised"], "(a)"), (axc, fits["AIE-PL hybrid, vector AIE kernels"], "(b)")):
-    if meas is not None:
-        ax.axvline(meas, color="#c0392b", ls="--", lw=1.6, zorder=5)
-        ax.text(meas, len(labs) - 0.35, f"  Measured interval, {meas:.1f} µs", color="#c0392b",
-                fontsize=9.5, va="top", ha="left")
+# Per-stage cost only: the measured-interval marker was removed, so each panel
+# shows what the stages cost and nothing else.
+_xmax = max(pl_us.max(), hp.max(), ha.max()) * 1.18
+for ax, letter in ((axb, "(a)"), (axc, "(b)")):
     ax.set_yticks(y); ax.set_yticklabels(labs, fontsize=9.3)
     ax.set_xlabel("Time per event [µs]", fontsize=11.5)
-    ax.set_xlim(0, 30)
+    ax.set_xlim(0, _xmax)
     ax.tick_params(axis="x", direction="in", top=True)
     ax.grid(axis="x", alpha=.14); ax.set_axisbelow(True)
     for sp in ("top", "right"): ax.spines[sp].set_visible(False)
