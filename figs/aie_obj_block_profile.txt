@@ -330,3 +330,15 @@ slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
 #            cross     10.7 ->  7.2   6.2 -> 3.2
 #   Object block: instruction set == x86 line for line.
 #   Tiles: +1 per block for the split, +2 per object/cross block for the merges.
+#
+# WHOLE CHAIN, third round (aiesimulator, 4 events, 2026-09-15):
+#   row streaming in the post kernels only            77.0 us, interval 9.4
+#   + cross-block streaming, gather, one wij port     67.8 us, interval 9.5
+#   + split last post stage + softmax row streaming   48.9 us, interval 6.3
+#   Outputs match x86 line for line on both ports, and the golden errors are
+#   those of the deployed image (x 0.0703, c 0.3590): numerically identical.
+#   NEEDED AIE_PLACE: the automatic placer fails ("Global placement failed"
+#   after three passes) with as few as six extra kernels. Each block now gets
+#   two columns -- pre and head post interleaved down the first so each pair is
+#   a vertical neighbour sharing memory for the score and V windows, the merge
+#   kernels and post chain down the second.
