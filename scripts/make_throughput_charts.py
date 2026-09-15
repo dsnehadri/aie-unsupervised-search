@@ -39,32 +39,36 @@ def save(fig, name):
 # 1. End-to-end pipeline throughput (full anomaly model, 2000-event runs)
 # ---------------------------------------------------------------------------
 def fig_endtoend():
-    rows = [  # (label, ev/s, color)
+    rows = [  # (label, ev/s, color) -- all measured, 2000-event runs
         ("all-PL  baseline",                    478,  PL_C),
         ("all-PL  optimized kernels",          1139,  PL_C),
         ("all-PL  batched dataflow",           4869,  PL_C),
+        ("all-PL  attention optimised, 125 MHz", 50870, PL_C),
+        ("all-PL  current, 156 MHz",           63780, PL_C),
         ("AIE hybrid  baseline",                551,  AIE_C),
         ("AIE hybrid  pipelined bridge",       7549,  AIE_C),
-        ("AIE hybrid  current (72 tiles)",     8964,  AIE_C),
+        ("AIE hybrid  whole stack on array",  135000, AIE_C),
+        ("AIE hybrid  current (91 tiles)",    153106, AIE_C),
     ]
     labels = [r[0] for r in rows]
     vals = np.array([r[1] for r in rows], float)
     cols = [r[2] for r in rows]
     ys = np.arange(len(rows))[::-1]
 
-    fig, ax = plt.subplots(figsize=(9, 4.8))
+    fig, ax = plt.subplots(figsize=(9, 5.6))
     ax.barh(ys, vals, color=cols, height=0.62)
     for y, v in zip(ys, vals):
-        ax.text(v + 90, y, f"{v:,.0f}", va="center", fontsize=10.5, weight="bold")
+        ax.text(v * 1.02, y, f"{v:,.0f}", va="center", fontsize=10.5, weight="bold")
     ax.set_yticks(ys)
     ax.set_yticklabels(labels, fontsize=10.5)
     ax.set_xlabel("throughput  [events / s]")
     ax.set_xlim(0, vals.max() * 1.14)
     ax.set_title("End-to-end throughput on VCK190 (measured, full model)",
                  fontsize=12.5, pad=10)
-    handles = [mpl.patches.Patch(color=PL_C, label="all-PL (AUC 0.9639)"),
-               mpl.patches.Patch(color=AIE_C, label="AIE hybrid (AUC 0.9644)")]
-    ax.legend(handles=handles, loc="lower right", fontsize=10)
+    handles = [mpl.patches.Patch(color=PL_C, label="all-PL (AUC 0.9825)"),
+               mpl.patches.Patch(color=AIE_C, label="AIE hybrid (AUC 0.9825)")]
+    ax.legend(handles=handles, loc="lower right", fontsize=10,
+              bbox_to_anchor=(1.0, 0.10), framealpha=0.95)
     save(fig, "throughput_endtoend")
 
 
