@@ -93,9 +93,14 @@ static inline void layernorm_one(int16* __restrict row,
     aie::store_v(row, aie::from_vector<acc80>(y32).to_vector<int16>(0));  // saturate
 }
 
-// LN_VEC (default): the float-vector layer norm. LN_INT goes back to the
-// integer one below, which is exact to half an LSB but a long scalar chain.
-#if !defined(LN_INT)
+// The integer layer norm is the default. LN_VEC selects the float-vector one in
+// layernorm_vec.h, which MEASURED SLOWER on the instruction set: the object
+// block went 14.8 -> 16.5 us and its interval 6.2 -> 7.6, because AIE1's fp32
+// vector unit has long latencies and the sequence is one dependent chain. The
+// function profile was misleading -- the layer norm's SHARE of the kernel fell
+// from 56% to 21% while its absolute cost rose. It also flipped one jet's
+// category assignment in one event of twenty. Kept for the record.
+#if defined(LN_VEC)
 #include "layernorm_vec.h"
 static inline void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
                                  const int16* __restrict gamma,
@@ -131,6 +136,6 @@ static void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
     aie::set_rounding(rnd_save);
     aie::set_saturation(sat_save);
 }
-#endif // !LN_INT
+#endif // LN_VEC
 
 #endif // LAYERNORM_INT_H
