@@ -289,3 +289,27 @@ slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
 #   Streaming is a latency lever, not a rate one: the kernels overlap inside a
 #   block, so the block answers sooner, but the slowest kernel still sets the rate
 #   and now carries some stream-wait time.
+#
+# SECOND ROUND, measured on the ISA model (2026-09-15), object block, 4 events:
+#   baseline (row streaming in the post kernels)      14.9 us, interval 6.2
+#   + vector head gather + streaming pre, integer LN  14.8 us, interval 6.2
+#   + float layer norm (LN_VEC)                       16.5 us, interval 7.6  NEGATIVE
+#   The float layer norm is SLOWER on the instruction set even though its share
+#   of the kernel profile fell from 56% to 21%: AIE1's fp32 vector unit has long
+#   latencies and the sequence is one dependent chain. Reverted.
+#   The vector gather is worth ~0.1 us at block level (a_proj is not the
+#   critical path; post_c is) but is strictly less work and bit-identical.
+#   PRE_STREAM shows nothing on a standalone block -- there is no upstream
+#   producer to overlap with -- it only pays in the chain.
+#
+# WHOLE CHAIN (aiesimulator, 4 events):
+#   row streaming in the post kernels only            77.0 us, interval 9.4
+#   + cross-block row streaming, gather, one wij port 67.8 us, interval 9.5
+#   Outputs match x86 line for line and the golden errors are unchanged from the
+#   deployed image (x 0.0703, c 0.3590), so the array is numerically identical.
+#
+# DEADLOCK, worth remembering: streaming x into the CROSS pre kernel hangs the
+# whole array. A kernel does not start until every WINDOW input is delivered, so
+# it waited for its c window (from the candidate block, which runs later and is
+# fed by the same glue kernel) before reading one x row. The glue kernel blocked,
+# nothing came out of either port. x86 does not model the window-acquire rule.
