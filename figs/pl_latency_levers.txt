@@ -301,3 +301,21 @@ only 26.3 -> 24.6, so a per-event overhead near 25 us (the dataflow-in-loop stag
 overlap successive events; noted before as "~25 us above the longest stage") is the
 fabric's real interval floor now. One event did drop by the pairwise's share (~17 us).
 Data figs/latency_sweep_pl_t2i.csv. Board image after this: plstream_t2i.
+
+2026-09-14 t2j: THE CLOCK WAS THE LEVER (fabric-only, no source change).
+  The routed t2i report shows the worst path in the clock wizard's own 625 MHz
+  domain, not the design: the KERNEL clock (clkout2_primitive, 921k endpoints)
+  had 2.541 ns of slack at 10 ns, i.e. a 7.46 ns critical path = ~134 MHz
+  ceiling. Rebuilt with --clock.freqHz 125000000 and the same flags
+  (-DPAIRWISE_PL_LOWDSP -DOBJ_DATAFLOW -DHEADS_BATCHED -DLIN_FABRIC_MUL
+  -DLN_MODE=2 -DNARROW_MUL -DRESHAPE_FAST -DSOFTMAX_PIPE -DWIDE_STREAMS
+  -DPAIRWISE_FAST): met timing with 0.496 ns slack, 0 failing endpoints
+  (the kernel clock becomes clkout1_primitive_1, 8.000 ns waveform).
+  MEASURED (md5 c434f5cb, SW_CRC 23df3d6b, deployed 2026-09-14 23:3x):
+    one event      127-136 -> 106 us
+    direct regs    113     ->  90 us   (scheduler 22.2 us, unchanged)
+    interval       24.6    -> 19.7 us/event (50,870 ev/s)
+    AUC 0.9825, rank corr vs software 0.9967 -- bit-identical behaviour.
+  Data figs/latency_sweep_pl_t2j.csv. 133 MHz should also close; 150 will not.
+  LESSON: always read the INTRA-CLOCK table for the kernel clock, not the
+  headline WNS, before concluding a design is clock-limited.
