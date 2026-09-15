@@ -207,3 +207,24 @@ Standing, one event: fabric-only 106 us (90 direct), 19.7 us/event; hybrid 98 us
 (77.5 direct), 9.6 us/event. From the start of the latency work: hybrid 355 ->
 98 us (3.6x), 77.5 direct (4.6x), interval 17.3 -> 9.6 us; fabric-only 363 ->
 106 us, 79.8 -> 19.7 us/event.
+
+MEASURED 2026-09-15 (image aie_hybrid_chain rebuilt, md5 7e1b112a, BOOT.BIN.v3x
+on the FAT; POST_SPLIT_C + HEAD_STREAM + AIE_PLACE, fabric 120 MHz, met timing
+with 0.770 ns slack):
+  one event       98 -> 76 us
+  direct regs   77.5 -> 55.7 us
+  interval       9.6 -> 6.5 us/event (153,106 ev/s)
+  scores IDENTICAL 2000/2000 vs the previous image, AUC 0.9825.
+  Simulator predicted it: whole stack 67.8 -> 48.9 us, and 77.5 - 18.9 = 58.6
+  was the estimate against 55.7 measured (5% low, the usual direction).
+  The interval finally moved because the split halved the slowest stage: block
+  intervals object 6.2 -> 5.3, cross 6.2 -> 3.2.
+
+Cumulative from the start of the latency work:
+  hybrid      one event 355 -> 76 us (4.7x), direct 55.7 us (6.4x from 355),
+              interval 17.3 -> 6.5 us (2.7x)
+  fabric-only one event 363 -> 92 us (3.9x), direct 72.2 us,
+              interval 79.8 -> 15.7 us (5.1x)
+  The hybrid leads by 1.21x on one event (1.30x direct) and 2.4x on throughput.
+  Every step kept the scores bit-identical except the vector float softmax
+  (2026-09-12, AUC 0.9817 vs 0.9825) which was accepted on AUC.

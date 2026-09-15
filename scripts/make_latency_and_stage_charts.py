@@ -51,7 +51,9 @@ COL = {"PL-only": PL_C, "AIE-PL hybrid": AIE_C, "AIE-PL hybrid, embedding on arr
 #   direct), scores identical to v3. Row streaming between the post kernels then
 #   gives 9.5 us/event, one event 108 us (87 direct). Cross-block row streaming,
 #   a vector head gather, one wij port instead of four and a 120 MHz fabric give
-#   9.6 us/event, one event 98 us (77.5 direct). Scores identical throughout.
+#   9.6 us/event, one event 98 us (77.5 direct). Splitting the last post stage
+#   and streaming the softmax rows then give 6.5 us/event, one event 76 us
+#   (55.7 direct). Scores identical throughout.
 #   AUC 0.9825 / 0.9825.
 def _csv(path, kernel):
     pts = []
@@ -61,7 +63,7 @@ def _csv(path, kernel):
     return pts
 _F = "/home/snehadri/repos/aie-unsupervised-search/figs/"
 SWEEP["PL-only, attention blocks optimised"] = _csv(_F + "latency_sweep_pl_t2k.csv", "pl_stream_top")
-SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_allv2.csv", "aie_stream_top")
+SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_v3x.csv", "aie_stream_top")
 NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
@@ -86,7 +88,7 @@ NMIN = 8
 #     interval; figs/aie_obj_block_profile.txt), which predicted the board
 #     within 6% in every earlier check. Both clocks are exactly 100 MHz.
 PL_CLK, HYB_CLK = 156.25e6, 120e6   # fabric-only at 156.25 MHz (t2k), the hybrid fabric at 120
-AIE = {"Object attention": 6.2, "Candidate attention": 1.6, "Cross attention": 6.2}
+AIE = {"Object attention": 5.3, "Candidate attention": 1.6, "Cross attention": 3.2}
 EMBED_AIE_SIM = 7.2   # embed_mlp, aiesimulator, 8,998 cycles/event
 cyc = lambda c, clk: c / clk * 1e6
 cycpl = lambda c: c / PL_CLK * 1e6
