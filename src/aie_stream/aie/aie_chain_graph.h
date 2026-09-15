@@ -203,6 +203,39 @@ public:
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_bc.in[0]);
 #endif
     }
+    // AIE_PLACE: give the block a home of two columns. The automatic placer
+    // gives up on this graph once the post chain grows past four stages ("Global
+    // placement failed" after three passes), and it has no notion of which
+    // kernels belong together. The layout below does:
+    //   column c   rows 0..7  pre0, post0, pre1, post1, pre2, post2, pre3, post3
+    //              (a pre and its head post are vertical neighbours, so their
+    //               score and V windows sit in shared memory, no DMA)
+    //   column c+1 rows 0..6  merge0, merge1, a_proj, b1, b2, c1, c
+    //              (all stream-connected, so only the switch has to reach them)
+    void place_at(int col)
+    {
+        for (int h = 0; h < N_HEADS; h++) {
+            location<kernel>(k_pre[h])    = tile(col, 2 * h);
+            location<kernel>(k_post_h[h]) = tile(col, 2 * h + 1);
+        }
+        int r = 0;
+#if defined(HEAD_STREAM_OBJ)
+        location<kernel>(k_merge[0]) = tile(col + 1, r++);
+        location<kernel>(k_merge[1]) = tile(col + 1, r++);
+#endif
+        location<kernel>(k_post_ap) = tile(col + 1, r++);
+#ifndef POST_MERGED
+        location<kernel>(k_post_b1) = tile(col + 1, r++);
+        location<kernel>(k_post_b2) = tile(col + 1, r++);
+#if defined(POST_SPLIT_C)
+        location<kernel>(k_post_c1) = tile(col + 1, r++);
+#endif
+        location<kernel>(k_post_c)  = tile(col + 1, r++);
+#else
+        location<kernel>(k_post_bc) = tile(col + 1, r++);
+#endif
+    }
+
 };
 template <int LAYER, int INST = 0>
 class CandChainL : public graph {
@@ -329,6 +362,35 @@ public:
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_bc.in[0]);
 #endif
     }
+    // AIE_PLACE: give the block a home of two columns. The automatic placer
+    // gives up on this graph once the post chain grows past four stages ("Global
+    // placement failed" after three passes), and it has no notion of which
+    // kernels belong together. The layout below does:
+    //   column c   rows 0..7  pre0, post0, pre1, post1, pre2, post2, pre3, post3
+    //              (a pre and its head post are vertical neighbours, so their
+    //               score and V windows sit in shared memory, no DMA)
+    //   column c+1 rows 0..6  merge0, merge1, a_proj, b1, b2, c1, c
+    //              (all stream-connected, so only the switch has to reach them)
+    void place_at(int col)
+    {
+        for (int h = 0; h < N_HEADS; h++) {
+            location<kernel>(k_pre[h])    = tile(col, 2 * h);
+            location<kernel>(k_post_h[h]) = tile(col, 2 * h + 1);
+        }
+        int r = 0;
+        location<kernel>(k_post_ap) = tile(col + 1, r++);
+#ifndef POST_MERGED
+        location<kernel>(k_post_b1) = tile(col + 1, r++);
+        location<kernel>(k_post_b2) = tile(col + 1, r++);
+#if defined(POST_SPLIT_C)
+        location<kernel>(k_post_c1) = tile(col + 1, r++);
+#endif
+        location<kernel>(k_post_c)  = tile(col + 1, r++);
+#else
+        location<kernel>(k_post_bc) = tile(col + 1, r++);
+#endif
+    }
+
 };
 template <int LAYER, int INST = 0>
 class CrossChainL : public graph {
@@ -489,6 +551,39 @@ public:
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_bc.in[0]);
 #endif
     }
+    // AIE_PLACE: give the block a home of two columns. The automatic placer
+    // gives up on this graph once the post chain grows past four stages ("Global
+    // placement failed" after three passes), and it has no notion of which
+    // kernels belong together. The layout below does:
+    //   column c   rows 0..7  pre0, post0, pre1, post1, pre2, post2, pre3, post3
+    //              (a pre and its head post are vertical neighbours, so their
+    //               score and V windows sit in shared memory, no DMA)
+    //   column c+1 rows 0..6  merge0, merge1, a_proj, b1, b2, c1, c
+    //              (all stream-connected, so only the switch has to reach them)
+    void place_at(int col)
+    {
+        for (int h = 0; h < N_HEADS; h++) {
+            location<kernel>(k_pre[h])    = tile(col, 2 * h);
+            location<kernel>(k_post_h[h]) = tile(col, 2 * h + 1);
+        }
+        int r = 0;
+#if defined(HEAD_STREAM_CROSS)
+        location<kernel>(k_merge[0]) = tile(col + 1, r++);
+        location<kernel>(k_merge[1]) = tile(col + 1, r++);
+#endif
+        location<kernel>(k_post_ap) = tile(col + 1, r++);
+#ifndef POST_MERGED
+        location<kernel>(k_post_b1) = tile(col + 1, r++);
+        location<kernel>(k_post_b2) = tile(col + 1, r++);
+#if defined(POST_SPLIT_C)
+        location<kernel>(k_post_c1) = tile(col + 1, r++);
+#endif
+        location<kernel>(k_post_c)  = tile(col + 1, r++);
+#else
+        location<kernel>(k_post_bc) = tile(col + 1, r++);
+#endif
+    }
+
 };
 
 class PasswdChainGraph : public graph {
@@ -604,6 +699,17 @@ public:
         // out: x after cross L1, c after candidate L1 (streams to the PL)
         connect<stream>(cross1.k_post_c.out[0], plio_x_out.in[0]);
         connect<stream>(cand1.k_post_c.out[0], plio_c_out.in[0]);
+
+#if defined(AIE_PLACE)
+        // Two columns per block, the glue and the embedding in one of their own.
+        obj0.place_at(6);   cand0.place_at(8);   cross0.place_at(10);
+        obj1.place_at(12);  cand1.place_at(14);  cross1.place_at(16);
+        location<kernel>(k_embed) = tile(18, 0);
+        location<kernel>(k_asm0)  = tile(18, 1);
+        location<kernel>(k_pobj0) = tile(18, 2);
+        location<kernel>(k_asm1)  = tile(18, 3);
+        location<kernel>(k_pobj1) = tile(18, 4);
+#endif
     }
 };
 #endif // AIE_CHAIN_GRAPH_H
