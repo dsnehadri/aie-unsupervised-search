@@ -293,7 +293,16 @@ void softmax_row(
 
 // FFN layer (linear, layernorm, relu) then skip + layernorm
 
-// FFN_PIPE: the three feed-forward layers as a ROW PIPELINE instead of three
+// FFN_PIPE: NEGATIVE, do not enable. Measured 2026-09-15 by csynth at a 6.4 ns
+// target: the feed-forward stage went 923 -> 1444 cycles and the block's logic
+// 97,242 -> 128,393 LUT with 289 -> 391 DSP. Splitting the rows across three
+// stream-connected processes does overlap the layers, but each process now
+// calls linear<1> and layernorm<1> twelve times instead of once with twelve
+// rows, and those per-row calls each pay their own pipeline fill and drain.
+// The loss inside a stage is larger than the gain from overlapping stages.
+// Kept as the record; the batched version below is the default.
+//
+// The three feed-forward layers as a ROW PIPELINE instead of three
 // passes over the whole tensor.
 //
 // Written as passes, each layer's linear, layer norm and ReLU must finish on
