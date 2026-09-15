@@ -60,7 +60,7 @@ def _csv(path, kernel):
             q = l.split(","); pts.append((int(q[1]), float(q[4])))   # (N, median ms)
     return pts
 _F = "/home/snehadri/repos/aie-unsupervised-search/figs/"
-SWEEP["PL-only, attention blocks optimised"] = _csv(_F + "latency_sweep_pl_t2j.csv", "pl_stream_top")
+SWEEP["PL-only, attention blocks optimised"] = _csv(_F + "latency_sweep_pl_t2k.csv", "pl_stream_top")
 SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_allv2.csv", "aie_stream_top")
 NMIN = 8
 
@@ -85,7 +85,7 @@ NMIN = 8
 #     slowest kernel of each block from the aiesimulator profile (the block's
 #     interval; figs/aie_obj_block_profile.txt), which predicted the board
 #     within 6% in every earlier check. Both clocks are exactly 100 MHz.
-PL_CLK, HYB_CLK = 125e6, 120e6   # fabric-only at 125 MHz (t2j), the hybrid fabric at 120
+PL_CLK, HYB_CLK = 156.25e6, 120e6   # fabric-only at 156.25 MHz (t2k), the hybrid fabric at 120
 AIE = {"Object attention": 6.2, "Candidate attention": 1.6, "Cross attention": 6.2}
 EMBED_AIE_SIM = 7.2   # embed_mlp, aiesimulator, 8,998 cycles/event
 cyc = lambda c, clk: c / clk * 1e6

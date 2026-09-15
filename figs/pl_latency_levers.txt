@@ -319,3 +319,27 @@ Data figs/latency_sweep_pl_t2i.csv. Board image after this: plstream_t2i.
   Data figs/latency_sweep_pl_t2j.csv. 133 MHz should also close; 150 will not.
   LESSON: always read the INTRA-CLOCK table for the kernel clock, not the
   headline WNS, before concluding a design is clock-limited.
+
+2026-09-15 t2k: 156.25 MHz, THE CRITICAL PATH WAS A FANOUT, NOT LOGIC.
+  At 125 MHz the worst kernel-clock paths all had ONE logic level and ~7.36 ns
+  of delay, of which 0.19 ns was logic: 97% routing. The net was
+  obj_df_reshape_15_U0/i_15_reg_..._n_44 with FANOUT 1024 -- the row counter of
+  the object block's reshape, whose write-enable decode reaches every register
+  of the fully partitioned QKV_h (3*N_HEADS x N_KV x D_HEAD, all registers).
+  FIX (RESHAPE_UNROLL, attn_block_obj.h): unroll the row loop so every write is
+  static. No counter, no decode, no long net; the stage costs one cycle instead
+  of thirteen and the block loses 8% of its LUTs (105,653 -> 97,560 at a
+  6.667 ns target) and 9 cycles.
+  The tool then closed at the clock wizard's next available step, 156.25 MHz
+  (6.400 ns), not the 150 requested: WNS 0.297 ns, 0 failing endpoints of
+  871,751.
+  MEASURED (md5 018854c8, SW_CRC 24335996, deployed 2026-09-15 14:2x):
+    one event      106 -> 92 us
+    direct regs     90 -> 72.2 us
+    interval       19.7 -> 15.7 us/event (63,780 ev/s)
+    AUC 0.9825, rank corr vs software 0.9967 -- unchanged.
+  The design is pure clock scaling: fitting the three measured points gives
+  ~11,500 cycles of work and essentially zero fixed cost, so direct latency is
+  11500/f. Data figs/latency_sweep_pl_t2k.csv.
+  LESSON: when the worst path has one logic level, look at the net fanout, not
+  at pipelining. Registers cannot shorten a wire that a decode has to reach.
