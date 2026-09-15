@@ -313,3 +313,20 @@ slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
 # it waited for its c window (from the candidate block, which runs later and is
 # fed by the same glue kernel) before reading one x row. The glue kernel blocked,
 # nothing came out of either port. x86 does not model the window-acquire rule.
+#
+# THIRD ROUND (2026-09-15, aiesimulator, 4 events), both bit-identical in x86
+# on all six blocks:
+#   POST_SPLIT_C  split the last post stage (linear + TWO layer norms per row,
+#                 ~1.6x the cost of b1/b2) into c1 (linear, norm, ReLU) and c
+#                 (residual add, norm). A row pipeline drains at the rate of its
+#                 slowest stage, so halving that stage shortens the whole block.
+#   HEAD_STREAM   the head post emits four rows at a time on a stream instead of
+#                 the whole tensor; two merge kernels pair the four heads (a tile
+#                 has two stream inputs) and the projection reads one half-row
+#                 from each, replacing the four-window gather. Object and cross
+#                 only: the candidate block's three rows do not group into fours.
+#                          latency        interval
+#            object    14.8 -> 12.5   6.2 -> 5.3
+#            cross     10.7 ->  7.2   6.2 -> 3.2
+#   Object block: instruction set == x86 line for line.
+#   Tiles: +1 per block for the split, +2 per object/cross block for the merges.
