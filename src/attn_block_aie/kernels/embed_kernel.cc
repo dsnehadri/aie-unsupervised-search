@@ -53,6 +53,69 @@ static void relu_inplace(int16* __restrict x, int n)
 #if defined(TRANSPOSED) && defined(TRANSPOSED_EMBED)
 #include "embed_kernel_t.cc"
 #else
+// EMBED_PIPE: the embedding as three tiles instead of one.
+//
+// The MLP is per jet, but written as three passes over the whole tensor it must
+// finish every row of layer 0 before layer 1 starts, so nothing downstream can
+// begin for its full 7.2 us -- and it sits at the head of the chain, so every
+// block waits on it. Split into three kernels passing FOUR rows at a time (the
+// width the packed gemm works in), layer 1 starts on rows 0-3 while layer 0 is
+// on rows 4-7. The arithmetic is identical: a four-row gemm_pk_biasc call is
+// exactly one packed block of the twelve-row call.
+#if defined(EMBED_PIPE)
+#define EMBED_GRP 4
+void embed_mlp(input_window_int16* __restrict jets_in,
+               output_stream_int16* __restrict embed_out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    alignas(16) int16 raw[EMBED_IN_WORDS];
+    win_read_v<EMBED_IN_WORDS>(jets_in, raw);
+    BIAS_REPC(b0_r, E_DIM, embed_b0);
+    for (int g = 0; g < EMBED_ROWS / EMBED_GRP; g++) {
+        alignas(32) int16 a[EMBED_GRP * EMBED_IN_PAD];
+        zero_v<EMBED_GRP * EMBED_IN_PAD>(a);
+        for (int r = 0; r < EMBED_GRP; r++)
+            for (int c = 0; c < EMBED_IN; c++)
+                a[pk_idx<EMBED_IN_PAD>(r, c)] = raw[(g * EMBED_GRP + r) * EMBED_IN + c];
+        alignas(32) int16 h[EMBED_GRP * E_DIM];
+        gemm_pk_biasc<EMBED_GRP, EMBED_IN_PAD, E_DIM>(a, embed_W0, h, ACC_SHIFT, b0_r.r);
+        layernorm_row(h, EMBED_GRP, E_DIM, embed_ln0_g, embed_ln0_b);
+        relu_inplace(h, EMBED_GRP * E_DIM);
+        stream_write_v<EMBED_GRP * E_DIM>(embed_out, h);
+    }
+    aie::set_saturation(sat_save);
+}
+
+void embed_mlp1(input_stream_int16* __restrict in, output_stream_int16* __restrict out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    BIAS_REPC(b1_r, E_DIM, embed_b1);
+    for (int g = 0; g < EMBED_ROWS / EMBED_GRP; g++) {
+        alignas(32) int16 h[EMBED_GRP * E_DIM], ap[EMBED_GRP * E_DIM];
+        for (int i = 0; i < EMBED_GRP * E_DIM; i += 16) aie::store_v(h + i, stream_read16(in));
+        pack_local16<EMBED_GRP>(h, ap);
+        gemm_pk_biasc<EMBED_GRP, E_DIM, E_DIM>(ap, embed_W1, h, ACC_SHIFT, b1_r.r);
+        layernorm_row(h, EMBED_GRP, E_DIM, embed_ln1_g, embed_ln1_b);
+        relu_inplace(h, EMBED_GRP * E_DIM);
+        stream_write_v<EMBED_GRP * E_DIM>(out, h);
+    }
+    aie::set_saturation(sat_save);
+}
+
+void embed_mlp2(input_stream_int16* __restrict in, output_stream_int16* __restrict out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    BIAS_REPC(b2_r, E_DIM, embed_b2);
+    for (int g = 0; g < EMBED_ROWS / EMBED_GRP; g++) {
+        alignas(32) int16 h[EMBED_GRP * E_DIM], ap[EMBED_GRP * E_DIM], o[EMBED_GRP * E_DIM];
+        for (int i = 0; i < EMBED_GRP * E_DIM; i += 16) aie::store_v(h + i, stream_read16(in));
+        pack_local16<EMBED_GRP>(h, ap);
+        gemm_pk_biasc<EMBED_GRP, E_DIM, E_DIM>(ap, embed_W2, o, ACC_SHIFT, b2_r.r);
+        stream_write_v<EMBED_GRP * E_DIM>(out, o);
+    }
+    aie::set_saturation(sat_save);
+}
+#else
 #if defined(CHAIN_STREAM)
 void embed_mlp(input_window_int16* __restrict jets_in,
                output_stream_int16* __restrict embed_out)
@@ -100,4 +163,5 @@ void embed_mlp(input_window_int16* __restrict jets_in,
 #endif
     aie::set_saturation(sat_save);
 }
+#endif  // EMBED_PIPE
 #endif // TRANSPOSED

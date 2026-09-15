@@ -293,6 +293,104 @@ void softmax_row(
 
 // FFN layer (linear, layernorm, relu) then skip + layernorm
 
+// FFN_PIPE: the three feed-forward layers as a ROW PIPELINE instead of three
+// passes over the whole tensor.
+//
+// Written as passes, each layer's linear, layer norm and ReLU must finish on
+// every row before the next layer touches row 0, so the three latencies add:
+// about 916 cycles for the object block, the largest stage in it. The layers
+// are per row, so as a dataflow of three processes joined by row streams, layer
+// 1 works on row 0 while layer 0 is on row 1 and the cost becomes one layer
+// plus the fill. The residual bypasses the layers on its own stream.
+//
+// The arithmetic is untouched: each stage calls the SAME linear<1> and
+// layernorm<1> on a one-row array, so the products, the accumulator widths and
+// the rounding are identical to the batched version.
+#ifdef FFN_PIPE
+#include <hls_stream.h>
+struct ffn_row_t { data_t v[E_DIM]; };
+
+template <int N_ROWS>
+static void ffn_src(const data_t x[N_ROWS][E_DIM],
+                    hls::stream<ffn_row_t>& o, hls::stream<ffn_row_t>& res)
+{
+    for (int i = 0; i < N_ROWS; i++) {
+        #pragma HLS PIPELINE II=1
+        ffn_row_t r;
+        for (int j = 0; j < E_DIM; j++) r.v[j] = x[i][j];
+        o.write(r); res.write(r);
+    }
+}
+
+template <int N_ROWS>
+static void ffn_stage(hls::stream<ffn_row_t>& i_s, hls::stream<ffn_row_t>& o_s,
+                      const weight_t w[E_DIM][E_DIM], const weight_t b[E_DIM],
+                      const ln_param_t g[E_DIM], const ln_param_t bt[E_DIM])
+{
+    for (int i = 0; i < N_ROWS; i++) {
+        ffn_row_t r = i_s.read();
+        data_t in1[1][E_DIM], t1[1][E_DIM];
+        #pragma HLS ARRAY_PARTITION variable=in1 dim=2 complete
+        #pragma HLS ARRAY_PARTITION variable=t1 dim=2 complete
+        for (int j = 0; j < E_DIM; j++) {
+            #pragma HLS UNROLL
+            in1[0][j] = r.v[j];
+        }
+        linear<1>(in1, w, b, t1);
+        layernorm<1>(t1, g, bt);
+        for (int j = 0; j < E_DIM; j++) {
+            #pragma HLS UNROLL
+            r.v[j] = (t1[0][j] > (data_t)0) ? t1[0][j] : (data_t)0;
+        }
+        o_s.write(r);
+    }
+}
+
+template <int N_ROWS>
+static void ffn_sink(hls::stream<ffn_row_t>& i_s, hls::stream<ffn_row_t>& res,
+                     const ln_param_t g[E_DIM], const ln_param_t b[E_DIM],
+                     data_t x[N_ROWS][E_DIM])
+{
+    for (int i = 0; i < N_ROWS; i++) {
+        ffn_row_t r = i_s.read(), rr = res.read();
+        data_t t1[1][E_DIM];
+        #pragma HLS ARRAY_PARTITION variable=t1 dim=2 complete
+        for (int j = 0; j < E_DIM; j++) {
+            #pragma HLS UNROLL
+            t1[0][j] = r.v[j] + rr.v[j];
+        }
+        layernorm<1>(t1, g, b);
+        for (int j = 0; j < E_DIM; j++) {
+            #pragma HLS UNROLL
+            x[i][j] = t1[0][j];
+        }
+    }
+}
+
+template <int N_ROWS>
+void ffn_block(
+    data_t x[N_ROWS][E_DIM],
+    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM],
+    const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t post_ffn_ln_g[E_DIM],
+    const ln_param_t post_ffn_ln_b[E_DIM]
+) {
+    #pragma HLS DATAFLOW
+    hls::stream<ffn_row_t> s0("ffn_s0"), s1("ffn_s1"), s2("ffn_s2"), s3("ffn_s3"), sres("ffn_res");
+    #pragma HLS STREAM variable=s0 depth=4
+    #pragma HLS STREAM variable=s1 depth=4
+    #pragma HLS STREAM variable=s2 depth=4
+    #pragma HLS STREAM variable=s3 depth=4
+    #pragma HLS STREAM variable=sres depth=32
+    ffn_src<N_ROWS>(x, s0, sres);
+    ffn_stage<N_ROWS>(s0, s1, ffn_w[0], ffn_b[0], ffn_ln_g[0], ffn_ln_b[0]);
+    ffn_stage<N_ROWS>(s1, s2, ffn_w[1], ffn_b[1], ffn_ln_g[1], ffn_ln_b[1]);
+    ffn_stage<N_ROWS>(s2, s3, ffn_w[2], ffn_b[2], ffn_ln_g[2], ffn_ln_b[2]);
+    ffn_sink<N_ROWS>(s3, sres, post_ffn_ln_g, post_ffn_ln_b, x);
+}
+#else
 template <int N_ROWS>
 void ffn_block(
     data_t x[N_ROWS][E_DIM],
@@ -341,6 +439,7 @@ void ffn_block(
 
     layernorm<N_ROWS>(x, post_ffn_ln_g, post_ffn_ln_b);
 }
+#endif  // FFN_PIPE
 
 // reshape QKV into per head arrays and append bias_kv
 template <int N_Q, int N_KEY>

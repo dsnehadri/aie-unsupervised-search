@@ -41,7 +41,7 @@
 #if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
 #define DECLARE_CROSS_PRE(h, l) void cross_attn_head_pre_h##h##_L##l ( \
     input_stream_int16* __restrict x_in, \
-    AIE_IW* __restrict c_in, \
+    input_stream_int16* __restrict c_in, \
     AIE_OW* __restrict scores_out, \
     AIE_OW* __restrict v_out)
 #else
@@ -55,9 +55,9 @@
 // post signatures (obj layer 1 has no wij port -- the bias only exists in
 // layer 0; streaming zeros to a dummy port wasted 624 words/event of NoC
 // traffic plus 4 PLIOs)
+// Object and cross head posts emit their rows on a stream when their block type
+// streams; two merge kernels then pair the four heads for the projection.
 #if defined(HEAD_STREAM_OBJ)
-// HEAD_STREAM: object and cross head posts emit their rows on a stream, which
-// two merge kernels pair before the projection reads them.
 #define DECLARE_OBJ_POST_L0(h)  void obj_attn_head_post_h##h##_L0 ( \
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \
@@ -67,22 +67,6 @@
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \
     output_stream_int16* __restrict x_out)
-#define DECLARE_HEAD_MERGE(t, i, l) void t##_head_merge##i##_L##l ( \
-    input_stream_int16* __restrict a_in, \
-    input_stream_int16* __restrict b_in, \
-    output_stream_int16* __restrict out)
-DECLARE_HEAD_MERGE(obj, 0, 0);  DECLARE_HEAD_MERGE(obj, 1, 0);
-DECLARE_HEAD_MERGE(obj, 0, 1);  DECLARE_HEAD_MERGE(obj, 1, 1);
-#endif
-#if defined(HEAD_STREAM_CROSS)
-#if !defined(HEAD_STREAM_OBJ)
-#define DECLARE_HEAD_MERGE(t, i, l) void t##_head_merge##i##_L##l ( \
-    input_stream_int16* __restrict a_in, \
-    input_stream_int16* __restrict b_in, \
-    output_stream_int16* __restrict out)
-#endif
-DECLARE_HEAD_MERGE(cross, 0, 0);DECLARE_HEAD_MERGE(cross, 1, 0);
-DECLARE_HEAD_MERGE(cross, 0, 1);DECLARE_HEAD_MERGE(cross, 1, 1);
 #else
 #define DECLARE_OBJ_POST_L0(h)  void obj_attn_head_post_h##h##_L0 ( \
     AIE_IW* __restrict scores_in, \
@@ -94,6 +78,22 @@ DECLARE_HEAD_MERGE(cross, 0, 1);DECLARE_HEAD_MERGE(cross, 1, 1);
     AIE_IW* __restrict v_in, \
     AIE_OW* __restrict x_out)
 #endif
+
+#if defined(HEAD_STREAM_OBJ) || defined(HEAD_STREAM_CROSS)
+#define DECLARE_HEAD_MERGE(t, i, l) void t##_head_merge##i##_L##l ( \
+    input_stream_int16* __restrict a_in, \
+    input_stream_int16* __restrict b_in, \
+    output_stream_int16* __restrict out)
+#endif
+#if defined(HEAD_STREAM_OBJ)
+DECLARE_HEAD_MERGE(obj, 0, 0);  DECLARE_HEAD_MERGE(obj, 1, 0);
+DECLARE_HEAD_MERGE(obj, 0, 1);  DECLARE_HEAD_MERGE(obj, 1, 1);
+#endif
+#if defined(HEAD_STREAM_CROSS)
+DECLARE_HEAD_MERGE(cross, 0, 0);DECLARE_HEAD_MERGE(cross, 1, 0);
+DECLARE_HEAD_MERGE(cross, 0, 1);DECLARE_HEAD_MERGE(cross, 1, 1);
+#endif
+
 #define DECLARE_CAND_POST(h, l) void cand_attn_head_post_h##h##_L##l ( \
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \

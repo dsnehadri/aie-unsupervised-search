@@ -595,6 +595,9 @@ public:
 #endif
     output_plio plio_x_out, plio_c_out;
     kernel k_embed, k_asm0, k_pobj0, k_asm1, k_pobj1;
+#if defined(EMBED_PIPE)
+    kernel k_embed1, k_embed2;        // the embedding MLP's other two layers
+#endif
     ObjChainL<0> obj0;  CandChainL<0> cand0;  CrossChainL<0> cross0;
     ObjChainL<1> obj1;  CandChainL<1> cand1;  CrossChainL<1> cross1;
     PasswdChainGraph() {
@@ -610,6 +613,11 @@ public:
         plio_c_out   = output_plio::create("chain_c_out", plio_64_bits, "data/chain_c_out.txt", PLIO_FREQ_MHZ);
 
         k_embed = kernel::create(embed_mlp);           source(k_embed) = "kernels/embed_kernel.cc";
+#if defined(EMBED_PIPE)
+        k_embed1 = kernel::create(embed_mlp1);         source(k_embed1) = "kernels/embed_kernel.cc";
+        k_embed2 = kernel::create(embed_mlp2);         source(k_embed2) = "kernels/embed_kernel.cc";
+        runtime<ratio>(k_embed1) = 0.9; runtime<ratio>(k_embed2) = 0.9;
+#endif
         k_asm0  = kernel::create(chain_assemble_zero); source(k_asm0)  = "kernels/chain_kernels.cc";
         k_pobj0 = kernel::create(chain_post_obj);      source(k_pobj0) = "kernels/chain_kernels.cc";
         k_asm1  = kernel::create(chain_assemble);      source(k_asm1)  = "kernels/chain_kernels.cc";
@@ -625,7 +633,11 @@ public:
 
         // embedding -> (zero padded rows, + mask row) -> stream -> object L0 (4 heads + residual)
         connect<window<jets_sz>>(plio_jets_in.out[0], k_embed.in[0]);
-#if defined(CHAIN_STREAM)
+#if defined(EMBED_PIPE)
+        connect<stream>(k_embed.out[0], k_embed1.in[0]);
+        connect<stream>(k_embed1.out[0], k_embed2.in[0]);
+        connect<stream>(k_embed2.out[0], k_asm0.in[0]);
+#elif defined(CHAIN_STREAM)
         connect<stream>(k_embed.out[0], k_asm0.in[0]);
 #else
         connect<window<x_sz>>(k_embed.out[0], k_asm0.in[0]);
@@ -667,7 +679,11 @@ public:
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(k_pobj0.out[1], cand0.k_pre[h].in[0]);
         connect<stream, window<c_sz>>(k_pobj0.out[1], cand0.k_post_ap.in[N_HEADS]);
         // candidate L0 (stream out) -> cross L0 heads
+#if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
+        for (int h = 0; h < N_HEADS; h++) connect<stream>(cand0.k_post_c.out[0], cross0.k_pre[h].in[1]);
+#else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(cand0.k_post_c.out[0], cross0.k_pre[h].in[1]);
+#endif
         // layer 1
 #if defined(CHAIN_STREAM)
         connect<stream>(cross0.k_post_c.out[0], k_asm1.in[0]);
@@ -695,7 +711,11 @@ public:
         connect<stream, window<x_sz>>(k_pobj1.out[0], cross1.k_post_ap.in[AP_RESID_IN_CROSS]);
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(k_pobj1.out[1], cand1.k_pre[h].in[0]);
         connect<stream, window<c_sz>>(k_pobj1.out[1], cand1.k_post_ap.in[N_HEADS]);
+#if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
+        for (int h = 0; h < N_HEADS; h++) connect<stream>(cand1.k_post_c.out[0], cross1.k_pre[h].in[1]);
+#else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(cand1.k_post_c.out[0], cross1.k_pre[h].in[1]);
+#endif
         // out: x after cross L1, c after candidate L1 (streams to the PL)
         connect<stream>(cross1.k_post_c.out[0], plio_x_out.in[0]);
         connect<stream>(cand1.k_post_c.out[0], plio_c_out.in[0]);
@@ -705,6 +725,10 @@ public:
         obj0.place_at(6);   cand0.place_at(8);   cross0.place_at(10);
         obj1.place_at(12);  cand1.place_at(14);  cross1.place_at(16);
         location<kernel>(k_embed) = tile(18, 0);
+#if defined(EMBED_PIPE)
+        location<kernel>(k_embed1) = tile(18, 5);
+        location<kernel>(k_embed2) = tile(18, 6);
+#endif
         location<kernel>(k_asm0)  = tile(18, 1);
         location<kernel>(k_pobj0) = tile(18, 2);
         location<kernel>(k_asm1)  = tile(18, 3);

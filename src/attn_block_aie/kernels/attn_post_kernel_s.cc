@@ -33,6 +33,35 @@ static inline void row_write(output_stream_int16* __restrict s, const v16_t& v)
 }
 static inline v16_t relu16(const v16_t& v) { return aie::max(v, aie::zeros<int16, 16>()); }
 
+#if defined(ROW_LOOKAHEAD)
+// One row of lookahead: compute row r+1's linear layer in the same iteration as
+// row r's layer norm. The norm is a dependent chain of reductions and scalar
+// steps, about 135 of the roughly 215 cycles a stage spends per row, and the
+// next row's products do not depend on it, so putting the two in one iteration
+// lets the scheduler overlap them. Each row still gets linear, norm, ReLU in
+// that order, so the outputs are bit-identical.
+static inline void lin_ln_relu_stage(input_stream_int16* __restrict in,
+                                     output_stream_int16* __restrict out,
+                                     const int16* __restrict W, const int16* __restrict B,
+                                     const int16* __restrict G, const int16* __restrict BT)
+{
+    alignas(16) int16 xrow[E_DIM], row[E_DIM];
+    aie::store_v(xrow, row_read(in));
+    v16_t lin = row_lin16(xrow, W, B, PIPE_ACC_SHIFT);
+    for (int r = 1; r < POST_N_ROWS; r++) {
+        aie::store_v(xrow, row_read(in));
+        const v16_t nxt = row_lin16(xrow, W, B, PIPE_ACC_SHIFT);   // row r+1, independent
+        aie::store_v(row, lin);
+        layernorm_row(row, 1, E_DIM, G, BT);                       // row r
+        row_write(out, relu16(aie::load_v<16>(row)));
+        lin = nxt;
+    }
+    aie::store_v(row, lin);
+    layernorm_row(row, 1, E_DIM, G, BT);
+    row_write(out, relu16(aie::load_v<16>(row)));
+}
+#endif
+
 #if defined(POST_STAGE_A_PROJ)
 #if defined(HEAD_STREAM_T)
 // HEAD_STREAM: the head outputs arrive as rows, already paired by the two merge
@@ -118,6 +147,11 @@ void POST_A_PROJ_FN(input_window_int16* __restrict head0_in,
 #if defined(POST_STAGE_B1)
 void POST_B1_FN(input_stream_int16* __restrict proj_in, output_stream_int16* __restrict ffn0_out)
 {
+#if defined(ROW_LOOKAHEAD)
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    lin_ln_relu_stage(proj_in, ffn0_out, ffn_W0, ffn_b0, ffn_ln_gamma0, ffn_ln_beta0);
+    aie::set_saturation(sat_save);
+#else
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
     for (int r = 0; r < POST_N_ROWS; r++) {
@@ -127,12 +161,18 @@ void POST_B1_FN(input_stream_int16* __restrict proj_in, output_stream_int16* __r
         row_write(ffn0_out, relu16(aie::load_v<16>(row)));
     }
     aie::set_saturation(sat_save);
+#endif
 }
 #endif
 
 #if defined(POST_STAGE_B2)
 void POST_B2_FN(input_stream_int16* __restrict ffn0_in, output_stream_int16* __restrict ffn1_out)
 {
+#if defined(ROW_LOOKAHEAD)
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    lin_ln_relu_stage(ffn0_in, ffn1_out, ffn_W1, ffn_b1, ffn_ln_gamma1, ffn_ln_beta1);
+    aie::set_saturation(sat_save);
+#else
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
     for (int r = 0; r < POST_N_ROWS; r++) {
@@ -142,6 +182,7 @@ void POST_B2_FN(input_stream_int16* __restrict ffn0_in, output_stream_int16* __r
         row_write(ffn1_out, relu16(aie::load_v<16>(row)));
     }
     aie::set_saturation(sat_save);
+#endif
 }
 #endif
 
@@ -156,6 +197,11 @@ void POST_B2_FN(input_stream_int16* __restrict ffn0_in, output_stream_int16* __r
 #if defined(POST_STAGE_C1)
 void POST_C1_FN(input_stream_int16* __restrict ffn_in, output_stream_int16* __restrict ffn_out)
 {
+#if defined(ROW_LOOKAHEAD)
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    lin_ln_relu_stage(ffn_in, ffn_out, ffn_W2, ffn_b2, ffn_ln_gamma2, ffn_ln_beta2);
+    aie::set_saturation(sat_save);
+#else
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
     for (int r = 0; r < POST_N_ROWS; r++) {
@@ -165,6 +211,7 @@ void POST_C1_FN(input_stream_int16* __restrict ffn_in, output_stream_int16* __re
         row_write(ffn_out, relu16(aie::load_v<16>(row)));
     }
     aie::set_saturation(sat_save);
+#endif
 }
 #endif
 #if defined(POST_STAGE_C)

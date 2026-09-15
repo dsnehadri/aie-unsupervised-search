@@ -783,8 +783,10 @@ void HEAD_PRE_FN(input_stream_int16* __restrict x_in,
         add_bias_v4<4>(Q + b * 4 * D_HEAD, cross_bq);
     }
 
-    alignas(16) int16 Cp[4 * E_DIM];  // packed; padded row 3 is zero
-    win_read_packed16<T_DIM>(c_in, Cp);
+    alignas(16) int16 Crow[4 * E_DIM], Cp[4 * E_DIM];  // packed; padded row 3 is zero
+    zero_v<4 * E_DIM>(Crow);
+    for (int r = 0; r < T_DIM; r++) aie::store_v(Crow + r * E_DIM, stream_read16(c_in));
+    pack_local16<4>(Crow, Cp);
 
     alignas(16) int16 V[T_KV * D_HEAD];
     gemm_pk<4, E_DIM, D_HEAD>(Cp, cross_Wv, V, PIPE_ACC_SHIFT);

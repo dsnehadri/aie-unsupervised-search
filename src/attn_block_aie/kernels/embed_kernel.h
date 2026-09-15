@@ -19,7 +19,12 @@ constexpr int EMBED_IN_WORDS = 64;  // 128 bytes
 
 // in:  EMBED_IN_WORDS int16: N_MAX x EMBED_IN raw features then padding
 // out: N_MAX x E_DIM embedded jets (masking stays on the fabric)
-#if defined(CHAIN_STREAM)
+#if defined(EMBED_PIPE)
+// EMBED_PIPE: three tiles, four rows at a time between them.
+void embed_mlp(input_window_int16* __restrict jets_in, output_stream_int16* __restrict embed_out);
+void embed_mlp1(input_stream_int16* __restrict in, output_stream_int16* __restrict out);
+void embed_mlp2(input_stream_int16* __restrict in, output_stream_int16* __restrict out);
+#elif defined(CHAIN_STREAM)
 void embed_mlp(input_window_int16* __restrict jets_in,
                output_stream_int16* __restrict embed_out);
 #else
