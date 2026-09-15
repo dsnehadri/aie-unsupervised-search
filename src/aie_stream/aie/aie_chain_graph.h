@@ -456,7 +456,7 @@ public:
         connect<stream, window<x_sz>>(obj0.k_post_c.out[0], k_pobj0.in[0]);
 #endif
         connect<window<mask_sz>>(plio_mask_in.out[0], k_pobj0.in[1]);
-#if defined(PRE_STREAM)
+#if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
         for (int h = 0; h < N_HEADS; h++) connect<stream>(k_pobj0.out[0], cross0.k_pre[h].in[0]);
 #else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<x_sz>>(k_pobj0.out[0], cross0.k_pre[h].in[0]);
@@ -485,7 +485,7 @@ public:
         connect<stream, window<x_sz>>(obj1.k_post_c.out[0], k_pobj1.in[0]);
 #endif
         connect<window<mask_sz>>(plio_mask_in.out[0], k_pobj1.in[1]);
-#if defined(PRE_STREAM)
+#if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
         for (int h = 0; h < N_HEADS; h++) connect<stream>(k_pobj1.out[0], cross1.k_pre[h].in[0]);
 #else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<x_sz>>(k_pobj1.out[0], cross1.k_pre[h].in[0]);

@@ -416,7 +416,7 @@ public:
 #endif
 
         for (int h = 0; h < N_HEADS; h++) {
-#if defined(PRE_STREAM)
+#if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
             connect<stream>(plio_x_in.out[0], k_pre[h].in[0]);
 #else
             connect<window<x_sz>>(plio_x_in.out[0], k_pre[h].in[0]);

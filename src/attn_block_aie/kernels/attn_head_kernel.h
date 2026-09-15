@@ -38,7 +38,7 @@
     AIE_IW* __restrict c_in, \
     AIE_OW* __restrict scores_out, \
     AIE_OW* __restrict v_out)
-#if defined(PRE_STREAM)
+#if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
 #define DECLARE_CROSS_PRE(h, l) void cross_attn_head_pre_h##h##_L##l ( \
     input_stream_int16* __restrict x_in, \
     AIE_IW* __restrict c_in, \
