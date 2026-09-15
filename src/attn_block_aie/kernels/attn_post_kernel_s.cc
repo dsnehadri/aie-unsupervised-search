@@ -34,7 +34,7 @@ static inline void row_write(output_stream_int16* __restrict s, const v16_t& v)
 static inline v16_t relu16(const v16_t& v) { return aie::max(v, aie::zeros<int16, 16>()); }
 
 #if defined(POST_STAGE_A_PROJ)
-#if defined(HEAD_STREAM) && !defined(ATTN_TYPE_CAND)
+#if defined(HEAD_STREAM_T)
 // HEAD_STREAM: the head outputs arrive as rows, already paired by the two merge
 // kernels, so a row is one 8-lane read from each. This replaces the gather from
 // four windows entirely, and the kernel now starts on row 0 while the head-post
@@ -112,7 +112,7 @@ void POST_A_PROJ_FN(input_window_int16* __restrict head0_in,
     }
     aie::set_saturation(sat_save);
 }
-#endif // HEAD_STREAM
+#endif // HEAD_STREAM_T
 #endif
 
 #if defined(POST_STAGE_B1)

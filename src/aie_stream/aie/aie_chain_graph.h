@@ -24,7 +24,7 @@ public:
 public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_OBJ)
     kernel k_merge[2];                // pair the four head streams for the projection
 #endif
 #ifdef POST_MERGED
@@ -49,7 +49,7 @@ public:
             k_post_h[1] = kernel::create(obj_attn_head_post_h1_L0);
             k_post_h[2] = kernel::create(obj_attn_head_post_h2_L0);
             k_post_h[3] = kernel::create(obj_attn_head_post_h3_L0);
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_OBJ)
             k_merge[0] = kernel::create(obj_head_merge0_L0);
             k_merge[1] = kernel::create(obj_head_merge1_L0);
 #endif
@@ -62,7 +62,7 @@ public:
             k_post_h[1] = kernel::create(obj_attn_head_post_h1_L1);
             k_post_h[2] = kernel::create(obj_attn_head_post_h2_L1);
             k_post_h[3] = kernel::create(obj_attn_head_post_h3_L1);
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_OBJ)
             k_merge[0] = kernel::create(obj_head_merge0_L1);
             k_merge[1] = kernel::create(obj_head_merge1_L1);
 #endif
@@ -103,7 +103,7 @@ public:
         }
         source(k_post_ap) = ("kernels/obj_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_OBJ)
         for (int m = 0; m < 2; m++) {
             source(k_merge[m]) = ("kernels/obj_head_merge" + std::to_string(m) + "_L" + std::to_string(LAYER) + ".cc").c_str();
             runtime<ratio>(k_merge[m]) = 0.9;
@@ -166,7 +166,7 @@ public:
 
         // head_post -> post_a_proj directly (the concat tile is gone),
         // residual X -> post_a_proj
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_OBJ)
         connect<stream>(k_post_h[0].out[0], k_merge[0].in[0]);
         connect<stream>(k_post_h[1].out[0], k_merge[0].in[1]);
         connect<stream>(k_post_h[2].out[0], k_merge[1].in[0]);
@@ -336,7 +336,7 @@ public:
 public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_CROSS)
     kernel k_merge[2];                // pair the four head streams for the projection
 #endif
 #ifdef POST_MERGED
@@ -360,7 +360,7 @@ public:
             k_post_h[1] = kernel::create(cross_attn_head_post_h1_L0);
             k_post_h[2] = kernel::create(cross_attn_head_post_h2_L0);
             k_post_h[3] = kernel::create(cross_attn_head_post_h3_L0);
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_CROSS)
             k_merge[0] = kernel::create(cross_head_merge0_L0);
             k_merge[1] = kernel::create(cross_head_merge1_L0);
 #endif
@@ -373,7 +373,7 @@ public:
             k_post_h[1] = kernel::create(cross_attn_head_post_h1_L1);
             k_post_h[2] = kernel::create(cross_attn_head_post_h2_L1);
             k_post_h[3] = kernel::create(cross_attn_head_post_h3_L1);
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_CROSS)
             k_merge[0] = kernel::create(cross_head_merge0_L1);
             k_merge[1] = kernel::create(cross_head_merge1_L1);
 #endif
@@ -414,7 +414,7 @@ public:
         }
         source(k_post_ap) = ("kernels/cross_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_CROSS)
         for (int m = 0; m < 2; m++) {
             source(k_merge[m]) = ("kernels/cross_head_merge" + std::to_string(m) + "_L" + std::to_string(LAYER) + ".cc").c_str();
             runtime<ratio>(k_merge[m]) = 0.9;
@@ -455,11 +455,11 @@ public:
         for (int h = 0; h < N_HEADS; h++) {
             connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
-#if !defined(HEAD_STREAM)
+#if !defined(HEAD_STREAM_CROSS)
             connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
 #endif
         }
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_CROSS)
         connect<stream>(k_post_h[0].out[0], k_merge[0].in[0]);
         connect<stream>(k_post_h[1].out[0], k_merge[0].in[1]);
         connect<stream>(k_post_h[2].out[0], k_merge[1].in[0]);
@@ -541,7 +541,7 @@ public:
 #else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<xm_sz>>(k_asm0.out[0], obj0.k_pre[h].in[0]);
 #endif
-        connect<stream, window<xm_sz>>(k_asm0.out[0], obj0.k_post_ap.in[AP_RESID_IN]);
+        connect<stream, window<xm_sz>>(k_asm0.out[0], obj0.k_post_ap.in[AP_RESID_IN_OBJ]);
 #if defined(WIJ_ONE_PORT)
         // The fabric used to send the SAME wij slice four times, once per head.
         // One PLIO feeds all four head-post kernels instead: a PLIO already
@@ -568,7 +568,7 @@ public:
 #else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<x_sz>>(k_pobj0.out[0], cross0.k_pre[h].in[0]);
 #endif
-        connect<stream, window<x_sz>>(k_pobj0.out[0], cross0.k_post_ap.in[AP_RESID_IN]);
+        connect<stream, window<x_sz>>(k_pobj0.out[0], cross0.k_post_ap.in[AP_RESID_IN_CROSS]);
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(k_pobj0.out[1], cand0.k_pre[h].in[0]);
         connect<stream, window<c_sz>>(k_pobj0.out[1], cand0.k_post_ap.in[N_HEADS]);
         // candidate L0 (stream out) -> cross L0 heads
@@ -585,7 +585,7 @@ public:
 #else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<xm_sz>>(k_asm1.out[0], obj1.k_pre[h].in[0]);
 #endif
-        connect<stream, window<xm_sz>>(k_asm1.out[0], obj1.k_post_ap.in[AP_RESID_IN]);
+        connect<stream, window<xm_sz>>(k_asm1.out[0], obj1.k_post_ap.in[AP_RESID_IN_OBJ]);
 #if defined(CHAIN_STREAM)
         connect<stream>(obj1.k_post_c.out[0], k_pobj1.in[0]);
 #else
@@ -597,7 +597,7 @@ public:
 #else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<x_sz>>(k_pobj1.out[0], cross1.k_pre[h].in[0]);
 #endif
-        connect<stream, window<x_sz>>(k_pobj1.out[0], cross1.k_post_ap.in[AP_RESID_IN]);
+        connect<stream, window<x_sz>>(k_pobj1.out[0], cross1.k_post_ap.in[AP_RESID_IN_CROSS]);
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(k_pobj1.out[1], cand1.k_pre[h].in[0]);
         connect<stream, window<c_sz>>(k_pobj1.out[1], cand1.k_post_ap.in[N_HEADS]);
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(cand1.k_post_c.out[0], cross1.k_pre[h].in[1]);

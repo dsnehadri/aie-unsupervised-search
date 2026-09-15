@@ -566,7 +566,7 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
 // event through the NoC just so this kernel could read-and-ignore them.
 // The L1 variant now simply has no wij port.
 #if defined(HEAD_STAGE_POST)
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_T)
 // HEAD_STREAM: the softmax is per query row, so there is no reason to hold the
 // whole tensor back. Rows are done four at a time -- the packed layout the AV
 // gemm wants, and the width the vector softmax already works in -- and each
@@ -670,7 +670,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     win_write_v<N_MAX * D_HEAD>(x_out, head_out);
     aie::set_saturation(sat_save);
 }
-#endif // HEAD_STREAM
+#endif // HEAD_STREAM_T
 #endif // HEAD_STAGE_POST
 #endif
 
@@ -851,7 +851,7 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
 #endif // HEAD_STAGE_PRE
 
 #if defined(HEAD_STAGE_POST)
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_T)
 // HEAD_STREAM: four rows at a time onto a stream, as in the object block above.
 void HEAD_POST_FN(input_window_int16* __restrict scores_in,
                           input_window_int16* __restrict v_in,
@@ -892,7 +892,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 
     win_write_v<N_MAX * D_HEAD>(x_out, out);
 }
-#endif // HEAD_STREAM
+#endif // HEAD_STREAM_T
 #endif // HEAD_STAGE_POST
 #endif
 #endif // TRANSPOSED

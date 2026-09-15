@@ -113,4 +113,19 @@ typedef int16 aiedt;
 
 constexpr int WIJ_SIZE = N_MAX * N_KV;
 
+
+// HEAD_STREAM selects the streaming head post. It can be narrowed to one block
+// type when the array placer runs out of room: HEAD_STREAM_OBJ and
+// HEAD_STREAM_CROSS. Plain HEAD_STREAM means both. The candidate block never
+// uses it -- three rows do not group into fours.
+#if defined(HEAD_STREAM)
+#if !defined(HEAD_STREAM_OBJ) && !defined(HEAD_STREAM_CROSS)
+#define HEAD_STREAM_OBJ 1
+#define HEAD_STREAM_CROSS 1
+#endif
+#endif
+#if (defined(ATTN_TYPE_OBJ) && defined(HEAD_STREAM_OBJ)) || (defined(ATTN_TYPE_CROSS) && defined(HEAD_STREAM_CROSS))
+#define HEAD_STREAM_T 1
+#endif
+
 #endif

@@ -60,7 +60,7 @@ DECL_POST_BC(cross, 0);DECL_POST_BC(cross, 1);
 #define DECL_POST_PROJ(t, l) void t##_post_a_proj_L##l( \
     AIE_IW* __restrict head0_in, AIE_IW* __restrict head1_in, AIE_IW* __restrict head2_in, \
     AIE_IW* __restrict head3_in, AIE_IW* __restrict residual_in, output_stream_int16* __restrict proj_out)
-#if defined(HEAD_STREAM)
+#if defined(HEAD_STREAM_OBJ) || defined(HEAD_STREAM_CROSS)
 // HEAD_STREAM: the object and cross projections read rows from the two merge
 // kernels instead of gathering four head windows. The candidate block keeps the
 // windows: three rows do not divide into groups of four.
@@ -84,13 +84,15 @@ DECL_POST_C1(cross, 0);DECL_POST_C1(cross, 1);
 #endif
 #endif
 
-#if defined(HEAD_STREAM) && defined(POST_STREAM)
+#if defined(HEAD_STREAM_OBJ) && defined(POST_STREAM)
 DECL_POST_PROJ_S(obj, 0);  DECL_POST_PROJ_S(obj, 1);
-DECL_POST_PROJ(cand, 0);   DECL_POST_PROJ(cand, 1);
-DECL_POST_PROJ_S(cross, 0);DECL_POST_PROJ_S(cross, 1);
 #else
 DECL_POST_PROJ(obj, 0);  DECL_POST_PROJ(obj, 1);
+#endif
 DECL_POST_PROJ(cand, 0); DECL_POST_PROJ(cand, 1);
+#if defined(HEAD_STREAM_CROSS) && defined(POST_STREAM)
+DECL_POST_PROJ_S(cross, 0);DECL_POST_PROJ_S(cross, 1);
+#else
 DECL_POST_PROJ(cross, 0);DECL_POST_PROJ(cross, 1);
 #endif
 
