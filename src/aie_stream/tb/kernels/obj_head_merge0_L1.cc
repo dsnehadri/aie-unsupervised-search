@@ -1,0 +1,5 @@
+#define ATTN_TYPE_OBJ
+#define ATTN_TYPE_TAG obj
+#define ATTN_LAYER 1
+#define MERGE_IDX 0
+#include "../attn_block_aie/kernels/head_merge.cc"

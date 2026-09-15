@@ -34,6 +34,35 @@ static inline void row_write(output_stream_int16* __restrict s, const v16_t& v)
 static inline v16_t relu16(const v16_t& v) { return aie::max(v, aie::zeros<int16, 16>()); }
 
 #if defined(POST_STAGE_A_PROJ)
+#if defined(HEAD_STREAM) && !defined(ATTN_TYPE_CAND)
+// HEAD_STREAM: the head outputs arrive as rows, already paired by the two merge
+// kernels, so a row is one 8-lane read from each. This replaces the gather from
+// four windows entirely, and the kernel now starts on row 0 while the head-post
+// kernels are still working on row 4.
+void POST_A_PROJ_FN(input_stream_int16* __restrict h01_in,
+                      input_stream_int16* __restrict h23_in,
+                      input_window_int16* __restrict residual_in,
+                      output_stream_int16* __restrict proj_out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    alignas(16) int16 xrow[E_DIM], row[E_DIM];
+    for (int r = 0; r < POST_N_ROWS; r++) {
+        const aie::vector<int16, 8> lo(readincr_v8(h01_in));   // [h0 h1] of this row
+        const aie::vector<int16, 8> hi(readincr_v8(h23_in));   // [h2 h3]
+        aie::store_v(xrow, aie::concat(lo, hi));
+#if !defined(ATTN_TYPE_CROSS)
+        alignas(16) int16 res[E_DIM];
+        aie::store_v(res, win_read16(residual_in));
+        aie::store_v(row, row_lin16(xrow, Wout, bout, PIPE_ACC_SHIFT, res));
+#else
+        aie::store_v(row, row_lin16(xrow, Wout, bout, PIPE_ACC_SHIFT));
+#endif
+        layernorm_row(row, 1, E_DIM, post_attn_ln_gamma, post_attn_ln_beta);
+        row_write(proj_out, aie::load_v<16>(row));
+    }
+    aie::set_saturation(sat_save);
+}
+#else
 void POST_A_PROJ_FN(input_window_int16* __restrict head0_in,
                       input_window_int16* __restrict head1_in,
                       input_window_int16* __restrict head2_in,
@@ -83,6 +112,7 @@ void POST_A_PROJ_FN(input_window_int16* __restrict head0_in,
     }
     aie::set_saturation(sat_save);
 }
+#endif // HEAD_STREAM
 #endif
 
 #if defined(POST_STAGE_B1)
@@ -115,6 +145,44 @@ void POST_B2_FN(input_stream_int16* __restrict ffn0_in, output_stream_int16* __r
 }
 #endif
 
+#if defined(POST_SPLIT_C)
+// POST_SPLIT_C: this was the slowest stage in the block -- a linear layer and
+// TWO layer norms on every row, about 1.6x the per-row cost of b1 or b2 -- and
+// a row pipeline drains at the rate of its slowest stage. Split in two:
+//   c1: FFN layer 2 -> layer norm -> ReLU
+//   c : add the projection residual -> layer norm -> out
+// Each half now costs about what b1 and b2 do. The arithmetic and its order are
+// untouched, so the outputs are bit-identical.
+#if defined(POST_STAGE_C1)
+void POST_C1_FN(input_stream_int16* __restrict ffn_in, output_stream_int16* __restrict ffn_out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    alignas(16) int16 xrow[E_DIM], row[E_DIM];
+    for (int r = 0; r < POST_N_ROWS; r++) {
+        aie::store_v(xrow, row_read(ffn_in));
+        aie::store_v(row, row_lin16(xrow, ffn_W2, ffn_b2, PIPE_ACC_SHIFT));
+        layernorm_row(row, 1, E_DIM, ffn_ln_gamma2, ffn_ln_beta2);
+        row_write(ffn_out, relu16(aie::load_v<16>(row)));
+    }
+    aie::set_saturation(sat_save);
+}
+#endif
+#if defined(POST_STAGE_C)
+void POST_C_FN(input_stream_int16* __restrict c1_in,
+                 input_stream_int16* __restrict residual_b_in,
+                 output_stream_int16* __restrict x_out)
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    alignas(16) int16 row[E_DIM];
+    for (int r = 0; r < POST_N_ROWS; r++) {
+        aie::store_v(row, add_sat16(row_read(c1_in), row_read(residual_b_in)));   // skip with proj
+        layernorm_row(row, 1, E_DIM, post_ffn_ln_gamma, post_ffn_ln_beta);
+        row_write(x_out, aie::load_v<16>(row));
+    }
+    aie::set_saturation(sat_save);
+}
+#endif
+#else
 #if defined(POST_STAGE_C)
 void POST_C_FN(input_stream_int16* __restrict ffn_in,
                  input_stream_int16* __restrict residual_b_in,
@@ -134,3 +202,4 @@ void POST_C_FN(input_stream_int16* __restrict ffn_in,
     aie::set_saturation(sat_save);
 }
 #endif
+#endif  // POST_SPLIT_C

@@ -12,6 +12,16 @@ using namespace adf;
 #include "../../attn_block_aie/kernels/attn_post_kernel.h"
 #include "../../attn_block_aie/kernels/embed_kernel.h"
 
+// Residual port of the projection kernel: with HEAD_STREAM the object and cross
+// projections read two merged head streams, so the residual is input 2. The
+// candidate projection keeps its four head windows and stays at N_HEADS.
+#if defined(HEAD_STREAM)
+#define AP_RESID_IN 2
+#else
+#define AP_RESID_IN N_HEADS
+#endif
+
+
 // Heads need 4 distinct kernel functions per layer (the aiecompiler dedups
 // wrappers by function symbol identity). The aiecompiler can't see through a
 // typedef'd function-pointer variable for signature introspection, so we
@@ -30,10 +40,16 @@ public:
 public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
+#if defined(HEAD_STREAM)
+    kernel k_merge[2];                // pair the four head streams for the projection
+#endif
 #ifdef POST_MERGED
     kernel k_post_ap, k_post_bc;      // b1 + b2 + c in one kernel
 #else
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
+#if defined(POST_SPLIT_C)
+    kernel k_post_c1;                 // FFN layer 2 + norm + ReLU; post_c keeps the residual add + norm
+#endif
 #endif
 public:
     ObjAttnGraphL() {
@@ -63,6 +79,10 @@ public:
             k_post_h[1] = kernel::create(obj_attn_head_post_h1_L0);
             k_post_h[2] = kernel::create(obj_attn_head_post_h2_L0);
             k_post_h[3] = kernel::create(obj_attn_head_post_h3_L0);
+#if defined(HEAD_STREAM)
+            k_merge[0] = kernel::create(obj_head_merge0_L0);
+            k_merge[1] = kernel::create(obj_head_merge1_L0);
+#endif
         } else {
             k_pre[0] = kernel::create(obj_attn_head_pre_h0_L1);
             k_pre[1] = kernel::create(obj_attn_head_pre_h1_L1);
@@ -72,6 +92,10 @@ public:
             k_post_h[1] = kernel::create(obj_attn_head_post_h1_L1);
             k_post_h[2] = kernel::create(obj_attn_head_post_h2_L1);
             k_post_h[3] = kernel::create(obj_attn_head_post_h3_L1);
+#if defined(HEAD_STREAM)
+            k_merge[0] = kernel::create(obj_head_merge0_L1);
+            k_merge[1] = kernel::create(obj_head_merge1_L1);
+#endif
         }
         for (int h = 0; h < N_HEADS; h++) {
             source(k_pre[h]) = ("kernels/obj_head" + std::to_string(h) +
@@ -88,6 +112,9 @@ public:
             k_post_b1 = kernel::create(obj_post_b1_L0);
             k_post_b2 = kernel::create(obj_post_b2_L0);
             k_post_c  = kernel::create(obj_post_c_L0);
+#if defined(POST_SPLIT_C)
+            k_post_c1 = kernel::create(obj_post_c1_L0);
+#endif
 #else
             k_post_bc = kernel::create(obj_post_bc_L0);
 #endif
@@ -97,12 +124,21 @@ public:
             k_post_b1 = kernel::create(obj_post_b1_L1);
             k_post_b2 = kernel::create(obj_post_b2_L1);
             k_post_c  = kernel::create(obj_post_c_L1);
+#if defined(POST_SPLIT_C)
+            k_post_c1 = kernel::create(obj_post_c1_L1);
+#endif
 #else
             k_post_bc = kernel::create(obj_post_bc_L1);
 #endif
         }
         source(k_post_ap) = ("kernels/obj_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
+#if defined(HEAD_STREAM)
+        for (int m = 0; m < 2; m++) {
+            source(k_merge[m]) = ("kernels/obj_head_merge" + std::to_string(m) + "_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_merge[m]) = 0.9;
+        }
+#endif
 #ifndef POST_MERGED
         source(k_post_b1) = ("kernels/obj_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_b1) = 0.9;
@@ -110,6 +146,10 @@ public:
         runtime<ratio>(k_post_b2) = 0.9;
         source(k_post_c) = ("kernels/obj_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_c) = 0.9;
+#if defined(POST_SPLIT_C)
+        source(k_post_c1) = ("kernels/obj_post_c1_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_c1) = 0.9;
+#endif
 #else
         source(k_post_bc) = ("kernels/obj_post_bc_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_bc) = 0.9;
@@ -163,10 +203,19 @@ public:
 
         // head_post -> post_a_proj directly (the concat tile is gone),
         // residual X -> post_a_proj
+#if defined(HEAD_STREAM)
+        connect<stream>(k_post_h[0].out[0], k_merge[0].in[0]);
+        connect<stream>(k_post_h[1].out[0], k_merge[0].in[1]);
+        connect<stream>(k_post_h[2].out[0], k_merge[1].in[0]);
+        connect<stream>(k_post_h[3].out[0], k_merge[1].in[1]);
+        connect<stream>(k_merge[0].out[0], k_post_ap.in[0]);
+        connect<stream>(k_merge[1].out[0], k_post_ap.in[1]);
+#else
         for (int h = 0; h < N_HEADS; h++) {
             connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
         }
-        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[N_HEADS]);
+#endif
+        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[AP_RESID_IN]);
 
         // post_a_proj -> post_b1 (ffn0) and post_a_proj -> post_c (FFN-residual broadcast)
 #if defined(POST_STREAM)
@@ -174,7 +223,12 @@ public:
         connect<stream>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<stream>(k_post_ap.out[0], k_post_c.in[1]);
         connect<stream>(k_post_b1.out[0], k_post_b2.in[0]);
+#if defined(POST_SPLIT_C)
+        connect<stream>(k_post_b2.out[0], k_post_c1.in[0]);
+        connect<stream>(k_post_c1.out[0], k_post_c.in[0]);
+#else
         connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
+#endif
         connect<stream>(k_post_c.out[0], plio_x_out.in[0]);
 #elif !defined(POST_MERGED)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
@@ -205,6 +259,9 @@ public:
     kernel k_post_ap, k_post_bc;      // b1 + b2 + c in one kernel
 #else
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
+#if defined(POST_SPLIT_C)
+    kernel k_post_c1;                 // FFN layer 2 + norm + ReLU; post_c keeps the residual add + norm
+#endif
 #endif
 public:
     CandAttnGraphL() {
@@ -248,6 +305,9 @@ public:
             k_post_b1 = kernel::create(cand_post_b1_L0);
             k_post_b2 = kernel::create(cand_post_b2_L0);
             k_post_c  = kernel::create(cand_post_c_L0);
+#if defined(POST_SPLIT_C)
+            k_post_c1 = kernel::create(cand_post_c1_L0);
+#endif
 #else
             k_post_bc = kernel::create(cand_post_bc_L0);
 #endif
@@ -257,6 +317,9 @@ public:
             k_post_b1 = kernel::create(cand_post_b1_L1);
             k_post_b2 = kernel::create(cand_post_b2_L1);
             k_post_c  = kernel::create(cand_post_c_L1);
+#if defined(POST_SPLIT_C)
+            k_post_c1 = kernel::create(cand_post_c1_L1);
+#endif
 #else
             k_post_bc = kernel::create(cand_post_bc_L1);
 #endif
@@ -270,6 +333,10 @@ public:
         runtime<ratio>(k_post_b2) = 0.9;
         source(k_post_c) = ("kernels/cand_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_c) = 0.9;
+#if defined(POST_SPLIT_C)
+        source(k_post_c1) = ("kernels/cand_post_c1_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_c1) = 0.9;
+#endif
 #else
         source(k_post_bc) = ("kernels/cand_post_bc_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_bc) = 0.9;
@@ -297,7 +364,12 @@ public:
         connect<stream>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<stream>(k_post_ap.out[0], k_post_c.in[1]);
         connect<stream>(k_post_b1.out[0], k_post_b2.in[0]);
+#if defined(POST_SPLIT_C)
+        connect<stream>(k_post_b2.out[0], k_post_c1.in[0]);
+        connect<stream>(k_post_c1.out[0], k_post_c.in[0]);
+#else
         connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
+#endif
         connect<stream>(k_post_c.out[0], plio_c_out.in[0]);
 #elif !defined(POST_MERGED)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
@@ -323,10 +395,16 @@ public:
 public:
     kernel k_pre[N_HEADS];
     kernel k_post_h[N_HEADS];
+#if defined(HEAD_STREAM)
+    kernel k_merge[2];                // pair the four head streams for the projection
+#endif
 #ifdef POST_MERGED
     kernel k_post_ap, k_post_bc;      // b1 + b2 + c in one kernel
 #else
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
+#if defined(POST_SPLIT_C)
+    kernel k_post_c1;                 // FFN layer 2 + norm + ReLU; post_c keeps the residual add + norm
+#endif
 #endif
 public:
     CrossAttnGraphL() {
@@ -347,6 +425,10 @@ public:
             k_post_h[1] = kernel::create(cross_attn_head_post_h1_L0);
             k_post_h[2] = kernel::create(cross_attn_head_post_h2_L0);
             k_post_h[3] = kernel::create(cross_attn_head_post_h3_L0);
+#if defined(HEAD_STREAM)
+            k_merge[0] = kernel::create(cross_head_merge0_L0);
+            k_merge[1] = kernel::create(cross_head_merge1_L0);
+#endif
         } else {
             k_pre[0] = kernel::create(cross_attn_head_pre_h0_L1);
             k_pre[1] = kernel::create(cross_attn_head_pre_h1_L1);
@@ -356,6 +438,10 @@ public:
             k_post_h[1] = kernel::create(cross_attn_head_post_h1_L1);
             k_post_h[2] = kernel::create(cross_attn_head_post_h2_L1);
             k_post_h[3] = kernel::create(cross_attn_head_post_h3_L1);
+#if defined(HEAD_STREAM)
+            k_merge[0] = kernel::create(cross_head_merge0_L1);
+            k_merge[1] = kernel::create(cross_head_merge1_L1);
+#endif
         }
         for (int h = 0; h < N_HEADS; h++) {
             source(k_pre[h]) = ("kernels/cross_head" + std::to_string(h) +
@@ -372,6 +458,9 @@ public:
             k_post_b1 = kernel::create(cross_post_b1_L0);
             k_post_b2 = kernel::create(cross_post_b2_L0);
             k_post_c  = kernel::create(cross_post_c_L0);
+#if defined(POST_SPLIT_C)
+            k_post_c1 = kernel::create(cross_post_c1_L0);
+#endif
 #else
             k_post_bc = kernel::create(cross_post_bc_L0);
 #endif
@@ -381,12 +470,21 @@ public:
             k_post_b1 = kernel::create(cross_post_b1_L1);
             k_post_b2 = kernel::create(cross_post_b2_L1);
             k_post_c  = kernel::create(cross_post_c_L1);
+#if defined(POST_SPLIT_C)
+            k_post_c1 = kernel::create(cross_post_c1_L1);
+#endif
 #else
             k_post_bc = kernel::create(cross_post_bc_L1);
 #endif
         }
         source(k_post_ap) = ("kernels/cross_post_ap_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_ap) = 0.9;
+#if defined(HEAD_STREAM)
+        for (int m = 0; m < 2; m++) {
+            source(k_merge[m]) = ("kernels/cross_head_merge" + std::to_string(m) + "_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_merge[m]) = 0.9;
+        }
+#endif
 #ifndef POST_MERGED
         source(k_post_b1) = ("kernels/cross_post_b1_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_b1) = 0.9;
@@ -394,6 +492,10 @@ public:
         runtime<ratio>(k_post_b2) = 0.9;
         source(k_post_c) = ("kernels/cross_post_c_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_c) = 0.9;
+#if defined(POST_SPLIT_C)
+        source(k_post_c1) = ("kernels/cross_post_c1_L" + std::to_string(LAYER) + ".cc").c_str();
+        runtime<ratio>(k_post_c1) = 0.9;
+#endif
 #else
         source(k_post_bc) = ("kernels/cross_post_bc_L" + std::to_string(LAYER) + ".cc").c_str();
         runtime<ratio>(k_post_bc) = 0.9;
@@ -424,16 +526,33 @@ public:
             connect<window<c_sz>>(plio_c_in.out[0], k_pre[h].in[1]);
             connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
+#if !defined(HEAD_STREAM)
             connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
+#endif
         }
-        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[N_HEADS]);
+#if defined(HEAD_STREAM)
+        connect<stream>(k_post_h[0].out[0], k_merge[0].in[0]);
+        connect<stream>(k_post_h[1].out[0], k_merge[0].in[1]);
+        connect<stream>(k_post_h[2].out[0], k_merge[1].in[0]);
+        connect<stream>(k_post_h[3].out[0], k_merge[1].in[1]);
+        connect<stream>(k_merge[0].out[0], k_post_ap.in[0]);
+        connect<stream>(k_merge[1].out[0], k_post_ap.in[1]);
+        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[2]);
+#else
+        connect<window<x_sz>>(plio_x_in.out[0], k_post_ap.in[AP_RESID_IN]);
+#endif
 
 #if defined(POST_STREAM)
         // rows stream a_proj -> b1 -> b2 -> c; the block output is a stream
         connect<stream>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<stream>(k_post_ap.out[0], k_post_c.in[1]);
         connect<stream>(k_post_b1.out[0], k_post_b2.in[0]);
+#if defined(POST_SPLIT_C)
+        connect<stream>(k_post_b2.out[0], k_post_c1.in[0]);
+        connect<stream>(k_post_c1.out[0], k_post_c.in[0]);
+#else
         connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
+#endif
         connect<stream>(k_post_c.out[0], plio_x_out.in[0]);
 #elif !defined(POST_MERGED)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);

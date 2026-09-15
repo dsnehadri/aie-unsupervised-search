@@ -55,6 +55,27 @@
 // post signatures (obj layer 1 has no wij port -- the bias only exists in
 // layer 0; streaming zeros to a dummy port wasted 624 words/event of NoC
 // traffic plus 4 PLIOs)
+#if defined(HEAD_STREAM)
+// HEAD_STREAM: object and cross head posts emit their rows on a stream, which
+// two merge kernels pair before the projection reads them.
+#define DECLARE_OBJ_POST_L0(h)  void obj_attn_head_post_h##h##_L0 ( \
+    AIE_IW* __restrict scores_in, \
+    AIE_IW* __restrict v_in, \
+    AIE_IW* __restrict wij_in, \
+    output_stream_int16* __restrict x_out)
+#define DECLARE_OBJ_POST_L1(h)  void obj_attn_head_post_h##h##_L1 ( \
+    AIE_IW* __restrict scores_in, \
+    AIE_IW* __restrict v_in, \
+    output_stream_int16* __restrict x_out)
+#define DECLARE_HEAD_MERGE(t, i, l) void t##_head_merge##i##_L##l ( \
+    input_stream_int16* __restrict a_in, \
+    input_stream_int16* __restrict b_in, \
+    output_stream_int16* __restrict out)
+DECLARE_HEAD_MERGE(obj, 0, 0);  DECLARE_HEAD_MERGE(obj, 1, 0);
+DECLARE_HEAD_MERGE(obj, 0, 1);  DECLARE_HEAD_MERGE(obj, 1, 1);
+DECLARE_HEAD_MERGE(cross, 0, 0);DECLARE_HEAD_MERGE(cross, 1, 0);
+DECLARE_HEAD_MERGE(cross, 0, 1);DECLARE_HEAD_MERGE(cross, 1, 1);
+#else
 #define DECLARE_OBJ_POST_L0(h)  void obj_attn_head_post_h##h##_L0 ( \
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \
@@ -64,14 +85,22 @@
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \
     AIE_OW* __restrict x_out)
+#endif
 #define DECLARE_CAND_POST(h, l) void cand_attn_head_post_h##h##_L##l ( \
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \
     AIE_OW* __restrict c_out)
+#if defined(HEAD_STREAM)
+#define DECLARE_CROSS_POST(h, l) void cross_attn_head_post_h##h##_L##l ( \
+    AIE_IW* __restrict scores_in, \
+    AIE_IW* __restrict v_in, \
+    output_stream_int16* __restrict x_out)
+#else
 #define DECLARE_CROSS_POST(h, l) void cross_attn_head_post_h##h##_L##l ( \
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \
     AIE_OW* __restrict x_out)
+#endif
 
 DECLARE_OBJ_PRE(0, 0);  DECLARE_OBJ_PRE(1, 0);  DECLARE_OBJ_PRE(2, 0);  DECLARE_OBJ_PRE(3, 0);
 DECLARE_OBJ_PRE(0, 1);  DECLARE_OBJ_PRE(1, 1);  DECLARE_OBJ_PRE(2, 1);  DECLARE_OBJ_PRE(3, 1);

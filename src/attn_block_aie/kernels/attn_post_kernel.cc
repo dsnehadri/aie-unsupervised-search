@@ -32,6 +32,7 @@
 #define POST_B2_FN       _POST_FN_2(ATTN_TYPE_TAG, b2,       ATTN_LAYER)
 #define POST_C_FN        _POST_FN_2(ATTN_TYPE_TAG, c,        ATTN_LAYER)
 #define POST_BC_FN       _POST_FN_2(ATTN_TYPE_TAG, bc,       ATTN_LAYER)
+#define POST_C1_FN       _POST_FN_2(ATTN_TYPE_TAG, c1,       ATTN_LAYER)
 
 // Pipeline-wide scale: cand uses Q6.9; obj/cross use Q4.11. See attn_head_kernel.cc.
 #if defined(ATTN_TYPE_CAND)

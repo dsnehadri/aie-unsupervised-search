@@ -120,8 +120,19 @@ static void obj_df_reshape(
     #pragma HLS ARRAY_PARTITION variable=bias_k complete
     #pragma HLS ARRAY_PARTITION variable=bias_v complete
     #pragma HLS ARRAY_PARTITION variable=QKV_h dim=0 complete
+    // RESHAPE_UNROLL: with the row loop pipelined, the loop counter selects
+    // which of the 13 row slots to write and its decode reaches every register
+    // of the fully partitioned QKV_h -- a fanout of 1024 that the router spends
+    // 7.1 ns on, and the whole design's critical path at 125 MHz. Unrolling the
+    // row loop makes every write static: no counter, no decode, no long net,
+    // and the stage costs one cycle instead of thirteen. The array is registers
+    // either way, so this adds wires, not logic.
     for (int i = 0; i < N_KV; i++) {
+#ifdef RESHAPE_UNROLL
+        #pragma HLS UNROLL
+#else
         #pragma HLS PIPELINE II=1
+#endif
         for (int h = 0; h < N_HEADS; h++) {
             #pragma HLS UNROLL
             for (int d = 0; d < D_HEAD; d++) {

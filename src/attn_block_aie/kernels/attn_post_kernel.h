@@ -60,15 +60,39 @@ DECL_POST_BC(cross, 0);DECL_POST_BC(cross, 1);
 #define DECL_POST_PROJ(t, l) void t##_post_a_proj_L##l( \
     AIE_IW* __restrict head0_in, AIE_IW* __restrict head1_in, AIE_IW* __restrict head2_in, \
     AIE_IW* __restrict head3_in, AIE_IW* __restrict residual_in, output_stream_int16* __restrict proj_out)
+#if defined(HEAD_STREAM)
+// HEAD_STREAM: the object and cross projections read rows from the two merge
+// kernels instead of gathering four head windows. The candidate block keeps the
+// windows: three rows do not divide into groups of four.
+#define DECL_POST_PROJ_S(t, l) void t##_post_a_proj_L##l( \
+    input_stream_int16* __restrict h01_in, input_stream_int16* __restrict h23_in, \
+    AIE_IW* __restrict residual_in, output_stream_int16* __restrict proj_out)
+#endif
 #define DECL_POST_B1(t, l) void t##_post_b1_L##l(input_stream_int16* __restrict proj_in, output_stream_int16* __restrict ffn0_out)
 #define DECL_POST_B2(t, l) void t##_post_b2_L##l(input_stream_int16* __restrict ffn0_in, output_stream_int16* __restrict ffn1_out)
 #define DECL_POST_C(t, l) void t##_post_c_L##l(input_stream_int16* __restrict ffn_in, \
     input_stream_int16* __restrict residual_b_in, output_stream_int16* __restrict x_out)
+#if defined(POST_SPLIT_C)
+// POST_SPLIT_C: c1 takes the FFN's last linear layer, its norm and the ReLU;
+// c keeps the residual add and the final norm. c's first input is c1's output,
+// so the block still ends at post_c and the graph above it is unchanged.
+#define DECL_POST_C1(t, l) void t##_post_c1_L##l(input_stream_int16* __restrict ffn_in, \
+    output_stream_int16* __restrict ffn_out)
+DECL_POST_C1(obj, 0);  DECL_POST_C1(obj, 1);
+DECL_POST_C1(cand, 0); DECL_POST_C1(cand, 1);
+DECL_POST_C1(cross, 0);DECL_POST_C1(cross, 1);
+#endif
 #endif
 
+#if defined(HEAD_STREAM) && defined(POST_STREAM)
+DECL_POST_PROJ_S(obj, 0);  DECL_POST_PROJ_S(obj, 1);
+DECL_POST_PROJ(cand, 0);   DECL_POST_PROJ(cand, 1);
+DECL_POST_PROJ_S(cross, 0);DECL_POST_PROJ_S(cross, 1);
+#else
 DECL_POST_PROJ(obj, 0);  DECL_POST_PROJ(obj, 1);
 DECL_POST_PROJ(cand, 0); DECL_POST_PROJ(cand, 1);
 DECL_POST_PROJ(cross, 0);DECL_POST_PROJ(cross, 1);
+#endif
 
 DECL_POST_B1(obj, 0);  DECL_POST_B1(obj, 1);
 DECL_POST_B1(cand, 0); DECL_POST_B1(cand, 1);

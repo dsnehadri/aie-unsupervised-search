@@ -566,6 +566,60 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
 // event through the NoC just so this kernel could read-and-ignore them.
 // The L1 variant now simply has no wij port.
 #if defined(HEAD_STAGE_POST)
+#if defined(HEAD_STREAM)
+// HEAD_STREAM: the softmax is per query row, so there is no reason to hold the
+// whole tensor back. Rows are done four at a time -- the packed layout the AV
+// gemm wants, and the width the vector softmax already works in -- and each
+// group goes straight out on a stream. The projection kernel downstream starts
+// on row 0 while this kernel is still on row 4. Every row's arithmetic is
+// unchanged (the softmax is row-independent and its vector reciprocal is
+// elementwise), so the outputs are bit-identical.
+#if ATTN_LAYER == 0
+void HEAD_POST_FN(input_window_int16* __restrict scores_in,
+                        input_window_int16* __restrict v_in,
+                        input_window_int16* __restrict wij_in,
+                        output_stream_int16* __restrict x_out)
+#else
+void HEAD_POST_FN(input_window_int16* __restrict scores_in,
+                        input_window_int16* __restrict v_in,
+                        output_stream_int16* __restrict x_out)
+#endif
+{
+    const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    alignas(16) int16 scores[N_MAX * N_KV_PAD];
+    win_read_v<N_MAX * N_KV_PAD>(scores_in, scores);
+
+    alignas(16) int16 V[N_KV_PAD * D_HEAD];
+    win_read_v<N_KV_PAD * D_HEAD>(v_in, V);
+
+#if ATTN_LAYER == 0
+    for (int r = 0; r < N_MAX; r++) {            // scalar, see the note below
+        for (int c = 0; c < N_KV; c++) {
+            int16 w = window_readincr(wij_in);
+            int32 sum = (int32)scores[r * N_KV_PAD + c] + (int32)w;
+            if (sum > 32767) sum = 32767;
+            if (sum < -32768) sum = -32768;
+            scores[r * N_KV_PAD + c] = (int16)sum;
+        }
+    }
+#endif
+
+    static_assert(N_MAX % 4 == 0, "HEAD_STREAM emits four rows at a time");
+    for (int g = 0; g < N_MAX / 4; g++) {
+        alignas(16) int16 attn_p[4 * N_KV_PAD];
+#ifdef SOFTMAX_VEC
+        vec_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p,
+                                              (float)PIPE_SCORE_SCALE, (float)PIPE_SCALE);
+#else
+        int_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p);
+#endif
+        alignas(16) int16 head_out[4 * D_HEAD];
+        gemm_pk<4, N_KV_PAD, D_HEAD>(attn_p, V, head_out, PIPE_AV_SHIFT);
+        stream_write_v<4 * D_HEAD>(x_out, head_out);
+    }
+    aie::set_saturation(sat_save);
+}
+#else
 #if ATTN_LAYER == 0
 void HEAD_POST_FN(input_window_int16* __restrict scores_in,
                         input_window_int16* __restrict v_in,
@@ -616,6 +670,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     win_write_v<N_MAX * D_HEAD>(x_out, head_out);
     aie::set_saturation(sat_save);
 }
+#endif // HEAD_STREAM
 #endif // HEAD_STAGE_POST
 #endif
 
@@ -796,6 +851,28 @@ void HEAD_PRE_FN(input_window_int16* __restrict x_in,
 #endif // HEAD_STAGE_PRE
 
 #if defined(HEAD_STAGE_POST)
+#if defined(HEAD_STREAM)
+// HEAD_STREAM: four rows at a time onto a stream, as in the object block above.
+void HEAD_POST_FN(input_window_int16* __restrict scores_in,
+                          input_window_int16* __restrict v_in,
+                          output_stream_int16* __restrict x_out)
+{
+    alignas(16) int16 scores[N_MAX * T_KV];
+    win_read_v<N_MAX * T_KV>(scores_in, scores);
+
+    alignas(16) int16 V[T_KV * D_HEAD];
+    win_read_v<T_KV * D_HEAD>(v_in, V);
+
+    static_assert(N_MAX % 4 == 0, "HEAD_STREAM emits four rows at a time");
+    for (int g = 0; g < N_MAX / 4; g++) {
+        alignas(16) int16 attn_p[4 * T_KV];
+        int_softmax_packed<4, T_KV, T_KV>(scores + g * 4 * T_KV, attn_p);
+        alignas(16) int16 out[4 * D_HEAD];
+        gemm_pk<4, T_KV, D_HEAD>(attn_p, V, out, PIPE_AV_SHIFT);
+        stream_write_v<4 * D_HEAD>(x_out, out);
+    }
+}
+#else
 void HEAD_POST_FN(input_window_int16* __restrict scores_in,
                           input_window_int16* __restrict v_in,
                           output_window_int16* __restrict x_out)
@@ -815,6 +892,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 
     win_write_v<N_MAX * D_HEAD>(x_out, out);
 }
+#endif // HEAD_STREAM
 #endif // HEAD_STAGE_POST
 #endif
 #endif // TRANSPOSED
