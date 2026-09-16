@@ -9,12 +9,16 @@ import csv, json, os, sys
 import numpy as np
 
 SAVE = "/home/snehadri/aie_scratch_save_20260810"
-FILES = {"Object attention": "block_sweep_obj.csv",
-         "Candidate attention": "block_sweep_cand.csv",
-         "Cross attention": "block_sweep_cross.csv",
-         "PL Object attention": "block_sweep_pl_obj.csv",        # isolated PL blocks (pl_attn, 100 MHz)
-         "PL Candidate attention": "block_sweep_pl_cand.csv",
-         "PL Cross attention": "block_sweep_pl_cross.csv"}
+# TAG selects a measurement set: "" = the August 2026 vehicles; "_v5" = blocks3_v2
+# (array blocks, v5 flags, preloaded feeders) and pl_attn_v3 (fabric blocks alone,
+# t2k flags, 156.25 MHz).
+TAG = os.environ.get("TAG", "")
+FILES = {"Object attention": f"block_sweep_obj{TAG}.csv",
+         "Candidate attention": f"block_sweep_cand{TAG}.csv",
+         "Cross attention": f"block_sweep_cross{TAG}.csv",
+         "PL Object attention": f"block_sweep_pl_obj{TAG}.csv",
+         "PL Candidate attention": f"block_sweep_pl_cand{TAG}.csv",
+         "PL Cross attention": f"block_sweep_pl_cross{TAG}.csv"}
 
 def fit(path, nmin=8):
     n, t = [], []
@@ -38,5 +42,5 @@ for lab, f in FILES.items():
         print(f"{lab:22s}   (missing {f})"); continue
     d = fit(p); out[lab] = d
     print(f"{lab:22s}{d['slope_us']:10.1f}{d['ev_per_s']:9.0f}{d['intercept_us']:10.0f}{d['r2']:9.5f}")
-json.dump(out, open(os.path.join(SAVE, "block_intervals.json"), "w"), indent=1)
-print("wrote block_intervals.json")
+json.dump(out, open(os.path.join(SAVE, f"block_intervals{TAG}.json"), "w"), indent=1)
+print(f"wrote block_intervals{TAG}.json")

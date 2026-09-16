@@ -43,8 +43,8 @@ def fig_endtoend():
         ("all-PL  baseline",                    478,  PL_C),
         ("all-PL  optimized kernels",          1139,  PL_C),
         ("all-PL  batched dataflow",           4869,  PL_C),
-        ("all-PL  attention optimised, 125 MHz", 50870, PL_C),
-        ("all-PL  current, 156 MHz",           63780, PL_C),
+        ("all-PL  attention optimised",         50870, PL_C),
+        ("all-PL  current",                    63780, PL_C),
         ("AIE hybrid  baseline",                551,  AIE_C),
         ("AIE hybrid  pipelined bridge",       7549,  AIE_C),
         ("AIE hybrid  whole stack on array",  135000, AIE_C),
@@ -64,7 +64,7 @@ def fig_endtoend():
     ax.set_yticklabels(labels, fontsize=10.5)
     ax.set_xlabel("throughput  [events / s]")
     ax.set_xlim(0, vals.max() * 1.14)
-    ax.set_title("End-to-end throughput on VCK190 (measured, full model)",
+    ax.set_title("End-to-end throughput on VCK190",
                  fontsize=12.5, pad=10)
     handles = [mpl.patches.Patch(color=PL_C, label="all-PL (AUC 0.9825)"),
                mpl.patches.Patch(color=AIE_C, label="AIE hybrid (AUC 0.9825)")]
@@ -94,7 +94,7 @@ def fig_blocks_and_scaling():
     HYB_INTERVAL = 111.0
     xs = np.arange(len(blocks))
     import json, os
-    _bi = "/home/snehadri/aie_scratch_save_20260810/block_intervals.json"
+    _bi = "/home/snehadri/aie_scratch_save_20260810/block_intervals_v5.json"   # blocks3_v2 + pl_attn_v3
     aie_us = None
     if os.path.isfile(_bi):
         _d = json.load(open(_bi))
@@ -109,7 +109,7 @@ def fig_blocks_and_scaling():
             pl_iso = np.array([_d[k]["slope_us"] for k in pk], float)
     pl_label = "PL block, in the all-PL design"
     if pl_iso is not None:            # like-for-like: both sides isolated, batch-measured
-        pl_us, pl_label = pl_iso, "PL block, isolated at 100 MHz"
+        pl_us, pl_label = pl_iso, "PL block"
     if aie_us is None:
         axb.bar(xs, pl_us, width=0.55, color=PL_C, label="PL block, in the all-PL design")
         for x, v in zip(xs, pl_us):
@@ -119,15 +119,16 @@ def fig_blocks_and_scaling():
     else:
         w = 0.36
         axb.bar(xs - w/2, pl_us, width=w, color=PL_C, label=pl_label)
-        axb.bar(xs + w/2, aie_us, width=w, color=AIE_C, label="AIE block, isolated, measured")
+        axb.bar(xs + w/2, aie_us, width=w, color=AIE_C, label="AIE block")
+        _off = max(pl_us.max(), aie_us.max()) * 0.015
         for x, v in zip(xs - w/2, pl_us):
-            axb.text(x, v + 4, f"{v:.0f}", ha="center", fontsize=10)
+            axb.text(x, v + _off, f"{v:.1f}", ha="center", fontsize=10)
         for x, v in zip(xs + w/2, aie_us):
-            axb.text(x, v + 4, f"{v:.0f}", ha="center", fontsize=10)
+            axb.text(x, v + _off, f"{v:.1f}", ha="center", fontsize=10)
     axb.set_xticks(xs)
     axb.set_xticklabels(blocks, fontsize=11.5)
     axb.set_ylabel("Time per event [µs]", fontsize=12.5)
-    axb.set_ylim(0, max(pl_us.max(), 210) * 1.22)
+    axb.set_ylim(0, pl_us.max() * 1.22)
     axb.legend(fontsize=10, frameon=False, loc="upper right")
 
     # --- (b) AIE tile replication, with the shared-feeder model ---
@@ -159,8 +160,7 @@ def fig_blocks_and_scaling():
     # halves the block latency, which is what this vehicle measures (it sends
     # one event per instance per invocation, so t_c is the block's latency).
     SERIES = [
-        (f"{SAVE}/obj24_sweep_s4k.csv", "12-tile block", "#2ca02c", "s", 12),
-        (f"{SAVE}/obj20_sweep_v3x.csv", "current 15-tile block", AIE_C, "o", 15),
+        (f"{SAVE}/obj20_sweep_v3x.csv", "AIE block", AIE_C, "o", 15),
     ]
     top = 0
     for path, lab, col, mk, tper in SERIES:
@@ -178,8 +178,8 @@ def fig_blocks_and_scaling():
         axs.plot(n_model[~inside] * TILES_PER, thr_model[~inside], ":", color=col, lw=1.6, alpha=.85)
         axs.plot(tiles, meas, mk, color=col, ms=7, markeredgecolor="k",
                  markeredgewidth=0.4, zorder=5)
-    axs.axhline(6334, color=PL_C, lw=2, ls="--",
-                label="PL block, isolated at 100 MHz")
+    # one PL object block, from the same per-block sweep as the left panel
+    axs.axhline(1e6 / pl_us[0], color=PL_C, lw=2, ls="--", label="PL block")
     _tk = [12, 48, 96, 192, 288, 400]
     axs.set_xticks(_tk)
     axs.set_xticklabels([f"{int(v)}" for v in _tk])
