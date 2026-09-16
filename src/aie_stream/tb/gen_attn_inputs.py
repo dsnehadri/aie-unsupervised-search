@@ -248,7 +248,9 @@ def main():
     wij_raw_per = event_slice("stage2_wij_post_mlp.npy", (N_MAX, N_MAX))     # (nev,12,12)
     wij_q_per = []
     for i in range(nev):
-        wij_full = np.zeros((N_MAX, N_KV), dtype=np.float32)
+        # WIJ_PAD16=1 pads each row to the 16 lanes the score rows already use, so
+        # the array adds the bias with whole-vector reads (columns 13..15 are 0)
+        wij_full = np.zeros((N_MAX, 16 if os.environ.get("WIJ_PAD16") else N_KV), dtype=np.float32)
         wij_full[:, :N_MAX] = wij_raw_per[i]
         # no NEG_BIAS here any more: padded-key masking is done by the kernel
         # from the mask row (mirrors the hardware bridge exactly)

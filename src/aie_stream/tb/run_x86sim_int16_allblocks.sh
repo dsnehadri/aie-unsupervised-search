@@ -7,14 +7,14 @@ set -e
 source /home/snehadri/Vitis/2022.2/settings64.sh
 PLAT=/home/snehadri/Vitis/2022.2/base_platforms/xilinx_vck190_base_202220_1/xilinx_vck190_base_202220_1.xpfm
 PE=/home/snehadri/repos/unsupervised-search/phase3_export_retrained
-cd /home/snehadri/repos/aie-unsupervised-search/src/aie_stream/tb
+cd "$(dirname "$(readlink -f "$0")")"   # run in the copy this script lives in
 NEV=${1:-20}
 echo "[1/4] gen int16 inputs ($NEV events, L0+L1)"
 python3 gen_attn_inputs.py --phase3 $PE --event 0 --num-events $NEV --data-dir ./data
 echo "[2/4] aiecompiler x86sim (int16)"
 rm -rf Work_x86_int x86simulator_output
-aiecompiler --target=x86sim --platform=$PLAT --stacksize=2048 --workdir=Work_x86_int \
-  --Xpreproc="-DAIE_NUM_EVENTS=$NEV $AIE_XPRE" aie_attn_test.cpp > aiec_x86_int.log 2>&1
+aiecompiler --target=x86sim --platform=$PLAT --stacksize=4096 --workdir=Work_x86_int \
+  --Xpreproc="-DAIE_NUM_EVENTS=$NEV" $(for d in $AIE_XPRE; do echo "--Xpreproc=$d"; done) aie_attn_test.cpp > aiec_x86_int.log 2>&1
 echo "AIEC_DONE rc=$?"
 echo "[3/4] run x86simulator"
 x86simulator --pkg-dir=Work_x86_int > x86run_int.log 2>&1

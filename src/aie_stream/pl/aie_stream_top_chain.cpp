@@ -73,7 +73,12 @@ static void wij_send(hls::stream<score_t>& wij_in_pl,
     hls::stream<pkt64_t>& w0, hls::stream<pkt64_t>& w1, hls::stream<pkt64_t>& w2, hls::stream<pkt64_t>& w3)
 #endif
 {
-    const int WIJ_SZ = N_MAX * N_KV;
+#if defined(WIJ_PAD16)
+    const int WIJ_COLS = 16;       // padded to the array's 16-lane score rows
+#else
+    const int WIJ_COLS = N_KV;
+#endif
+    const int WIJ_SZ = N_MAX * WIJ_COLS;
     data_t wij_buf[N_MAX * N_MAX];
     for (int i = 0; i < N_MAX * N_MAX; i++) {
         #pragma HLS PIPELINE II=1
@@ -83,7 +88,7 @@ static void wij_send(hls::stream<score_t>& wij_in_pl,
     }
     data_t slice[WIJ_SZ];
     for (int i = 0; i < N_MAX; i++)
-        for (int j = 0; j < N_KV; j++) {
+        for (int j = 0; j < WIJ_COLS; j++) {
             #pragma HLS PIPELINE II=1
             data_t v = 0;
             if (j < N_MAX) {
@@ -91,7 +96,7 @@ static void wij_send(hls::stream<score_t>& wij_in_pl,
                 ap_int<16> shifted = (ap_int<16>)(bits << 2);
                 v.range(15, 0) = shifted.range(15, 0);
             }
-            slice[i * N_KV + j] = v;
+            slice[i * WIJ_COLS + j] = v;
         }
 #if defined(WIJ_ONE_PORT)
     // All four heads were sent the SAME slice: 3 of the 4 copies were pure
@@ -185,9 +190,11 @@ static void run_chain(const ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n,
     wddr_loop(out_stream, out_buf, n);
 }
 
+#if !defined(WEIGHTS_LOCAL)
 static bool weights_initialized = false;
 static EmbedWeights embed_w; static MLPWeights mlp_w;
 static AEEncoderWeights ae_enc_w; static AEDecoderWeights ae_dec_w;
+#endif
 
 extern "C" void aie_stream_top(
     ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n_events,
@@ -216,10 +223,20 @@ extern "C" void aie_stream_top(
     #pragma HLS INTERFACE s_axilite port=n_events
     #pragma HLS INTERFACE s_axilite port=return
 
+#if defined(WEIGHTS_LOCAL)
+    // WEIGHTS_LOCAL: fill local weights every call, as the fabric-only top does.
+    // Synthesis folds them to constants that each copy of a stage can own. The
+    // static weights below are one writable memory; its two ports forced the two
+    // candidate decoders to take turns (autoencoder 389-401 cycles, not 264).
+    EmbedWeights embed_w; MLPWeights mlp_w;
+    AEEncoderWeights ae_enc_w; AEDecoderWeights ae_dec_w;
+    init_pl_only_weights(embed_w, mlp_w, ae_enc_w, ae_dec_w);
+#else
     if (!weights_initialized) {
         init_pl_only_weights(embed_w, mlp_w, ae_enc_w, ae_dec_w);
         weights_initialized = true;
     }
+#endif
     run_chain(in_buf, out_buf, n_events, embed_j_out, mask_out,
               obj0_w0_out,
 #if !defined(WIJ_ONE_PORT)

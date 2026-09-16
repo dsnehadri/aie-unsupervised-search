@@ -130,7 +130,11 @@ public:
         // masking. The output stays N_MAX rows.
         constexpr int x_sz       = (N_MAX + 1) * E_DIM * sizeof(aiedt);
         constexpr int x_out_sz   = N_MAX * E_DIM * sizeof(aiedt);
+#if defined(WIJ_PAD16)
+        constexpr int wij_sz     = N_MAX * 16 * sizeof(aiedt);   // padded to the score rows' 16 lanes
+#else
         constexpr int wij_sz     = N_MAX * N_KV * sizeof(aiedt);
+#endif
 #ifdef TRANSPOSED
         // S^T 16 keys x 16 lanes, V^T 4 x 16, O^T 4 x 16, proj^T 16 x 16
         constexpr int scores_sz  = 16 * 16 * sizeof(aiedt);
@@ -152,16 +156,36 @@ public:
 
         // pre -> post_h: scores + V
         for (int h = 0; h < N_HEADS; h++) {
+#if defined(SCORE_STREAM)
+            connect<stream>(k_pre[h].out[0], k_post_h[h].in[0]);        // V, then scores four rows at a time
+#else
             connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
+#endif
         }
 
         // wij PLIOs -> post_h (layer 0 only; L1 kernels have no wij port)
         if constexpr (LAYER == 0) {
+#if defined(SCORE_STREAM)
+            connect<window<wij_sz>>(wij_h0, k_post_h[0].in[1]);
+#else
             connect<window<wij_sz>>(wij_h0, k_post_h[0].in[2]);
+#endif
+#if defined(SCORE_STREAM)
+            connect<window<wij_sz>>(wij_h1, k_post_h[1].in[1]);
+#else
             connect<window<wij_sz>>(wij_h1, k_post_h[1].in[2]);
+#endif
+#if defined(SCORE_STREAM)
+            connect<window<wij_sz>>(wij_h2, k_post_h[2].in[1]);
+#else
             connect<window<wij_sz>>(wij_h2, k_post_h[2].in[2]);
+#endif
+#if defined(SCORE_STREAM)
+            connect<window<wij_sz>>(wij_h3, k_post_h[3].in[1]);
+#else
             connect<window<wij_sz>>(wij_h3, k_post_h[3].in[2]);
+#endif
         }
 
         // head_post -> post_a_proj directly (the concat tile is gone),
@@ -515,8 +539,12 @@ public:
 #endif
 
         for (int h = 0; h < N_HEADS; h++) {
+#if defined(SCORE_STREAM)
+            connect<stream>(k_pre[h].out[0], k_post_h[h].in[0]);        // V, then scores four rows at a time
+#else
             connect<window<scores_sz>>(k_pre[h].out[0], k_post_h[h].in[0]);
             connect<window<v_sz>>     (k_pre[h].out[1], k_post_h[h].in[1]);
+#endif
 #if !defined(HEAD_STREAM_CROSS)
             connect<window<hout>>(k_post_h[h].out[0], k_post_ap.in[h]);
 #endif
@@ -629,7 +657,11 @@ public:
         constexpr int x_sz    = N_MAX * E_DIM * sizeof(int16);        // 384 B
         constexpr int xm_sz   = (N_MAX + 1) * E_DIM * sizeof(int16);  // 416 B, with the mask row
         constexpr int c_sz    = T_DIM * E_DIM * sizeof(int16);        //  96 B
+#if defined(WIJ_PAD16)
+        constexpr int wij_sz  = N_MAX * 16 * sizeof(int16);           // 384 B, padded to 16 lanes
+#else
         constexpr int wij_sz  = N_MAX * N_KV * sizeof(int16);         // 312 B
+#endif
 
         // embedding -> (zero padded rows, + mask row) -> stream -> object L0 (4 heads + residual)
         connect<window<jets_sz>>(plio_jets_in.out[0], k_embed.in[0]);

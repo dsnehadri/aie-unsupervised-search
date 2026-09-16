@@ -23,7 +23,12 @@
 
 // pre signatures. PRE_STREAM: x arrives as a row stream (the object and cross
 // blocks); the candidate block's c stays a window.
-#if defined(PRE_STREAM)
+#if defined(PRE_STREAM) && defined(SCORE_STREAM)
+// SCORE_STREAM: one output stream carrying V, then the scores four rows at a time
+#define DECLARE_OBJ_PRE(h, l)   void obj_attn_head_pre_h##h##_L##l ( \
+    input_stream_int16* __restrict x_in, \
+    output_stream_int16* __restrict sv_out)
+#elif defined(PRE_STREAM)
 #define DECLARE_OBJ_PRE(h, l)   void obj_attn_head_pre_h##h##_L##l ( \
     input_stream_int16* __restrict x_in, \
     AIE_OW* __restrict scores_out, \
@@ -38,7 +43,12 @@
     AIE_IW* __restrict c_in, \
     AIE_OW* __restrict scores_out, \
     AIE_OW* __restrict v_out)
-#if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
+#if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS) && defined(SCORE_STREAM)
+#define DECLARE_CROSS_PRE(h, l) void cross_attn_head_pre_h##h##_L##l ( \
+    input_stream_int16* __restrict x_in, \
+    input_stream_int16* __restrict c_in, \
+    output_stream_int16* __restrict sv_out)
+#elif defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
 #define DECLARE_CROSS_PRE(h, l) void cross_attn_head_pre_h##h##_L##l ( \
     input_stream_int16* __restrict x_in, \
     input_stream_int16* __restrict c_in, \
@@ -57,7 +67,15 @@
 // traffic plus 4 PLIOs)
 // Object and cross head posts emit their rows on a stream when their block type
 // streams; two merge kernels then pair the four heads for the projection.
-#if defined(HEAD_STREAM_OBJ)
+#if defined(HEAD_STREAM_OBJ) && defined(SCORE_STREAM)
+#define DECLARE_OBJ_POST_L0(h)  void obj_attn_head_post_h##h##_L0 ( \
+    input_stream_int16* __restrict sv_in, \
+    AIE_IW* __restrict wij_in, \
+    output_stream_int16* __restrict x_out)
+#define DECLARE_OBJ_POST_L1(h)  void obj_attn_head_post_h##h##_L1 ( \
+    input_stream_int16* __restrict sv_in, \
+    output_stream_int16* __restrict x_out)
+#elif defined(HEAD_STREAM_OBJ)
 #define DECLARE_OBJ_POST_L0(h)  void obj_attn_head_post_h##h##_L0 ( \
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \
@@ -98,7 +116,11 @@ DECLARE_HEAD_MERGE(cross, 0, 1);DECLARE_HEAD_MERGE(cross, 1, 1);
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \
     AIE_OW* __restrict c_out)
-#if defined(HEAD_STREAM_CROSS)
+#if defined(HEAD_STREAM_CROSS) && defined(SCORE_STREAM)
+#define DECLARE_CROSS_POST(h, l) void cross_attn_head_post_h##h##_L##l ( \
+    input_stream_int16* __restrict sv_in, \
+    output_stream_int16* __restrict x_out)
+#elif defined(HEAD_STREAM_CROSS)
 #define DECLARE_CROSS_POST(h, l) void cross_attn_head_post_h##h##_L##l ( \
     AIE_IW* __restrict scores_in, \
     AIE_IW* __restrict v_in, \
