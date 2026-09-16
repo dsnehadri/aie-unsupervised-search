@@ -753,18 +753,20 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 
 #if defined(HEAD_STAGE_PRE)
 #if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)
-// DEADLOCKS, off by default -- kept behind PRE_STREAM_CROSS as the record of
-// why. A kernel does not start until every WINDOW input has been delivered, so
-// this kernel waits for its c window before it reads a single x row. c comes
-// from the candidate block, which runs LATER in the chain and is fed by the
-// same glue kernel that is trying to push x rows here. The glue kernel blocks
-// on the third row, the candidate block never runs, the chain stops. The array
-// simulator showed it as zero output on both ports with the inputs consumed;
-// x86 simulation does not model the window-acquire rule and passed.
-// The queries arrive row by row from the object block's glue kernel, so Q is
-// projected four rows at a time while they land.
+// Queries stream in from the object block's glue kernel and are projected four
+// rows at a time as they land; the keys and values stream in from the candidate
+// block afterwards.
+//
+// The first attempt took c as a WINDOW and deadlocked: a kernel does not start
+// until every window input has been delivered, so it waited for the candidate
+// block -- which runs later and is fed by the same glue kernel pushing x rows
+// here -- before reading a single row. The glue kernel blocked on row three and
+// nothing came out of the array. With c as a STREAM there is no window to
+// acquire: the kernel starts on x immediately and blocks on the c stream only
+// after the queries are consumed, which is the order the chain produces them.
+// (x86 simulation does not model the window-acquire rule and passed either way.)
 void HEAD_PRE_FN(input_stream_int16* __restrict x_in,
-                         input_window_int16* __restrict c_in,
+                         input_stream_int16* __restrict c_in,
                          output_window_int16* __restrict scores_out,
                          output_window_int16* __restrict v_out)
 {
