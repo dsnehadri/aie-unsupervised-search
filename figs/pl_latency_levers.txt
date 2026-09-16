@@ -343,3 +343,16 @@ Data figs/latency_sweep_pl_t2i.csv. Board image after this: plstream_t2i.
   11500/f. Data figs/latency_sweep_pl_t2k.csv.
   LESSON: when the worst path has one logic level, look at the net fanout, not
   at pipelining. Registers cannot shorten a wire that a decode has to reach.
+
+2026-09-15 POWER AND TEMPERATURE, both current designs (49 on/off cycles of
+120 s, same protocol as the published campaign):
+                        power above idle   idle     die rise   AIE array rise
+  fabric-only 156 MHz   +0.634 +- 0.011 W  11.50 W  +0.401 C   +0.167 C
+  hybrid 120 MHz        +1.727 +- 0.010 W  14.12 W  +0.928 C   +0.915 C
+  The published numbers (+0.260 and +0.427 W, both under 0.5 C) were taken on
+  designs doing a fraction of the work: the hybrid has gone from ~9k to 153k
+  events/s since. Per event the two are close, 9.9 uJ for the fabric and
+  11.3 uJ for the hybrid, so the hybrid buys 2.4x the throughput for 2.7x the
+  power and is slightly WORSE per event.
+  Idle also rose (7.53 -> 11.50 fabric, 10.90 -> 14.12 hybrid): bigger designs
+  at higher clocks. Data figs/board_thermal_lockin120_{pl_t2k,hyb_v3x}_*.
