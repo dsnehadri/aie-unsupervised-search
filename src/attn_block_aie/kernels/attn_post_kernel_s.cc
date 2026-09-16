@@ -34,6 +34,17 @@ static inline void row_write(output_stream_int16* __restrict s, const v16_t& v)
 static inline v16_t relu16(const v16_t& v) { return aie::max(v, aie::zeros<int16, 16>()); }
 
 #if defined(ROW_LOOKAHEAD)
+// NEGATIVE and a DEADLOCK HAZARD, do not enable. Measured 2026-09-15 on the
+// whole chain: 44.8 -> 69.4 us with the embedding pipeline present, and NO
+// OUTPUT AT ALL without it.
+//
+// The idea was to hide the layer norm behind the next row's multiply. The
+// dependency runs the other way: reading row r+1 before emitting row r makes
+// the stage wait on its PRODUCER while holding a finished row, so every stage
+// gains a full producer period instead of losing a norm, and five stages of
+// that either crawl or lock. A row pipeline wants each stage to consume,
+// compute and emit as fast as it can, never to read ahead.
+//
 // One row of lookahead: compute row r+1's linear layer in the same iteration as
 // row r's layer norm. The norm is a dependent chain of reductions and scalar
 // steps, about 135 of the roughly 215 cycles a stage spends per row, and the
