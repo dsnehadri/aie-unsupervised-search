@@ -42,6 +42,12 @@
 
 static constexpr int bitlen32_ce(uint32 v) { return v ? 1 + bitlen32_ce(v >> 1) : 0; }
 
+#if defined(LN_CLZ)
+// LN_CLZ: one native count-leading-bits instruction instead of five compare and
+// shift steps. On an unsigned word ::clb counts leading zeros and gives 32 for
+// zero (aie_api mask.hpp relies on the same), so this is exact.
+static inline int bitlen32(uint32 v) { return 32 - (int)::clb((unsigned)v); }
+#else
 static inline int bitlen32(uint32 v)
 {
     int n = 0;
@@ -52,6 +58,7 @@ static inline int bitlen32(uint32 v)
     if (v >> 1)  { n += 1;  v >>= 1;  }
     return n + (int)v;
 }
+#endif
 
 // One row. Branch-free (the clamps are selects) so the scheduler can
 // interleave two rows: the chain is latency-bound (three vector reductions
