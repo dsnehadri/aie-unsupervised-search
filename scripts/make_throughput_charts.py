@@ -48,7 +48,8 @@ def fig_endtoend():
         ("AIE hybrid  baseline",                551,  AIE_C),
         ("AIE hybrid  pipelined bridge",       7549,  AIE_C),
         ("AIE hybrid  whole stack on array",  135000, AIE_C),
-        ("AIE hybrid  current (91 tiles)",    153106, AIE_C),
+        ("AIE hybrid  91 tiles",              153106, AIE_C),
+        ("AIE hybrid  current",               183190, AIE_C),
     ]
     labels = [r[0] for r in rows]
     vals = np.array([r[1] for r in rows], float)
@@ -67,8 +68,8 @@ def fig_endtoend():
                  fontsize=12.5, pad=10)
     handles = [mpl.patches.Patch(color=PL_C, label="all-PL (AUC 0.9825)"),
                mpl.patches.Patch(color=AIE_C, label="AIE hybrid (AUC 0.9825)")]
-    ax.legend(handles=handles, loc="lower right", fontsize=10,
-              bbox_to_anchor=(1.0, 0.10), framealpha=0.95)
+    ax.legend(handles=handles, loc="upper right", fontsize=10,
+              framealpha=0.95)
     save(fig, "throughput_endtoend")
 
 
