@@ -24,7 +24,10 @@
 // pre signatures. PRE_STREAM: x arrives as a row stream (the object and cross
 // blocks); the candidate block's c stays a window.
 #if defined(PRE_STREAM) && defined(SCORE_STREAM)
-// SCORE_STREAM: one output stream carrying V, then the scores four rows at a time
+// SCORE_STREAM: one output stream carrying V, then the scores four rows at a time.
+// NEGATIVE on aiesim (object block, padded bias): 9.8 -> 14.8 us latency, interval
+// 4.0 -> 9.4 us. The small stream buffer stalls the pre until the post reads, so
+// the two kernels take turns instead of overlapping as they do with windows.
 #define DECLARE_OBJ_PRE(h, l)   void obj_attn_head_pre_h##h##_L##l ( \
     input_stream_int16* __restrict x_in, \
     output_stream_int16* __restrict sv_out)
