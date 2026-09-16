@@ -140,11 +140,11 @@ def fig_blocks_and_scaling():
     # 13-tile obj16 sweep otherwise.
     import csv, os
     SAVE = "/home/snehadri/aie_scratch_save_20260810"
-    TILES_PER = 12
+    TILES_PER = 15   # the current object block: 4 pre, 4 head post, 2 merge, projection, b1, b2, c1, c
 
-    def _sweep(path):
+    def _sweep(path, TILES_PER=TILES_PER):
         rows = [r for r in csv.DictReader(open(path))]
-        tiles = np.array([float(r["tiles"]) for r in rows])
+        tiles = np.array([float(r["n_inst"]) * TILES_PER for r in rows])
         meas = np.array([float(r["agg_ev_s"]) for r in rows])
         n = tiles / TILES_PER
         t_f, t_c = np.polyfit(n, n / meas, 1)   # T(N) = t_c + N t_f, per invocation
@@ -154,15 +154,19 @@ def fig_blocks_and_scaling():
     # layer norm cuts t_c (the per-instance compute) but leaves t_f (the shared
     # PL feeder) alone, so both curves run into the same ceiling -- the faster
     # kernels simply get there with fewer tiles.
+    # The two older series were 12-tile blocks; the current one is 15 tiles and
+    # halves the block latency, which is what this vehicle measures (it sends
+    # one event per instance per invocation, so t_c is the block's latency).
     SERIES = [
-        (f"{SAVE}/obj24_sweep_c0.csv",  "float layer norm",          AIE_C,   "o"),
-        (f"{SAVE}/obj24_sweep_s4k.csv", "vector integer layer norm", "#2ca02c", "s"),
+        (f"{SAVE}/obj24_sweep_s4k.csv", "12-tile block", "#2ca02c", "s", 12),
+        (f"{SAVE}/obj20_sweep_v3x.csv", "current 15-tile block", AIE_C, "o", 15),
     ]
     top = 0
-    for path, lab, col, mk in SERIES:
+    for path, lab, col, mk, tper in SERIES:
         if not os.path.isfile(path):
             continue
-        tiles, meas, t_f, t_c = _sweep(path)
+        TILES_PER = tper
+        tiles, meas, t_f, t_c = _sweep(path, tper)
         n_model = np.linspace(0.6, 400 / TILES_PER, 400)
         thr_model = n_model / (t_c + n_model * t_f)
         top = max(top, thr_model.max())

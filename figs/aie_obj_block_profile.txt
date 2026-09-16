@@ -342,3 +342,21 @@ slowest obj_post_c_L0 = 5.8 us/event ; chain sum 43 us
 #   two columns -- pre and head post interleaved down the first so each pair is
 #   a vertical neighbour sharing memory for the score and V windows, the merge
 #   kernels and post chain down the second.
+#
+# INSTANCE SCALING REMEASURED (2026-09-15) with the current 15-tile object
+# block (obj20_emu: 20 instances, 300 tiles, no floorplan needed; the array
+# archive placed first try once the stack was raised from 2048 to 4096 bytes):
+#   instances  tiles   events/s        (old 12-tile block for comparison)
+#       1        15     21,124          10,081 at 12 tiles
+#       2        30     29,927
+#       4        60     42,096
+#       8       120     50,217
+#      16       240     55,917
+#      20       300     57,107          51,959 at 288 tiles
+#   Feeder model t = t_f + t_c/N: t_f 15.8 us (ceiling 63,200 ev/s, unchanged --
+#   it is the single PL feeder), t_c 85 -> 34 us. The vehicle sends ONE event
+#   per instance per invocation, so t_c is the block's LATENCY, which is what
+#   this month's work halved; that is why per-instance throughput doubled while
+#   the ceiling did not move.
+#   Per tile the new block is slightly worse (15 tiles at 5.3 us interval vs 12
+#   at 5.9), so the latency work traded tiles for latency.
