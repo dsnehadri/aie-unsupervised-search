@@ -134,21 +134,17 @@ def fig_blocks_and_scaling():
     axb.legend(fontsize=10, frameon=False, loc="upper right")
 
     # --- (b) AIE tile replication ---
-    # obj20_v5: 20 object blocks (v5 array flags, 15 tiles each) fed by one fabric
-    # feeder that sends a preloaded event to every active instance in the same
-    # clock cycle, many events per call. Each point is the slope of call time vs
-    # events per call, so launch cost is excluded, as in the left panel.
-    # (The older sweep sent one event per instance per call through a serial
-    # feeder; its ~16 us/event feeder, not the array, capped the curve.)
-    # One and two instances run at the single-block rate (4.3 us); from the third
-    # instance every round takes 7.6 us: the feeder moves in lockstep, so the
-    # slowest instance (the third) sets the pace for all.
-    import os
+    # obj20_v6: 20 object blocks (v5 array flags, 15 tiles each), each with its
+    # own fabric feeder and drain. Each drain counts clock cycles between its
+    # first and last output while all active instances run, so every instance's
+    # own time per event is measured; the point is the sum of their rates.
+    # 14 of the 20 placements run at 4.0-4.4 us per event and 6 at 7.5-7.7 us.
+    # (A lockstep feeder made every instance wait for the slowest one, and the
+    # first sweep's serial one-event feeder capped the curve near 58k ev/s.)
     SAVE = "/home/snehadri/aie_scratch_save_20260810"
-    TILES_PER = 15   # 4 pre, 4 head post, 2 merge, projection, b1, b2, c1, c
     tiles, agg = [], []
-    for l in open(f"{SAVE}/obj20_sweep_v5_batch.csv"):
-        if l.startswith("FIT,"):
+    for l in open(f"{SAVE}/obj20_sweep_v6_ind.csv"):
+        if l.startswith("AGG,"):
             kv = dict(x.split("=") for x in l.strip().split(",")[1:])
             tiles.append(int(kv["tiles"])); agg.append(float(kv["agg_ev_s"]))
     tiles, agg = np.array(tiles), np.array(agg)
