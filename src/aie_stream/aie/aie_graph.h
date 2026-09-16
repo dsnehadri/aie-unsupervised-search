@@ -54,6 +54,10 @@ public:
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
 #if defined(POST_SPLIT_C)
     kernel k_post_c1;                 // FFN layer 2 + norm + ReLU; post_c keeps the residual add + norm
+#if defined(ROW_SPLIT)
+    kernel k_hb[4];                   // second row chain (odd rows): b1, b2, c1, c
+    kernel k_rowmerge;                // puts the two chains' rows back in order
+#endif
 #endif
 #endif
 public:
@@ -258,7 +262,37 @@ public:
 #else
         connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
 #endif
+#if defined(ROW_SPLIT) && defined(POST_SPLIT_C)
+        // ROW_SPLIT: a_proj's second output carries the odd rows through a copy of the chain
+        if constexpr (LAYER == 0) {
+            k_hb[0] = kernel::create(obj_post_b1_hb_L0); k_hb[1] = kernel::create(obj_post_b2_hb_L0);
+            k_hb[2] = kernel::create(obj_post_c1_hb_L0); k_hb[3] = kernel::create(obj_post_c_hb_L0);
+            k_rowmerge = kernel::create(obj_post_rowmerge_L0);
+        } else {
+            k_hb[0] = kernel::create(obj_post_b1_hb_L1); k_hb[1] = kernel::create(obj_post_b2_hb_L1);
+            k_hb[2] = kernel::create(obj_post_c1_hb_L1); k_hb[3] = kernel::create(obj_post_c_hb_L1);
+            k_rowmerge = kernel::create(obj_post_rowmerge_L1);
+        }
+        {
+            const char* st[4] = {"b1", "b2", "c1", "c"};
+            for (int i = 0; i < 4; i++) {
+                source(k_hb[i]) = ("kernels/obj_post_" + std::string(st[i]) + "_hb_L" + std::to_string(LAYER) + ".cc").c_str();
+                runtime<ratio>(k_hb[i]) = 0.9;
+            }
+            source(k_rowmerge) = ("kernels/obj_post_rowmerge_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_rowmerge) = 0.9;
+        }
+        connect<stream>(k_post_ap.out[1], k_hb[0].in[0]);
+        connect<stream>(k_post_ap.out[1], k_hb[3].in[1]);
+        connect<stream>(k_hb[0].out[0], k_hb[1].in[0]);
+        connect<stream>(k_hb[1].out[0], k_hb[2].in[0]);
+        connect<stream>(k_hb[2].out[0], k_hb[3].in[0]);
+        connect<stream>(k_post_c.out[0], k_rowmerge.in[0]);
+        connect<stream>(k_hb[3].out[0], k_rowmerge.in[1]);
+        connect<stream>(k_rowmerge.out[0], plio_x_out.in[0]);
+#else
         connect<stream>(k_post_c.out[0], plio_x_out.in[0]);
+#endif
 #elif !defined(POST_MERGED)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
@@ -433,6 +467,10 @@ public:
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
 #if defined(POST_SPLIT_C)
     kernel k_post_c1;                 // FFN layer 2 + norm + ReLU; post_c keeps the residual add + norm
+#if defined(ROW_SPLIT)
+    kernel k_hb[4];                   // second row chain (odd rows): b1, b2, c1, c
+    kernel k_rowmerge;                // puts the two chains' rows back in order
+#endif
 #endif
 #endif
 public:
@@ -587,7 +625,37 @@ public:
 #else
         connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
 #endif
+#if defined(ROW_SPLIT) && defined(POST_SPLIT_C)
+        // ROW_SPLIT: a_proj's second output carries the odd rows through a copy of the chain
+        if constexpr (LAYER == 0) {
+            k_hb[0] = kernel::create(cross_post_b1_hb_L0); k_hb[1] = kernel::create(cross_post_b2_hb_L0);
+            k_hb[2] = kernel::create(cross_post_c1_hb_L0); k_hb[3] = kernel::create(cross_post_c_hb_L0);
+            k_rowmerge = kernel::create(cross_post_rowmerge_L0);
+        } else {
+            k_hb[0] = kernel::create(cross_post_b1_hb_L1); k_hb[1] = kernel::create(cross_post_b2_hb_L1);
+            k_hb[2] = kernel::create(cross_post_c1_hb_L1); k_hb[3] = kernel::create(cross_post_c_hb_L1);
+            k_rowmerge = kernel::create(cross_post_rowmerge_L1);
+        }
+        {
+            const char* st[4] = {"b1", "b2", "c1", "c"};
+            for (int i = 0; i < 4; i++) {
+                source(k_hb[i]) = ("kernels/cross_post_" + std::string(st[i]) + "_hb_L" + std::to_string(LAYER) + ".cc").c_str();
+                runtime<ratio>(k_hb[i]) = 0.9;
+            }
+            source(k_rowmerge) = ("kernels/cross_post_rowmerge_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_rowmerge) = 0.9;
+        }
+        connect<stream>(k_post_ap.out[1], k_hb[0].in[0]);
+        connect<stream>(k_post_ap.out[1], k_hb[3].in[1]);
+        connect<stream>(k_hb[0].out[0], k_hb[1].in[0]);
+        connect<stream>(k_hb[1].out[0], k_hb[2].in[0]);
+        connect<stream>(k_hb[2].out[0], k_hb[3].in[0]);
+        connect<stream>(k_post_c.out[0], k_rowmerge.in[0]);
+        connect<stream>(k_hb[3].out[0], k_rowmerge.in[1]);
+        connect<stream>(k_rowmerge.out[0], plio_x_out.in[0]);
+#else
         connect<stream>(k_post_c.out[0], plio_x_out.in[0]);
+#endif
 #elif !defined(POST_MERGED)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);

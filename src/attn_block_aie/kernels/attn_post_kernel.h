@@ -67,6 +67,13 @@ DECL_POST_BC(cross, 0);DECL_POST_BC(cross, 1);
 #define DECL_POST_PROJ_S(t, l) void t##_post_a_proj_L##l( \
     input_stream_int16* __restrict h01_in, input_stream_int16* __restrict h23_in, \
     AIE_IW* __restrict residual_in, output_stream_int16* __restrict proj_out)
+#if defined(ROW_SPLIT)
+#undef DECL_POST_PROJ_S
+#define DECL_POST_PROJ_S(t, l) void t##_post_a_proj_L##l( \
+    input_stream_int16* __restrict h01_in, input_stream_int16* __restrict h23_in, \
+    AIE_IW* __restrict residual_in, output_stream_int16* __restrict proj_out, \
+    output_stream_int16* __restrict proj_b_out)
+#endif
 #endif
 #define DECL_POST_B1(t, l) void t##_post_b1_L##l(input_stream_int16* __restrict proj_in, output_stream_int16* __restrict ffn0_out)
 #define DECL_POST_B2(t, l) void t##_post_b2_L##l(input_stream_int16* __restrict ffn0_in, output_stream_int16* __restrict ffn1_out)
@@ -81,6 +88,19 @@ DECL_POST_BC(cross, 0);DECL_POST_BC(cross, 1);
 DECL_POST_C1(obj, 0);  DECL_POST_C1(obj, 1);
 DECL_POST_C1(cand, 0); DECL_POST_C1(cand, 1);
 DECL_POST_C1(cross, 0);DECL_POST_C1(cross, 1);
+#if defined(ROW_SPLIT)
+// ROW_SPLIT: second row chain (odd rows) and the row merge, object and cross only
+#define DECL_ROW_HALF_B(t, l) \
+    void t##_post_b1_hb_L##l(input_stream_int16* __restrict proj_in, output_stream_int16* __restrict ffn0_out); \
+    void t##_post_b2_hb_L##l(input_stream_int16* __restrict ffn0_in, output_stream_int16* __restrict ffn1_out); \
+    void t##_post_c1_hb_L##l(input_stream_int16* __restrict ffn_in, output_stream_int16* __restrict ffn_out); \
+    void t##_post_c_hb_L##l(input_stream_int16* __restrict ffn_in, input_stream_int16* __restrict residual_b_in, \
+                            output_stream_int16* __restrict x_out); \
+    void t##_post_rowmerge_L##l(input_stream_int16* __restrict a_in, input_stream_int16* __restrict b_in, \
+                                output_stream_int16* __restrict x_out)
+DECL_ROW_HALF_B(obj, 0);  DECL_ROW_HALF_B(obj, 1);
+DECL_ROW_HALF_B(cross, 0);DECL_ROW_HALF_B(cross, 1);
+#endif
 #endif
 #endif
 

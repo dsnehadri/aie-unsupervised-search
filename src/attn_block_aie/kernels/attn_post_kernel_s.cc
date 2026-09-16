@@ -31,6 +31,16 @@ static inline void row_write(output_stream_int16* __restrict s, const v16_t& v)
     writeincr_v8(s, v.template extract<8>(0).to_native());
     writeincr_v8(s, v.template extract<8>(1).to_native());
 }
+// ROW_SPLIT (object and cross blocks): a_proj sends even rows on one stream and
+// odd rows on another, two copies of b1 -> b2 -> c1 -> c each carry six rows, and
+// a row-merge kernel puts them back in order. Each chain does half the work, so
+// the block no longer waits on one chain for all twelve rows.
+#if defined(ROW_SPLIT) && defined(HEAD_STREAM_T)
+#define CHAIN_ROWS (N_MAX / 2)
+#else
+#define CHAIN_ROWS POST_N_ROWS
+#endif
+
 static inline v16_t relu16(const v16_t& v) { return aie::max(v, aie::zeros<int16, 16>()); }
 
 #if defined(ROW_LOOKAHEAD)
@@ -82,7 +92,12 @@ static inline void lin_ln_relu_stage(input_stream_int16* __restrict in,
 void POST_A_PROJ_FN(input_stream_int16* __restrict h01_in,
                       input_stream_int16* __restrict h23_in,
                       input_window_int16* __restrict residual_in,
+#if defined(ROW_SPLIT)
+                      output_stream_int16* __restrict proj_out,
+                      output_stream_int16* __restrict proj_b_out)
+#else
                       output_stream_int16* __restrict proj_out)
+#endif
 {
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
@@ -98,7 +113,11 @@ void POST_A_PROJ_FN(input_stream_int16* __restrict h01_in,
         aie::store_v(row, row_lin16(xrow, Wout, bout, PIPE_ACC_SHIFT));
 #endif
         layernorm_row(row, 1, E_DIM, post_attn_ln_gamma, post_attn_ln_beta);
+#if defined(ROW_SPLIT)
+        row_write((r & 1) ? proj_b_out : proj_out, aie::load_v<16>(row));   // odd rows to chain b
+#else
         row_write(proj_out, aie::load_v<16>(row));
+#endif
     }
     aie::set_saturation(sat_save);
 }
@@ -165,7 +184,7 @@ void POST_B1_FN(input_stream_int16* __restrict proj_in, output_stream_int16* __r
 #else
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    for (int r = 0; r < POST_N_ROWS; r++) {
+    for (int r = 0; r < CHAIN_ROWS; r++) {
         aie::store_v(xrow, row_read(proj_in));
         aie::store_v(row, row_lin16(xrow, ffn_W0, ffn_b0, PIPE_ACC_SHIFT));
         layernorm_row(row, 1, E_DIM, ffn_ln_gamma0, ffn_ln_beta0);
@@ -186,7 +205,7 @@ void POST_B2_FN(input_stream_int16* __restrict ffn0_in, output_stream_int16* __r
 #else
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    for (int r = 0; r < POST_N_ROWS; r++) {
+    for (int r = 0; r < CHAIN_ROWS; r++) {
         aie::store_v(xrow, row_read(ffn0_in));
         aie::store_v(row, row_lin16(xrow, ffn_W1, ffn_b1, PIPE_ACC_SHIFT));
         layernorm_row(row, 1, E_DIM, ffn_ln_gamma1, ffn_ln_beta1);
@@ -215,7 +234,7 @@ void POST_C1_FN(input_stream_int16* __restrict ffn_in, output_stream_int16* __re
 #else
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    for (int r = 0; r < POST_N_ROWS; r++) {
+    for (int r = 0; r < CHAIN_ROWS; r++) {
         aie::store_v(xrow, row_read(ffn_in));
         aie::store_v(row, row_lin16(xrow, ffn_W2, ffn_b2, PIPE_ACC_SHIFT));
         layernorm_row(row, 1, E_DIM, ffn_ln_gamma2, ffn_ln_beta2);
@@ -232,7 +251,7 @@ void POST_C_FN(input_stream_int16* __restrict c1_in,
 {
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 row[E_DIM];
-    for (int r = 0; r < POST_N_ROWS; r++) {
+    for (int r = 0; r < CHAIN_ROWS; r++) {
         aie::store_v(row, add_sat16(row_read(c1_in), row_read(residual_b_in)));   // skip with proj
         layernorm_row(row, 1, E_DIM, post_ffn_ln_gamma, post_ffn_ln_beta);
         row_write(x_out, aie::load_v<16>(row));
@@ -248,7 +267,7 @@ void POST_C_FN(input_stream_int16* __restrict ffn_in,
 {
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    for (int r = 0; r < POST_N_ROWS; r++) {
+    for (int r = 0; r < CHAIN_ROWS; r++) {
         aie::store_v(xrow, row_read(ffn_in));
         aie::store_v(row, row_lin16(xrow, ffn_W2, ffn_b2, PIPE_ACC_SHIFT));
         layernorm_row(row, 1, E_DIM, ffn_ln_gamma2, ffn_ln_beta2);
@@ -261,3 +280,16 @@ void POST_C_FN(input_stream_int16* __restrict ffn_in,
 }
 #endif
 #endif  // POST_SPLIT_C
+
+#if defined(POST_STAGE_ROWMERGE)
+// ROW_SPLIT: put the two chains' rows back in order (chain a has the even rows)
+void POST_ROWMERGE_FN(input_stream_int16* __restrict a_in,
+                      input_stream_int16* __restrict b_in,
+                      output_stream_int16* __restrict x_out)
+{
+    for (int r = 0; r < N_MAX / 2; r++) {
+        row_write(x_out, row_read(a_in));
+        row_write(x_out, row_read(b_in));
+    }
+}
+#endif

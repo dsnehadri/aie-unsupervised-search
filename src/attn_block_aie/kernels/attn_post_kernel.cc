@@ -33,6 +33,18 @@
 #define POST_C_FN        _POST_FN_2(ATTN_TYPE_TAG, c,        ATTN_LAYER)
 #define POST_BC_FN       _POST_FN_2(ATTN_TYPE_TAG, bc,       ATTN_LAYER)
 #define POST_C1_FN       _POST_FN_2(ATTN_TYPE_TAG, c1,       ATTN_LAYER)
+#define POST_ROWMERGE_FN _POST_FN_2(ATTN_TYPE_TAG, rowmerge, ATTN_LAYER)
+#if defined(ROW_HALF_B)
+// ROW_SPLIT: the second row chain's copies need their own symbols
+#undef POST_B1_FN
+#undef POST_B2_FN
+#undef POST_C_FN
+#undef POST_C1_FN
+#define POST_B1_FN       _POST_FN_2(ATTN_TYPE_TAG, b1_hb,    ATTN_LAYER)
+#define POST_B2_FN       _POST_FN_2(ATTN_TYPE_TAG, b2_hb,    ATTN_LAYER)
+#define POST_C_FN        _POST_FN_2(ATTN_TYPE_TAG, c_hb,     ATTN_LAYER)
+#define POST_C1_FN       _POST_FN_2(ATTN_TYPE_TAG, c1_hb,    ATTN_LAYER)
+#endif
 
 // Pipeline-wide scale: cand uses Q6.9; obj/cross use Q4.11. See attn_head_kernel.cc.
 #if defined(ATTN_TYPE_CAND)
