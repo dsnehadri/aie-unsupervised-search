@@ -228,3 +228,28 @@ Cumulative from the start of the latency work:
   The hybrid leads by 1.21x on one event (1.30x direct) and 2.4x on throughput.
   Every step kept the scores bit-identical except the vector float softmax
   (2026-09-12, AUC 0.9817 vs 0.9825) which was accepted on AUC.
+
+MEASURED 2026-09-16 (image md5 e65aad90, BOOT.BIN.v4; EMBED_PIPE +
+PRE_STREAM_CROSS on top of the previous levers, fabric at 125 MHz, met timing
+with only 0.163 ns slack -- 130 MHz would not have closed):
+  one event       76 -> 66 us
+  direct regs   55.7 -> 52.2 us
+  interval       6.5 -> 5.5 us/event (183,190 ev/s)
+  scores IDENTICAL 2000/2000, AUC 0.9825. Array in simulation 48.9 -> 44.8 us.
+  EMBED_PIPE: the embedding MLP as three tiles passing four rows at a time, so
+  the chain no longer waits 7.2 us before its first block (3.4 us now).
+  PRE_STREAM_CROSS: the cross pre kernel takes BOTH inputs as streams. The
+  version that took c as a WINDOW deadlocked (2026-09-14); with no window to
+  acquire the kernel starts on x at once and blocks on c only afterwards, which
+  is the order the chain produces them.
+  NEGATIVE, and a DEADLOCK HAZARD: ROW_LOOKAHEAD (compute row r+1's linear in
+  the same iteration as row r's norm). Chain 44.8 -> 69.4 us with the embedding
+  pipeline present and NO OUTPUT AT ALL without it. Reading ahead makes each
+  stage wait on its producer while holding a finished row, so it gains a
+  producer period instead of hiding a norm. A row pipeline wants each stage to
+  consume, compute and emit as fast as it can.
+
+Cumulative from the start of the latency work:
+  hybrid      one event 355 -> 66 us (5.4x), direct 52.2 us, interval 17.3 -> 5.5
+  fabric-only one event 363 -> 92 us (3.9x), direct 72.2 us, interval 79.8 -> 15.7
+  The hybrid leads by 1.39x on one event (1.38x direct) and 2.9x on throughput.
