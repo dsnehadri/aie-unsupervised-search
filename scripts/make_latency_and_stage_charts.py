@@ -90,8 +90,11 @@ NMIN = 8
 #     interval; figs/aie_obj_block_profile.txt), which predicted the board
 #     within 6% in every earlier check. Both clocks are exactly 100 MHz.
 PL_CLK, HYB_CLK = 156.25e6, 125e6   # fabric-only at 156.25 MHz (t2k), the hybrid fabric at 125
-AIE = {"Object attention": 4.5, "Candidate attention": 1.6, "Cross attention": 2.7}
-EMBED_AIE_SIM = 3.4   # embed_mlp as three tiles passing four rows at a time
+# MEASURED block intervals (aiesimulator, output timestamps): object 5.3 us with the
+# split stage and softmax streaming; cross 3.2 us from the same profile, before its
+# keys became a stream (re-profile pending); candidate 1.6 us.
+AIE = {"Object attention": 5.3, "Candidate attention": 1.6, "Cross attention": 3.2}
+EMBED_AIE_SIM = 3.2   # embed_mlp as three tiles: first tile 4,047 cycles/event in the all-levers chain profile
 cyc = lambda c, clk: c / clk * 1e6
 cycpl = lambda c: c / PL_CLK * 1e6
 # rows: (label, PL-only us, hybrid PL-side us, hybrid AIE us)
