@@ -49,7 +49,8 @@ def fig_endtoend():
         ("AIE hybrid  pipelined bridge",       7549,  AIE_C),
         ("AIE hybrid  whole stack on array",  135000, AIE_C),
         ("AIE hybrid  91 tiles",              153106, AIE_C),
-        ("AIE hybrid  current",               183190, AIE_C),
+        ("AIE hybrid  embedding on array",    183190, AIE_C),
+        ("AIE hybrid  current",               201326, AIE_C),
     ]
     labels = [r[0] for r in rows]
     vals = np.array([r[1] for r in rows], float)

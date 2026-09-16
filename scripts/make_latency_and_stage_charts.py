@@ -65,7 +65,7 @@ def _csv(path, kernel):
     return pts
 _F = "/home/snehadri/repos/aie-unsupervised-search/figs/"
 SWEEP["PL-only, attention blocks optimised"] = _csv(_F + "latency_sweep_pl_t2k.csv", "pl_stream_top")
-SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_v4.csv", "aie_stream_top")
+SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_v5.csv", "aie_stream_top")
 NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
@@ -90,20 +90,20 @@ NMIN = 8
 #     interval; figs/aie_obj_block_profile.txt), which predicted the board
 #     within 6% in every earlier check. Both clocks are exactly 100 MHz.
 PL_CLK, HYB_CLK = 156.25e6, 125e6   # fabric-only at 156.25 MHz (t2k), the hybrid fabric at 125
-# MEASURED block intervals (aiesimulator, output timestamps): object 5.3 us with the
-# split stage and softmax streaming; cross 3.2 us from the same profile, before its
-# keys became a stream (re-profile pending); candidate 1.6 us.
-AIE = {"Object attention": 5.3, "Candidate attention": 1.6, "Cross attention": 3.2}
+# MEASURED on the board, 2026-09-16: each block alone on the array with the v5 flags
+# (blocks3_v2, preloaded feeders, batch-sweep slope). The simulator gave 3.8 us for
+# both object and cross.
+AIE = {"Object attention": 4.1, "Candidate attention": 1.0, "Cross attention": 3.8}
 EMBED_AIE_SIM = 3.2   # embed_mlp as three tiles: first tile 4,047 cycles/event in the all-levers chain profile
 cyc = lambda c, clk: c / clk * 1e6
 cycpl = lambda c: c / PL_CLK * 1e6
 # rows: (label, PL-only us, hybrid PL-side us, hybrid AIE us)
 # 2026-09-16: every fabric number below re-read from the csynth reports of the two
-# DEPLOYED builds (plstream_t2k, aie_hybrid_chain), per-event iteration latency of each
+# DEPLOYED builds (plstream_t2k; hybrid v5 = aie_hybrid_v5, fabric from aie_hybrid_ae3), per-event iteration latency of each
 # stage loop. Both were scheduled against the same 3.2 ns HLS target and run at
 # 156.25 / 125 MHz, so the cycle counts compare directly. Hybrid: read 152, fork 161,
-# embed send 92, mask send 29, pairwise 661, wij send 352, x recv 243, c recv 63,
-# lorentz 623, AE 429, write 84. Fabric-only: read 152, fork 112, embed 973,
+# embed send 92, mask send 29, pairwise 653, wij send 397, x recv 243, c recv 63,
+# lorentz 623, AE 306 (local weights: the two decoders no longer take turns), write 84. Fabric-only: read 152, fork 112, embed 973,
 # pairwise 428, obj 1675/1611, cand 708/719, cross 1880, lorentz 373, AE 281, write 84.
 # Hybrid = the "chain" image (whole ABC stack on the array, 2026-09-14). PL
 # column: per-event iteration latency of each fabric stage loop in
@@ -127,7 +127,7 @@ ROWS = [
  ("Read input",                cycpl(152),   cyc(152, HYB_CLK),          0),
  ("Fork",                      cycpl(112),   cyc(161, HYB_CLK),          0),
  ("Embedding",                 cycpl(973),   cyc(max(92, 29), HYB_CLK),  EMBED_AIE_SIM),
- ("Pairwise $w_{ij}$",         cycpl(428),   cyc(max(661, 352), HYB_CLK), 0),   # t2i: pairwise at II=1 (t2h: 2640)
+ ("Pairwise $w_{ij}$",         cycpl(428),   cyc(max(653, 397), HYB_CLK), 0),   # t2i: pairwise at II=1 (t2h: 2640)
  ("Object attention L0",       cycpl(1675),  0,                          AIE["Object attention"]),
  ("Build candidates + candidate attention L0", cycpl(708), 0,            AIE["Candidate attention"] + 0.5),
  ("Cross attention L0",        cycpl(1880),  0,                          AIE["Cross attention"]),
@@ -135,7 +135,7 @@ ROWS = [
  ("Build candidates + candidate attention L1", cycpl(719), 0,            AIE["Candidate attention"] + 0.5),
  ("Cross attention L1",        cycpl(1880),  0,                          AIE["Cross attention"]),
  ("Candidate build* + mass",   cycpl(373),   cyc(max(623, 243, 63), HYB_CLK), 0),
- ("Autoencoder + MSE",         cycpl(281),   cyc(429, HYB_CLK),          0),
+ ("Autoencoder + MSE",         cycpl(281),   cyc(306, HYB_CLK),          0),
  ("Write DDR",                 cycpl(84),    cyc(84, HYB_CLK),           0),
 ]
 labs = [r[0] for r in ROWS]
@@ -183,7 +183,7 @@ hh = 0.36
 axc.barh(y + hh/2, hp, color=AIEC, edgecolor=INK, linewidth=0.8, height=hh,
          label="PL stage / PL–AIE streaming")
 axc.barh(y - hh/2, ha, color=AIE_DARK, edgecolor=INK, linewidth=0.8, height=hh,
-         label="AI Engine compute (kernel interval, aiesimulator)")
+         label="AI Engine compute")
 for yy, p, a in zip(y, hp, ha):
     if p:
         axc.text(p + 0.4, yy + hh/2, f"{p:.1f}", va="center", fontsize=8.2, color=INK, zorder=6)
