@@ -133,66 +133,37 @@ def fig_blocks_and_scaling():
     axb.set_ylim(0, pl_us.max() * 1.22)
     axb.legend(fontsize=10, frameon=False, loc="upper right")
 
-    # --- (b) AIE tile replication, with the shared-feeder model ---
-    # One PL feeder dispatches events to the N instances in turn, so the time
-    # per event is t = t_f + t_c/N: t_f = feeder time per event, t_c = the
-    # per-invocation cost every instance pays (launch + block latency).
-    # Throughput = 1/t = N/(t_c + N t_f) -> 1/t_f as N grows. Fit on the
-    # invocation time T(N) = t_c + N t_f, which is linear in N.
-    # Prefer the sweep on the CURRENT 12-tile graph (obj24 vehicle, cores kept
-    # out of the gated column 0) when its CSV exists; fall back to the July
-    # 13-tile obj16 sweep otherwise.
-    import csv, os
+    # --- (b) AIE tile replication ---
+    # obj20_v5: 20 object blocks (v5 array flags, 15 tiles each) fed by one fabric
+    # feeder that sends a preloaded event to every active instance in the same
+    # clock cycle, many events per call. Each point is the slope of call time vs
+    # events per call, so launch cost is excluded, as in the left panel.
+    # (The older sweep sent one event per instance per call through a serial
+    # feeder; its ~16 us/event feeder, not the array, capped the curve.)
+    # One and two instances run at the single-block rate (4.3 us); from the third
+    # instance every round takes 7.6 us: the feeder moves in lockstep, so the
+    # slowest instance (the third) sets the pace for all.
+    import os
     SAVE = "/home/snehadri/aie_scratch_save_20260810"
-    TILES_PER = 15   # the current object block: 4 pre, 4 head post, 2 merge, projection, b1, b2, c1, c
-
-    def _sweep(path, TILES_PER=TILES_PER):
-        rows = [r for r in csv.DictReader(open(path))]
-        tiles = np.array([float(r["n_inst"]) * TILES_PER for r in rows])
-        meas = np.array([float(r["agg_ev_s"]) for r in rows])
-        n = tiles / TILES_PER
-        t_f, t_c = np.polyfit(n, n / meas, 1)   # T(N) = t_c + N t_f, per invocation
-        return tiles, meas, t_f, t_c
-
-    # Two kernel versions of the same 24-instance vehicle. The vector integer
-    # layer norm cuts t_c (the per-instance compute) but leaves t_f (the shared
-    # PL feeder) alone, so both curves run into the same ceiling -- the faster
-    # kernels simply get there with fewer tiles.
-    # The two older series were 12-tile blocks; the current one is 15 tiles and
-    # halves the block latency, which is what this vehicle measures (it sends
-    # one event per instance per invocation, so t_c is the block's latency).
-    SERIES = [
-        (f"{SAVE}/obj20_sweep_v3x.csv", "AIE block", AIE_C, "o", 15),
-    ]
-    top = 0
-    for path, lab, col, mk, tper in SERIES:
-        if not os.path.isfile(path):
-            continue
-        TILES_PER = tper
-        tiles, meas, t_f, t_c = _sweep(path, tper)
-        n_model = np.linspace(0.6, 400 / TILES_PER, 400)
-        thr_model = n_model / (t_c + n_model * t_f)
-        top = max(top, thr_model.max())
-        # solid where the vehicle was measured, dashed where the model extrapolates
-        inside = n_model * TILES_PER <= tiles.max()
-        axs.plot(n_model[inside] * TILES_PER, thr_model[inside], "-", color=col, lw=1.6, alpha=.85,
-                 label=(f"{lab}: $t_f$ = {t_f*1e6:.1f} µs, $t_c$ = {t_c*1e6:.0f} µs"))
-        axs.plot(n_model[~inside] * TILES_PER, thr_model[~inside], ":", color=col, lw=1.6, alpha=.85)
-        axs.plot(tiles, meas, mk, color=col, ms=7, markeredgecolor="k",
-                 markeredgewidth=0.4, zorder=5)
+    TILES_PER = 15   # 4 pre, 4 head post, 2 merge, projection, b1, b2, c1, c
+    tiles, agg = [], []
+    for l in open(f"{SAVE}/obj20_sweep_v5_batch.csv"):
+        if l.startswith("FIT,"):
+            kv = dict(x.split("=") for x in l.strip().split(",")[1:])
+            tiles.append(int(kv["tiles"])); agg.append(float(kv["agg_ev_s"]))
+    tiles, agg = np.array(tiles), np.array(agg)
+    axs.plot(tiles, agg / 1e6, "-o", color=AIE_C, lw=1.6, ms=7, markeredgecolor="k",
+             markeredgewidth=0.4, zorder=5, label="AIE blocks")
     # one PL object block, from the same per-block sweep as the left panel
-    axs.axhline(1e6 / pl_us[0], color=PL_C, lw=2, ls="--", label="PL block")
-    _tk = [12, 48, 96, 192, 288, 400]
+    axs.axhline(1 / pl_us[0], color=PL_C, lw=2, ls="--", label="PL block")
+    _tk = [15, 60, 120, 180, 240, 300]
     axs.set_xticks(_tk)
     axs.set_xticklabels([f"{int(v)}" for v in _tk])
-    axs.set_xlim(0, 420)
+    axs.set_xlim(0, 320)
     axs.set_xlabel("AI Engine tiles", fontsize=12.5)
-    axs.set_ylabel("Object attention block throughput [events / s]",
-                   fontsize=12.5)
-    axs.set_ylim(0, top * 1.15)
-    axs.legend(fontsize=9.2, loc="upper left", bbox_to_anchor=(0.02, 0.94), frameon=False,
-               title=r"Model $t = t_f + t_c/N$", title_fontsize=9.5)
-    axs.get_legend().get_title().set_ha("left")
+    axs.set_ylabel("Object attention throughput [million events / s]", fontsize=12.5)
+    axs.set_ylim(0, agg.max() / 1e6 * 1.12)
+    axs.legend(fontsize=10, loc="upper left", frameon=False)
 
     save(fig, "throughput_blocks_and_scaling")
 
