@@ -98,7 +98,7 @@ def fig_blocks_and_scaling():
     HYB_INTERVAL = 111.0
     xs = np.arange(len(blocks))
     import json, os
-    _bi = "/home/snehadri/aie_scratch_save_20260810/block_intervals_t2l.json"   # blocks3_v2 (array, v5 flags) + pl_attn_v4 (fabric, t2l flags)
+    _bi = "/home/snehadri/aie_scratch_save_20260810/block_intervals_t2n.json"   # blocks3_v2 (array, v5 flags) + pl_attn_v5 (fabric, t2n flags)
     aie_us = None
     if os.path.isfile(_bi):
         _d = json.load(open(_bi))
