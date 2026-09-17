@@ -70,6 +70,11 @@ inline void ae_encode(
     const AEEncoderWeights &enc_w,
     data_t latent[1][AE_DIM]
 ) {
+    // NEGATIVE (2026-09-17): with LIN_J_UNROLL synthesis keeps ONE ae_encode and
+    // ONE ae_decode and runs the two candidates in turn (t2n: 330 cycles, t2k
+    // with two copies: 281). #pragma HLS INLINE here and in ae_decode only got
+    // 302 cycles -- the linear/layernorm sub-blocks stay shared -- and raised
+    // the LUT estimate to 1.09 M on an 80%-full design. ~0.2 us; not worth it.
     // intermediate buffers at cascade width
     data_t buf_d1[1][AE_D1]; // after layer 0: dim 11
     data_t buf_d2[1][AE_D2]; // after layer 1: dim 8
@@ -147,9 +152,6 @@ inline void dual_autoencoder(
     ae_encode(c0_in, enc_w, c0_latent);
     ae_encode(c1_in, enc_w, c1_latent);
 
-    // Plain functions on purpose: with a template (an earlier experiment)
-    // synthesis kept ONE encoder and one decoder and ran the two candidates in
-    // turn (335 cycles instead of 264 in the t2l fabric-only build).
     ae_decode(c0_latent, dec_w, c0_decoded);
     ae_decode(c1_latent, dec_w, c1_decoded);
 
