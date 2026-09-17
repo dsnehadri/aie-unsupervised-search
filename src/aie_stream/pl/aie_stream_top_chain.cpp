@@ -130,6 +130,68 @@ static void lorentz_loop(hls::stream<data_t>& jc, hls::stream<data_t>& x,
     hls::stream<data_t>& c, hls::stream<bool>& m, hls::stream<data_t>& o, int n) {
     for (int e = 0; e < n; e++) cand_lorentz_stage(jc, x, c, m, o);
 }
+#if defined(PAIRWISE_ON_AIE)
+// the pairwise bias MLP runs on the array (PairwiseGraph); the fork's copy of
+// the jets is read and dropped
+static void pairwise_drain_loop(hls::stream<data_t>& j, int n) {
+    for (int e = 0; e < n; e++)
+        for (int i = 0; i < N_MAX * RAW_DIM; i++) {
+            #pragma HLS PIPELINE II=1
+            j.read();
+        }
+}
+#endif
+#if defined(LORENTZ_WIDE_IN)
+// LORENTZ_WIDE_IN: the Lorentz stage spent 411 of its 623 cycles reading its
+// inputs one word per cycle (jets 109, x 241, c 61) before any arithmetic. Read
+// x and c straight from the array's 64-bit beats, four words per cycle, and the
+// jets in one flat loop; the arithmetic is the same cand_lorentz call.
+template <int ROWS, int COLS>
+static void unpack_axi_to_array(hls::stream<pkt64_t>& in, data_t a[ROWS][COLS]) {
+    for (int b = 0; b < ROWS * COLS / 4; b++) {
+        #pragma HLS PIPELINE II=1
+        pkt64_t p = in.read();
+        for (int j = 0; j < 4; j++) {
+            #pragma HLS UNROLL
+            data_t v; v.range(15, 0) = p.data.range(16 * j + 15, 16 * j);
+            a[(b * 4 + j) / COLS][(b * 4 + j) % COLS] = v;
+        }
+    }
+}
+static void cand_lorentz_stage_wide(hls::stream<data_t>& in_jets, hls::stream<pkt64_t>& x_in,
+    hls::stream<pkt64_t>& c_in, hls::stream<bool>& in_mask, hls::stream<data_t>& out_ae_input) {
+    data_t raw_jets[N_MAX][RAW_DIM];
+    JETS_FLAT: for (int i = 0; i < N_MAX; i++)
+        for (int j = 0; j < RAW_DIM; j++) {
+            #pragma HLS PIPELINE II=1
+            raw_jets[i][j] = in_jets.read();
+        }
+    data_t x[N_MAX][E_DIM];
+    unpack_axi_to_array<N_MAX, E_DIM>(x_in, x);
+    data_t c[T_DIM][E_DIM];
+    unpack_axi_to_array<T_DIM, E_DIM>(c_in, c);
+    bool mask[N_MAX];
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        mask[i] = in_mask.read();
+    }
+    float jp4[N_MAX][P4_DIM];
+    int jet_assign[N_MAX];
+    float cand_p4[T_DIM][P4_DIM];
+    float cand_mass_scaled[T_DIM];
+    data_t ae_input[T_DIM][AE_IN_DIM];
+    cand_lorentz(raw_jets, x, c, mask, jp4, jet_assign, cand_p4, cand_mass_scaled, ae_input);
+    WRITE_AE_W: for (int t = 0; t < 2; t++)
+        for (int i = 0; i < AE_IN_DIM; i++) {
+            #pragma HLS PIPELINE II=1
+            out_ae_input.write(ae_input[t][i]);
+        }
+}
+static void lorentz_loop_wide(hls::stream<data_t>& jc, hls::stream<pkt64_t>& x,
+    hls::stream<pkt64_t>& c, hls::stream<bool>& m, hls::stream<data_t>& o, int n) {
+    for (int e = 0; e < n; e++) cand_lorentz_stage_wide(jc, x, c, m, o);
+}
+#endif
 static void ae_loop(hls::stream<data_t>& i, const AEEncoderWeights& enc,
     const AEDecoderWeights& dec, hls::stream<float>& o, int n) {
     for (int e = 0; e < n; e++) ae_loss_stage(i, enc, dec, o);
@@ -143,10 +205,12 @@ static void wddr_loop(hls::stream<ap_uint<32>>& i, ap_uint<32>* out_buf, int n) 
 
 static void run_chain(const ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n,
     hls::stream<pkt64_t>& embed_j_out, hls::stream<pkt64_t>& mask_out,
+#if !defined(PAIRWISE_ON_AIE)
     hls::stream<pkt64_t>& obj0_w0_out,
 #if !defined(WIJ_ONE_PORT)
     hls::stream<pkt64_t>& obj0_w1_out,
     hls::stream<pkt64_t>& obj0_w2_out, hls::stream<pkt64_t>& obj0_w3_out,
+#endif
 #endif
     hls::stream<pkt64_t>& x_in, hls::stream<pkt64_t>& c_in,
     const MLPWeights& mlp_w, const AEEncoderWeights& ae_enc_w, const AEDecoderWeights& ae_dec_w)
@@ -176,15 +240,23 @@ static void run_chain(const ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n,
     fork_loop(in_stream, n, s_jets_embed, s_jets_pairwise, s_jets_cand, s_mask_aie, s_mask_cand);
     embed_send_loop(s_jets_embed, embed_j_out, n);
     mask_send_loop(s_mask_aie, mask_out, n);
+#if defined(PAIRWISE_ON_AIE)
+    pairwise_drain_loop(s_jets_pairwise, n);
+#else
     pairwise_loop(s_jets_pairwise, mlp_w, s_wij0, n);
 #if defined(WIJ_ONE_PORT)
     wij_send_loop(s_wij0, obj0_w0_out, n);
 #else
     wij_send_loop(s_wij0, obj0_w0_out, obj0_w1_out, obj0_w2_out, obj0_w3_out, n);
 #endif
+#endif
+#if defined(LORENTZ_WIDE_IN)
+    lorentz_loop_wide(s_jets_cand, x_in, c_in, s_mask_cand, s_ae, n);
+#else
     x_recv_loop(x_in, s_x1, n);
     c_recv_loop(c_in, s_c1, n);
     lorentz_loop(s_jets_cand, s_x1, s_c1, s_mask_cand, s_ae, n);
+#endif
     ae_loop(s_ae, ae_enc_w, ae_dec_w, s_losses, n);
     wout_loop(s_losses, out_stream, n);
     wddr_loop(out_stream, out_buf, n);
@@ -199,10 +271,12 @@ static AEEncoderWeights ae_enc_w; static AEDecoderWeights ae_dec_w;
 extern "C" void aie_stream_top(
     ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n_events,
     hls::stream<pkt64_t>& embed_j_out, hls::stream<pkt64_t>& mask_out,
+#if !defined(PAIRWISE_ON_AIE)
     hls::stream<pkt64_t>& obj0_w0_out,
 #if !defined(WIJ_ONE_PORT)
     hls::stream<pkt64_t>& obj0_w1_out,
     hls::stream<pkt64_t>& obj0_w2_out, hls::stream<pkt64_t>& obj0_w3_out,
+#endif
 #endif
     hls::stream<pkt64_t>& x_in, hls::stream<pkt64_t>& c_in)
 {
@@ -210,11 +284,13 @@ extern "C" void aie_stream_top(
     #pragma HLS INTERFACE m_axi port=out_buf offset=slave bundle=gmem1 depth=30
     #pragma HLS INTERFACE axis port=embed_j_out
     #pragma HLS INTERFACE axis port=mask_out
+#if !defined(PAIRWISE_ON_AIE)
     #pragma HLS INTERFACE axis port=obj0_w0_out
 #if !defined(WIJ_ONE_PORT)
     #pragma HLS INTERFACE axis port=obj0_w1_out
     #pragma HLS INTERFACE axis port=obj0_w2_out
     #pragma HLS INTERFACE axis port=obj0_w3_out
+#endif
 #endif
     #pragma HLS INTERFACE axis port=x_in
     #pragma HLS INTERFACE axis port=c_in
@@ -238,9 +314,11 @@ extern "C" void aie_stream_top(
     }
 #endif
     run_chain(in_buf, out_buf, n_events, embed_j_out, mask_out,
+#if !defined(PAIRWISE_ON_AIE)
               obj0_w0_out,
 #if !defined(WIJ_ONE_PORT)
               obj0_w1_out, obj0_w2_out, obj0_w3_out,
+#endif
 #endif
               x_in, c_in,
               mlp_w, ae_enc_w, ae_dec_w);

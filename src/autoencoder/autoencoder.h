@@ -65,9 +65,6 @@ struct AEDecoderWeights {
 };
 
 
-// COPY only names the instance: AE_TWO_COPIES calls <0> and <1> so synthesis
-// cannot fold the two candidates onto one shared datapath.
-template <int COPY = 0>
 inline void ae_encode(
     const data_t x[1][AE_IN_DIM],
     const AEEncoderWeights &enc_w,
@@ -97,9 +94,6 @@ inline void ae_encode(
     linear<1, AE_D4, AE_D3>(buf_d3, enc_w.w3, enc_w.b3, latent);
 }
 
-// COPY only names the instance: AE_TWO_COPIES calls <0> and <1> so synthesis
-// cannot fold the two candidates onto one shared datapath.
-template <int COPY = 0>
 inline void ae_decode(
     const data_t latent[1][AE_DIM],
     const AEDecoderWeights &dec_w,
@@ -150,23 +144,14 @@ inline void dual_autoencoder(
     float &mse_crossed_loss,
     float &latent_dist_l2sq
 ) {
-#ifdef AE_TWO_COPIES
-    // NEGATIVE: forces distinct encoder/decoder instances per candidate. The
-    // hybrid already had two of each; it still took 389 cycles (fabric-only
-    // 264) because both decoders read one writable weight memory and took
-    // turns. The fix is WEIGHTS_LOCAL in aie_stream_top_chain.cpp, not this.
-    ae_encode<0>(c0_in, enc_w, c0_latent);
-    ae_encode<1>(c1_in, enc_w, c1_latent);
-
-    ae_decode<0>(c0_latent, dec_w, c0_decoded);
-    ae_decode<1>(c1_latent, dec_w, c1_decoded);
-#else
     ae_encode(c0_in, enc_w, c0_latent);
     ae_encode(c1_in, enc_w, c1_latent);
 
+    // Plain functions on purpose: with a template (an earlier experiment)
+    // synthesis kept ONE encoder and one decoder and ran the two candidates in
+    // turn (335 cycles instead of 264 in the t2l fabric-only build).
     ae_decode(c0_latent, dec_w, c0_decoded);
     ae_decode(c1_latent, dec_w, c1_decoded);
-#endif
 
     // mse loss
 

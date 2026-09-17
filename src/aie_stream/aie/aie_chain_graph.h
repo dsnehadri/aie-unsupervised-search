@@ -433,6 +433,13 @@ public:
     kernel k_post_c1;                 // FFN layer 2 + norm + ReLU; post_c keeps the residual add + norm
 #endif
 #endif
+#if defined(ROW_SPLIT_CROSS) && defined(POST_SPLIT_C) && defined(POST_STREAM)
+    kernel k_hb[4];                   // ROW_SPLIT: second row chain (odd rows): b1, b2, c1, c
+    kernel k_rowmerge;                // puts the two chains' rows back in order
+    kernel& k_out() { return k_rowmerge; }
+#else
+    kernel& k_out() { return k_post_c; }
+#endif
 public:
     CrossChainL() {
         const std::string suffix = "_L" + std::to_string(LAYER);
@@ -569,7 +576,35 @@ public:
 #else
         connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
 #endif
-        // block output: k_post_c.out[0] (stream), connected by the top graph
+#if defined(ROW_SPLIT_CROSS) && defined(POST_SPLIT_C)
+        // ROW_SPLIT: a_proj's second output carries the odd rows through a copy of the chain
+        if constexpr (LAYER == 0) {
+            k_hb[0] = kernel::create(cross_post_b1_hb_L0); k_hb[1] = kernel::create(cross_post_b2_hb_L0);
+            k_hb[2] = kernel::create(cross_post_c1_hb_L0); k_hb[3] = kernel::create(cross_post_c_hb_L0);
+            k_rowmerge = kernel::create(cross_post_rowmerge_L0);
+        } else {
+            k_hb[0] = kernel::create(cross_post_b1_hb_L1); k_hb[1] = kernel::create(cross_post_b2_hb_L1);
+            k_hb[2] = kernel::create(cross_post_c1_hb_L1); k_hb[3] = kernel::create(cross_post_c_hb_L1);
+            k_rowmerge = kernel::create(cross_post_rowmerge_L1);
+        }
+        {
+            const char* st[4] = {"b1", "b2", "c1", "c"};
+            for (int i = 0; i < 4; i++) {
+                source(k_hb[i]) = ("kernels/cross_post_" + std::string(st[i]) + "_hb_L" + std::to_string(LAYER) + ".cc").c_str();
+                runtime<ratio>(k_hb[i]) = 0.9;
+            }
+            source(k_rowmerge) = ("kernels/cross_post_rowmerge_L" + std::to_string(LAYER) + ".cc").c_str();
+            runtime<ratio>(k_rowmerge) = 0.9;
+        }
+        connect<stream>(k_post_ap.out[1], k_hb[0].in[0]);
+        connect<stream>(k_post_ap.out[1], k_hb[3].in[1]);
+        connect<stream>(k_hb[0].out[0], k_hb[1].in[0]);
+        connect<stream>(k_hb[1].out[0], k_hb[2].in[0]);
+        connect<stream>(k_hb[2].out[0], k_hb[3].in[0]);
+        connect<stream>(k_post_c.out[0], k_rowmerge.in[0]);
+        connect<stream>(k_hb[3].out[0], k_rowmerge.in[1]);
+#endif
+        // block output: k_out().out[0] (stream), connected by the top graph
 #elif !defined(POST_MERGED)
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_b1.in[0]);
         connect<window<proj_sz>>(k_post_ap.out[0], k_post_c.in[1]);
@@ -607,6 +642,11 @@ public:
         location<kernel>(k_post_c1) = tile(col + 1, r++);
 #endif
         location<kernel>(k_post_c)  = tile(col + 1, r++);
+#if defined(ROW_SPLIT_CROSS) && defined(POST_SPLIT_C) && defined(POST_STREAM)
+        // ROW_SPLIT: the second chain and the row merge take a third column
+        for (int i = 0; i < 4; i++) location<kernel>(k_hb[i]) = tile(col + 2, i);
+        location<kernel>(k_rowmerge) = tile(col + 2, 4);
+#endif
 #else
         location<kernel>(k_post_bc) = tile(col + 1, r++);
 #endif
@@ -614,12 +654,100 @@ public:
 
 };
 
+#if defined(PAIRWISE_ON_AIE)
+#include "../../attn_block_aie/kernels/pair_kernels.h"
+// PAIRWISE_ON_AIE: the pairwise bias MLP as 48 tiles, see pair_kernels.h.
+class PairwiseGraph : public graph {
+public:
+    port<input> jets_in;                       // the raw jets window (64 int16)
+    kernel k_feat, k_l0[PAIR_CHAINS], k_l1[PAIR_CHAINS], k_l2[PAIR_CHAINS];
+    kernel k_m1[6], k_m2[3], k_m3, k_m4;       // k_m4.out[0]: the 12 bias rows, in order
+    PairwiseGraph() {
+#if !defined(PAIR_L0_WINDOW)
+        k_feat = kernel::create(pair_feat); source(k_feat) = "kernels/pair_feat.cc"; runtime<ratio>(k_feat) = 0.9;
+#endif
+#define PAIR_MK(k) \
+        k_l0[k] = kernel::create(pair_l0_c##k); k_l1[k] = kernel::create(pair_l1_c##k); k_l2[k] = kernel::create(pair_l2_c##k);
+        PAIR_MK(0) PAIR_MK(1) PAIR_MK(2) PAIR_MK(3) PAIR_MK(4)  PAIR_MK(5)
+        PAIR_MK(6) PAIR_MK(7) PAIR_MK(8) PAIR_MK(9) PAIR_MK(10) PAIR_MK(11)
+#undef PAIR_MK
+        for (int k = 0; k < PAIR_CHAINS; k++) {
+            const std::string c = std::to_string(k);
+            source(k_l0[k]) = ("kernels/pair_l0_c" + c + ".cc").c_str();
+            source(k_l1[k]) = ("kernels/pair_l1_c" + c + ".cc").c_str();
+            source(k_l2[k]) = ("kernels/pair_l2_c" + c + ".cc").c_str();
+            runtime<ratio>(k_l0[k]) = 0.9; runtime<ratio>(k_l1[k]) = 0.9; runtime<ratio>(k_l2[k]) = 0.9;
+        }
+        k_m1[0] = kernel::create(pair_merge_1_0); k_m1[1] = kernel::create(pair_merge_1_1);
+        k_m1[2] = kernel::create(pair_merge_1_2); k_m1[3] = kernel::create(pair_merge_1_3);
+        k_m1[4] = kernel::create(pair_merge_1_4); k_m1[5] = kernel::create(pair_merge_1_5);
+        k_m2[0] = kernel::create(pair_merge_2_0); k_m2[1] = kernel::create(pair_merge_2_1);
+        k_m2[2] = kernel::create(pair_merge_2_2);
+        k_m3 = kernel::create(pair_merge_3_0);    k_m4 = kernel::create(pair_merge_4_0);
+        for (int m = 0; m < 6; m++) { source(k_m1[m]) = ("kernels/pair_merge_1_" + std::to_string(m) + ".cc").c_str(); runtime<ratio>(k_m1[m]) = 0.9; }
+        for (int m = 0; m < 3; m++) { source(k_m2[m]) = ("kernels/pair_merge_2_" + std::to_string(m) + ".cc").c_str(); runtime<ratio>(k_m2[m]) = 0.9; }
+        source(k_m3) = "kernels/pair_merge_3_0.cc"; runtime<ratio>(k_m3) = 0.9;
+        source(k_m4) = "kernels/pair_merge_4_0.cc"; runtime<ratio>(k_m4) = 0.9;
+
+#if defined(PAIR_L0_WINDOW)
+        // no feature kernel: every chain reads the jets window
+        for (int k = 0; k < PAIR_CHAINS; k++) {
+            connect<window<EMBED_IN_WORDS * sizeof(int16)>>(jets_in, k_l0[k].in[0]);
+#else
+        connect<window<EMBED_IN_WORDS * sizeof(int16)>>(jets_in, k_feat.in[0]);
+        for (int k = 0; k < PAIR_CHAINS; k++) {
+            connect<stream>(k_feat.out[k / PAIR_PER_OUT], k_l0[k].in[0]);
+#endif
+            connect<stream>(k_l0[k].out[0], k_l1[k].in[0]);
+            connect<stream>(k_l1[k].out[0], k_l2[k].in[0]);
+        }
+        for (int m = 0; m < 6; m++) {
+            connect<stream>(k_l2[2 * m].out[0],     k_m1[m].in[0]);
+            connect<stream>(k_l2[2 * m + 1].out[0], k_m1[m].in[1]);
+        }
+        for (int m = 0; m < 3; m++) {
+            connect<stream>(k_m1[2 * m].out[0],     k_m2[m].in[0]);
+            connect<stream>(k_m1[2 * m + 1].out[0], k_m2[m].in[1]);
+        }
+        connect<stream>(k_m2[0].out[0], k_m3.in[0]);
+        connect<stream>(k_m2[1].out[0], k_m3.in[1]);
+        connect<stream>(k_m3.out[0],    k_m4.in[0]);
+        connect<stream>(k_m2[2].out[0], k_m4.in[1]);
+    }
+    // six columns: chain k at column col + k/2, rows 0-2 or 4-6; the feature
+    // kernel and the eleven merges fill rows 3 and 7
+    void place_at(int col)
+    {
+        for (int k = 0; k < PAIR_CHAINS; k++) {
+            const int c = col + k / 2, r0 = (k % 2) * 4;
+            location<kernel>(k_l0[k]) = tile(c, r0);
+            location<kernel>(k_l1[k]) = tile(c, r0 + 1);
+            location<kernel>(k_l2[k]) = tile(c, r0 + 2);
+        }
+        const int spare[12][2] = {{0,3},{0,7},{1,3},{1,7},{2,3},{2,7},{3,3},{3,7},{4,3},{4,7},{5,3},{5,7}};
+        int i = 0;
+#if !defined(PAIR_L0_WINDOW)
+        location<kernel>(k_feat) = tile(col + spare[i][0], spare[i][1]);
+#endif
+        i++;
+        for (int m = 0; m < 6; m++) { location<kernel>(k_m1[m]) = tile(col + spare[i][0], spare[i][1]); i++; }
+        for (int m = 0; m < 3; m++) { location<kernel>(k_m2[m]) = tile(col + spare[i][0], spare[i][1]); i++; }
+        location<kernel>(k_m3) = tile(col + spare[i][0], spare[i][1]); i++;
+        location<kernel>(k_m4) = tile(col + spare[i][0], spare[i][1]); i++;
+    }
+};
+#endif
+
 class PasswdChainGraph : public graph {
 public:
     input_plio  plio_jets_in, plio_mask_in;
+#if defined(PAIRWISE_ON_AIE)
+    PairwiseGraph pair;                // the bias MLP on the array: no wij PLIO
+#else
     input_plio  plio_wij_h0;
 #if !defined(WIJ_ONE_PORT)
     input_plio  plio_wij_h1, plio_wij_h2, plio_wij_h3;
+#endif
 #endif
     output_plio plio_x_out, plio_c_out;
     kernel k_embed, k_asm0, k_pobj0, k_asm1, k_pobj1;
@@ -631,8 +759,10 @@ public:
     PasswdChainGraph() {
         plio_jets_in = input_plio::create("embed_jets_in", plio_64_bits, "data/embed_jets_in.txt", PLIO_FREQ_MHZ);
         plio_mask_in = input_plio::create("mask_in",       plio_64_bits, "data/mask_in.txt", PLIO_FREQ_MHZ);
+#if !defined(PAIRWISE_ON_AIE)
         plio_wij_h0  = input_plio::create("obj_wij_h0_L0", plio_64_bits, "data/obj_wij_h0_L0.txt", PLIO_FREQ_MHZ);
-#if !defined(WIJ_ONE_PORT)
+#endif
+#if !defined(WIJ_ONE_PORT) && !defined(PAIRWISE_ON_AIE)
         plio_wij_h1  = input_plio::create("obj_wij_h1_L0", plio_64_bits, "data/obj_wij_h1_L0.txt", PLIO_FREQ_MHZ);
         plio_wij_h2  = input_plio::create("obj_wij_h2_L0", plio_64_bits, "data/obj_wij_h2_L0.txt", PLIO_FREQ_MHZ);
         plio_wij_h3  = input_plio::create("obj_wij_h3_L0", plio_64_bits, "data/obj_wij_h3_L0.txt", PLIO_FREQ_MHZ);
@@ -681,7 +811,15 @@ public:
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<xm_sz>>(k_asm0.out[0], obj0.k_pre[h].in[0]);
 #endif
         connect<stream, window<xm_sz>>(k_asm0.out[0], obj0.k_post_ap.in[AP_RESID_IN_OBJ]);
-#if defined(WIJ_ONE_PORT)
+#if defined(PAIRWISE_ON_AIE)
+        // the bias rows come from the array's own pairwise MLP, as one stream
+        // into the four head posts' windows
+        connect<window<jets_sz>>(plio_jets_in.out[0], pair.jets_in);
+        connect<stream, window<wij_sz>>(pair.k_m4.out[0], obj0.wij_h0);
+        connect<stream, window<wij_sz>>(pair.k_m4.out[0], obj0.wij_h1);
+        connect<stream, window<wij_sz>>(pair.k_m4.out[0], obj0.wij_h2);
+        connect<stream, window<wij_sz>>(pair.k_m4.out[0], obj0.wij_h3);
+#elif defined(WIJ_ONE_PORT)
         // The fabric used to send the SAME wij slice four times, once per head.
         // One PLIO feeds all four head-post kernels instead: a PLIO already
         // multicasts to five kernels elsewhere in this graph.
@@ -718,9 +856,9 @@ public:
 #endif
         // layer 1
 #if defined(CHAIN_STREAM)
-        connect<stream>(cross0.k_post_c.out[0], k_asm1.in[0]);
+        connect<stream>(cross0.k_out().out[0], k_asm1.in[0]);
 #else
-        connect<stream, window<x_sz>>(cross0.k_post_c.out[0], k_asm1.in[0]);
+        connect<stream, window<x_sz>>(cross0.k_out().out[0], k_asm1.in[0]);
 #endif
         connect<window<mask_sz>>(plio_mask_in.out[0], k_asm1.in[1]);
 #if defined(PRE_STREAM)
@@ -749,22 +887,33 @@ public:
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(cand1.k_post_c.out[0], cross1.k_pre[h].in[1]);
 #endif
         // out: x after cross L1, c after candidate L1 (streams to the PL)
-        connect<stream>(cross1.k_post_c.out[0], plio_x_out.in[0]);
+        connect<stream>(cross1.k_out().out[0], plio_x_out.in[0]);
         connect<stream>(cand1.k_post_c.out[0], plio_c_out.in[0]);
 
 #if defined(AIE_PLACE)
         // Two columns per block, the glue and the embedding in one of their own.
+#if defined(ROW_SPLIT_CROSS)
+        // the cross blocks take three columns each; the glue column moves to 20
+        obj0.place_at(6);   cand0.place_at(8);   cross0.place_at(10);
+        obj1.place_at(13);  cand1.place_at(15);  cross1.place_at(17);
+        constexpr int GLUE_COL = 20;
+#else
         obj0.place_at(6);   cand0.place_at(8);   cross0.place_at(10);
         obj1.place_at(12);  cand1.place_at(14);  cross1.place_at(16);
-        location<kernel>(k_embed) = tile(18, 0);
-#if defined(EMBED_PIPE)
-        location<kernel>(k_embed1) = tile(18, 5);
-        location<kernel>(k_embed2) = tile(18, 6);
+        constexpr int GLUE_COL = 18;
 #endif
-        location<kernel>(k_asm0)  = tile(18, 1);
-        location<kernel>(k_pobj0) = tile(18, 2);
-        location<kernel>(k_asm1)  = tile(18, 3);
-        location<kernel>(k_pobj1) = tile(18, 4);
+        location<kernel>(k_embed) = tile(GLUE_COL, 0);
+#if defined(EMBED_PIPE)
+        location<kernel>(k_embed1) = tile(GLUE_COL, 5);
+        location<kernel>(k_embed2) = tile(GLUE_COL, 6);
+#endif
+#if defined(PAIRWISE_ON_AIE)
+        pair.place_at(GLUE_COL + 1);       // six columns after the glue column
+#endif
+        location<kernel>(k_asm0)  = tile(GLUE_COL, 1);
+        location<kernel>(k_pobj0) = tile(GLUE_COL, 2);
+        location<kernel>(k_asm1)  = tile(GLUE_COL, 3);
+        location<kernel>(k_pobj1) = tile(GLUE_COL, 4);
 #endif
     }
 };
