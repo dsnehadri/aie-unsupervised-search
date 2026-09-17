@@ -64,8 +64,8 @@ def _csv(path, kernel):
             q = l.split(","); pts.append((int(q[1]), float(q[4])))   # (N, median ms)
     return pts
 _F = "/home/snehadri/repos/aie-unsupervised-search/figs/"
-SWEEP["PL-only, attention blocks optimised"] = _csv(_F + "latency_sweep_pl_t2l.csv", "pl_stream_top")
-SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_v5.csv", "aie_stream_top")
+SWEEP["PL-only, attention blocks optimised"] = _csv(_F + "latency_sweep_pl_t2n.csv", "pl_stream_top")
+SWEEP["AIE-PL hybrid, vector AIE kernels"] = _csv(_F + "latency_sweep_hybrid_v6f.csv", "aie_stream_top")
 NMIN = 8
 
 # ---- (b),(c) per-stage costs, SAME rows in both panels ------------------------
@@ -89,11 +89,12 @@ NMIN = 8
 #     slowest kernel of each block from the aiesimulator profile (the block's
 #     interval; figs/aie_obj_block_profile.txt), which predicted the board
 #     within 6% in every earlier check. Both clocks are exactly 100 MHz.
-PL_CLK, HYB_CLK = 156.25e6, 125e6   # fabric-only at 156.25 MHz (t2l), the hybrid fabric at 125
+PL_CLK, HYB_CLK = 156.25e6, 133e6   # fabric-only at 156.25 MHz (t2n), the hybrid fabric at 133 (v6f)
 # MEASURED on the board, 2026-09-16: each block alone on the array with the v5 flags
 # (blocks3_v2, preloaded feeders, batch-sweep slope). The simulator gave 3.8 us for
 # both object and cross.
 AIE = {"Object attention": 4.1, "Candidate attention": 1.0, "Cross attention": 3.8}
+PAIR_AIE_SIM = 2.6    # pairwise bias MLP on the array (v6): 12 chains + merge tree, aiesim interval
 EMBED_AIE_SIM = 3.2   # embed_mlp as three tiles: first tile 4,047 cycles/event in the all-levers chain profile
 cyc = lambda c, clk: c / clk * 1e6
 cycpl = lambda c: c / PL_CLK * 1e6
@@ -107,6 +108,10 @@ cycpl = lambda c: c / PL_CLK * 1e6
 # Fabric-only t2l (LIN_J_UNROLL=2, two outputs per cycle in the linear layers): read 152,
 # fork 112, embed 669, pairwise 428, obj 1327/1263, cand 540/551, cross 1376, lorentz 373,
 # AE 352 (t2k 281), write 84 -- sum 55.1 us vs 53.8 us measured with direct registers.
+# 2026-09-17: fabric-only t2n (LIN_J_UNROLL=4): embed 525, obj 1111/1047, cand 456/467,
+# cross 1124, AE 330, the rest unchanged; 43.9 us measured direct. Hybrid v6f (133 MHz):
+# the pairwise MLP runs on the array (its bias send loop is gone), the Lorentz stage
+# reads the array's 64-bit beats (390 cycles), AE 306; 42.4 us measured direct.
 # Hybrid = the "chain" image (whole ABC stack on the array, 2026-09-14). PL
 # column: per-event iteration latency of each fabric stage loop in
 # aie_stream_top_chain.cpp (read 152, fork 161, embed send 92, mask send 29,
@@ -128,16 +133,16 @@ cycpl = lambda c: c / PL_CLK * 1e6
 ROWS = [
  ("Read input",                cycpl(152),   cyc(152, HYB_CLK),          0),
  ("Fork",                      cycpl(112),   cyc(161, HYB_CLK),          0),
- ("Embedding",                 cycpl(669),   cyc(max(92, 29), HYB_CLK),  EMBED_AIE_SIM),
- ("Pairwise $w_{ij}$",         cycpl(428),   cyc(max(653, 397), HYB_CLK), 0),   # t2i: pairwise at II=1 (t2h: 2640)
- ("Object attention L0",       cycpl(1327),  0,                          AIE["Object attention"]),
- ("Build candidates + candidate attention L0", cycpl(540), 0,            AIE["Candidate attention"] + 0.5),
- ("Cross attention L0",        cycpl(1376),  0,                          AIE["Cross attention"]),
- ("Object attention L1",       cycpl(1263),  0,                          AIE["Object attention"]),
- ("Build candidates + candidate attention L1", cycpl(551), 0,            AIE["Candidate attention"] + 0.5),
- ("Cross attention L1",        cycpl(1376),  0,                          AIE["Cross attention"]),
- ("Candidate build* + mass",   cycpl(373),   cyc(max(623, 243, 63), HYB_CLK), 0),
- ("Autoencoder + MSE",         cycpl(352),   cyc(306, HYB_CLK),          0),
+ ("Embedding",                 cycpl(525),   cyc(max(92, 29), HYB_CLK),  EMBED_AIE_SIM),
+ ("Pairwise $w_{ij}$",         cycpl(428),   0,                          PAIR_AIE_SIM),   # t2i: pairwise at II=1 (t2h: 2640)
+ ("Object attention L0",       cycpl(1111),  0,                          AIE["Object attention"]),
+ ("Build candidates + candidate attention L0", cycpl(456), 0,            AIE["Candidate attention"] + 0.5),
+ ("Cross attention L0",        cycpl(1124),  0,                          AIE["Cross attention"]),
+ ("Object attention L1",       cycpl(1047),  0,                          AIE["Object attention"]),
+ ("Build candidates + candidate attention L1", cycpl(467), 0,            AIE["Candidate attention"] + 0.5),
+ ("Cross attention L1",        cycpl(1124),  0,                          AIE["Cross attention"]),
+ ("Candidate build* + mass",   cycpl(373),   cyc(390, HYB_CLK),          0),
+ ("Autoencoder + MSE",         cycpl(330),   cyc(306, HYB_CLK),          0),
  ("Write DDR",                 cycpl(84),    cyc(84, HYB_CLK),           0),
 ]
 labs = [r[0] for r in ROWS]

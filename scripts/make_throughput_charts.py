@@ -45,13 +45,15 @@ def fig_endtoend():
         ("all-PL  batched dataflow",           4869,  PL_C),
         ("all-PL  attention optimised",         50870, PL_C),
         ("all-PL  faster clock",               63780, PL_C),
-        ("all-PL  current",                    86229, PL_C),
+        ("all-PL  two outputs per cycle",      86229, PL_C),
+        ("all-PL  current",                   107439, PL_C),
         ("AIE hybrid  baseline",                551,  AIE_C),
         ("AIE hybrid  pipelined bridge",       7549,  AIE_C),
         ("AIE hybrid  whole stack on array",  135000, AIE_C),
         ("AIE hybrid  91 tiles",              153106, AIE_C),
         ("AIE hybrid  embedding on array",    183190, AIE_C),
-        ("AIE hybrid  current",               201326, AIE_C),
+        ("AIE hybrid  clb layer norm",        201326, AIE_C),
+        ("AIE hybrid  current",               236759, AIE_C),
     ]
     labels = [r[0] for r in rows]
     vals = np.array([r[1] for r in rows], float)
@@ -69,7 +71,7 @@ def fig_endtoend():
     ax.set_title("End-to-end throughput on VCK190",
                  fontsize=12.5, pad=10)
     handles = [mpl.patches.Patch(color=PL_C, label="all-PL (AUC 0.9825)"),
-               mpl.patches.Patch(color=AIE_C, label="AIE hybrid (AUC 0.9825)")]
+               mpl.patches.Patch(color=AIE_C, label="AIE hybrid (AUC 0.9828)")]
     ax.legend(handles=handles, loc="upper right", fontsize=10,
               framealpha=0.95)
     save(fig, "throughput_endtoend")

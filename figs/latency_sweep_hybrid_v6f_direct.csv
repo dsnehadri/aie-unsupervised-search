@@ -1,0 +1,11 @@
+kernel,n_events,iters,min_ms,med_ms,us_per_event,out_changed  [direct registers]
+aie_stream_top,1,30,0.04241,0.04245,42.410,3/3
+aie_stream_top,2,30,0.04643,0.04647,23.215,6/6
+aie_stream_top,4,30,0.05485,0.05489,13.713,12/12
+aie_stream_top,8,30,0.07166,0.07170,8.957,24/24
+aie_stream_top,16,30,0.10531,0.10533,6.582,48/48
+aie_stream_top,32,30,0.17256,0.17261,5.393,96/96
+aie_stream_top,64,30,0.30728,0.30750,4.801,192/192
+aie_stream_top,128,30,0.57639,0.57658,4.503,384/384
+aie_stream_top,256,30,1.11469,1.11474,4.354,768/768
+SWEEP_DONE
