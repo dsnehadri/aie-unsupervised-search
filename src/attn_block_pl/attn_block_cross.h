@@ -34,6 +34,9 @@ inline void attn_block_cross(
     const ln_param_t post_ffn_g[E_DIM],
     const ln_param_t post_ffn_b[E_DIM]
 
+
+    // ROWS_DYN: number of real jets, see attn_block_obj
+    , int nr = N_MAX
 ) {
 
 
@@ -45,7 +48,7 @@ inline void attn_block_cross(
     // reshape to (N_HEADS, N_MAX, D_HEAD) for per-head attention
 
     data_t Q_full[N_MAX][E_DIM]; 
-    linear<N_MAX>(x, Wq, bq, Q_full);
+    linear<N_MAX>(x, Wq, bq, Q_full, nr);
 
     data_t K_full[T_DIM][E_DIM]; data_t V_full[T_DIM][E_DIM];
     linear<T_DIM>(c, Wk, bk, K_full);
@@ -65,7 +68,7 @@ inline void attn_block_cross(
 
     data_t context[N_HEADS][N_MAX][D_HEAD];
 #ifdef HEADS_BATCHED
-    heads_batched<N_MAX, T_KV>(Q_h, K_h, V_h, context);
+    heads_batched<N_MAX, T_KV>(Q_h, K_h, V_h, context, nr);
 #else
     HEAD_LOOP:
     for (int h = 0; h < N_HEADS; h++) {

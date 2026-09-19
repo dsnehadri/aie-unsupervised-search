@@ -15,21 +15,22 @@ inline void embed_ffn(
     const data_t jets[N_MAX][EMBED_IN],
     const bool mask[N_MAX],
     const EmbedWeights &weights,
-    data_t embed[N_MAX][EMBED_OUT]
+    data_t embed[N_MAX][EMBED_OUT],
+    int nr = N_MAX                  // ROWS_DYN: real jets; the rest are zero anyway
 ) {
     dnn_block<N_MAX, EMBED_IN, EMBED_HIDDEN, EMBED_OUT, EMBED_N_MID>(
         jets,
         weights.first_w, weights.first_b, weights.first_ln_g, weights.first_ln_b,
         weights.mid_w, weights.mid_b, weights.mid_ln_g, weights.mid_ln_b,
         weights.last_w, weights.last_b,
-        embed
+        embed, nr
     );
 
     // zero mask padded jets
     for (int j = 0; j < N_MAX; j++) {
         for (int e = 0; e < EMBED_OUT; e++) {
             #pragma HLS PIPELINE II=1
-            if (mask[j]) embed[j][e] = (data_t)0;
+            if (mask[j] || j >= nr) embed[j][e] = (data_t)0;   // padded, or not computed
         }
     }
 }

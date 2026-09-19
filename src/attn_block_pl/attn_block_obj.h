@@ -8,6 +8,25 @@
 // scores are 12 x 13 per head
 
 
+// ROWS_DYN: number of real jets. The padded jets are trailing, their rows are
+// zeroed or masked wherever they are read, so the row loops can stop at nr and
+// the outputs are unchanged. Each dataflow process works it out from the mask
+// itself (a scalar passed between processes is not dataflow-friendly).
+static inline int rows_valid(const bool mask[N_MAX])
+{
+#if defined(ROWS_DYN)
+    int n = 0;
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS UNROLL
+        if (!mask[i]) n++;
+    }
+    return n;
+#else
+    (void)mask;
+    return N_MAX;
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // Stage bodies for the pipelined (OBJ_DATAFLOW) variant. Each is a separate
 // dataflow process, so they work on different events at the same time.
@@ -18,13 +37,19 @@ static void obj_df_qkv(
     const weight_t Wk[E_DIM][E_DIM], const weight_t bk[E_DIM],
     const weight_t Wv[E_DIM][E_DIM], const weight_t bv[E_DIM],
     data_t residual[N_MAX][E_DIM],
-    data_t Q_full[N_MAX][E_DIM], data_t K_full[N_MAX][E_DIM], data_t V_full[N_MAX][E_DIM])
+    data_t Q_full[N_MAX][E_DIM], data_t K_full[N_MAX][E_DIM], data_t V_full[N_MAX][E_DIM],
+    const bool padding_mask[N_MAX])
 {
-    for (int i = 0; i < N_MAX; i++) {
+    const int nr = rows_valid(padding_mask);
+    for (int i = 0; i < nr; i++) {
         #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_MAX
         for (int j = 0; j < E_DIM; j++) residual[i][j] = x[i][j];
     }
-    linear<N_MAX>(x, Wq, bq, Q_full);
+    // Only the queries stop at nr. The keys and values of padded jets are
+    // still needed: the fabric softmax clamps a masked score at exp(-8), not
+    // zero, so those rows (projections of zero rows) still touch the sums.
+    linear<N_MAX>(x, Wq, bq, Q_full, nr);
     linear<N_MAX>(x, Wk, bk, K_full);
     linear<N_MAX>(x, Wv, bv, V_full);
 }
@@ -178,12 +203,14 @@ static void obj_df_heads_batched(
 {
     #pragma HLS ARRAY_PARTITION variable=QKV_h dim=0 complete
     #pragma HLS ARRAY_PARTITION variable=context_f dim=2 complete
+    const int nr = rows_valid(padding_mask);
     #pragma HLS ARRAY_PARTITION variable=wij_bias dim=1 block factor=4
     #pragma HLS ARRAY_PARTITION variable=wij_bias dim=2 complete
     score_t scores[N_HEADS][N_MAX][N_KV];
     #pragma HLS ARRAY_PARTITION variable=scores dim=1 complete
     #pragma HLS ARRAY_PARTITION variable=scores dim=3 complete
-    HB_SC_I: for (int i = 0; i < N_MAX; i++) {
+    HB_SC_I: for (int i = 0; i < nr; i++) {
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_MAX
         HB_SC_J: for (int j = 0; j < N_KV; j++) {
             #pragma HLS PIPELINE II=1
             HB_SC_H: for (int h = 0; h < N_HEADS; h++) {
@@ -208,12 +235,14 @@ static void obj_df_heads_batched(
     #pragma HLS ARRAY_PARTITION variable=attn_w dim=1 complete
     #pragma HLS ARRAY_PARTITION variable=attn_w dim=3 complete
     HB_SM_H: for (int h = 0; h < N_HEADS; h++) {
-        HB_SM_I: for (int i = 0; i < N_MAX; i++) {
+        HB_SM_I: for (int i = 0; i < nr; i++) {
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_MAX
             #pragma HLS PIPELINE II=1
             softmax_row<N_KV>(scores[h][i], attn_w[h][i]);
         }
     }
-    HB_AV_I: for (int i = 0; i < N_MAX; i++) {
+    HB_AV_I: for (int i = 0; i < nr; i++) {
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_MAX
         HB_AV_D: for (int d = 0; d < D_HEAD; d++) {
             #pragma HLS PIPELINE II=1
             HB_AV_H: for (int h = 0; h < N_HEADS; h++) {
@@ -376,7 +405,7 @@ inline void attn_block_obj(
     #pragma HLS DATAFLOW
     data_t residual[N_MAX][E_DIM];
     data_t Q_full[N_MAX][E_DIM], K_full[N_MAX][E_DIM], V_full[N_MAX][E_DIM];
-    obj_df_qkv(x, Wq, bq, Wk, bk, Wv, bv, residual, Q_full, K_full, V_full);
+    obj_df_qkv(x, Wq, bq, Wk, bk, Wv, bv, residual, Q_full, K_full, V_full, padding_mask);
 
 #ifdef OBJ_HEADS_PARALLEL
     // One process per head. They are independent, so this turns the block's

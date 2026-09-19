@@ -41,27 +41,29 @@ inline void dnn_block(
     const weight_t last_b[OUT_DIM],
 
     // output 
-    data_t output[N_ROWS][OUT_DIM]
+    data_t output[N_ROWS][OUT_DIM],
+    int nr = N_ROWS                 // ROWS_DYN: rows actually computed
 ) {
     data_t buf_a[N_ROWS][HIDDEN];
     data_t buf_b[N_ROWS][HIDDEN];
 
     // layer 0 linear + layernorm + relu
 
-    linear<N_ROWS, HIDDEN, IN_DIM>(input, first_w, first_b, buf_a);
+    linear<N_ROWS, HIDDEN, IN_DIM>(input, first_w, first_b, buf_a, nr);
 
-    layernorm<N_ROWS>(buf_a, first_ln_g, first_ln_b);
-    relu_2d<N_ROWS>(buf_a);
+    layernorm<N_ROWS>(buf_a, first_ln_g, first_ln_b, nr);
+    relu_2d<N_ROWS>(buf_a, nr);
 
     for (int l = 0; l < N_MID; l++) {
 
-        linear<N_ROWS, HIDDEN, HIDDEN>(buf_a, mid_w[l], mid_b[l], buf_b);
-        layernorm<N_ROWS, HIDDEN>(buf_b, mid_ln_g[l], mid_ln_b[l]);
-        relu_2d<N_ROWS>(buf_b);
+        linear<N_ROWS, HIDDEN, HIDDEN>(buf_a, mid_w[l], mid_b[l], buf_b, nr);
+        layernorm<N_ROWS, HIDDEN>(buf_b, mid_ln_g[l], mid_ln_b[l], nr);
+        relu_2d<N_ROWS>(buf_b, nr);
 
         // swap buffers
 
-        for (int i = 0; i < N_ROWS; i++) {
+        for (int i = 0; i < nr; i++) {
+            #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
             for (int j = 0; j < HIDDEN; j++) {
                 buf_a[i][j] = buf_b[i][j];
             }
@@ -70,7 +72,7 @@ inline void dnn_block(
     
     // layer 2 linear
 
-    linear<N_ROWS, OUT_DIM, HIDDEN>(buf_a, last_w, last_b, output);
+    linear<N_ROWS, OUT_DIM, HIDDEN>(buf_a, last_w, last_b, output, nr);
 
 }
 

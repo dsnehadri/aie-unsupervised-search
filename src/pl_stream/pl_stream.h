@@ -293,6 +293,22 @@ inline void read_and_fork(
     // debug_buf[dbg_idx] = 2;
 }
 
+// ROWS_DYN: real jets in the event (padded jets are trailing)
+static inline int rows_valid_pl(const bool mask[N_MAX])
+{
+#if defined(ROWS_DYN)
+    int n = 0;
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS UNROLL
+        if (!mask[i]) n++;
+    }
+    return n;
+#else
+    (void)mask;
+    return N_MAX;
+#endif
+}
+
 // stage 1 embed
 // raw_jets[12*5] + mask[12] -> x[12*16]
 
@@ -312,7 +328,7 @@ inline void embed_stage(
 
     // run kernel
     data_t x[N_MAX][E_DIM];
-    embed_ffn(raw_jets, mask, embed_w, x);
+    embed_ffn(raw_jets, mask, embed_w, x, rows_valid_pl(mask));
 
     // serialize
     ARRAY2D_TO_STREAM(N_MAX, E_DIM)(x, out_embed);
@@ -624,7 +640,7 @@ inline void cross_stage(
         cross_w.bias_k, cross_w.bias_v, cross_w.Wo, cross_w.bo,
         cross_w.attn_ln_g, cross_w.attn_ln_b,
         cross_w.ffn_w, cross_w.ffn_b, cross_w.ffn_ln_g, cross_w.ffn_ln_b,
-        cross_w.post_ffn_g, cross_w.post_ffn_b);
+        cross_w.post_ffn_g, cross_w.post_ffn_b, rows_valid_pl(mask));
     remask(x, mask);
 
     ARRAY2D_TO_STREAM(N_MAX, E_DIM)(x, out_x);

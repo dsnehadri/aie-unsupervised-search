@@ -8,9 +8,11 @@
 // template allows for compile-time sizing
 
 template <int N_ROWS, int FEAT_DIM = E_DIM>
-void relu_2d(data_t x[N_ROWS][FEAT_DIM]) {
-    for (int i = 0; i < N_ROWS; i++) {
+void relu_2d(data_t x[N_ROWS][FEAT_DIM], int nr = N_ROWS)
+{
+    for (int i = 0; i < nr; i++) {
         #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
         for (int j = 0; j < FEAT_DIM; j++) {
             if (x[i][j] < (data_t)0) x[i][j] = (data_t)0;
         } 
@@ -22,7 +24,8 @@ void linear(
     const data_t in[N_ROWS][IN_DIM],
     const weight_t W[OUT_DIM][IN_DIM],
     const weight_t bias[OUT_DIM],
-    data_t out[N_ROWS][OUT_DIM]
+    data_t out[N_ROWS][OUT_DIM],
+    int nr = N_ROWS                 // ROWS_DYN: rows actually computed (padded jets are trailing)
 ) {
 
     // Partition along k so the unrolled LIN_K MAC can read operands in
@@ -62,6 +65,42 @@ void linear(
     LIN_PART_OUT(out, LIN_J_UNROLL)
     LIN_PART_B(bias, LIN_J_UNROLL)
 #endif
+#if defined(ROWS_DYN) && defined(LIN_J_UNROLL)
+    // ROWS_DYN: one flat loop over the nr x OUT_DIM outputs, so the runtime row
+    // count still pipelines at II=1 (a variable outer bound would stop the
+    // nest from flattening). Same products, same order per output.
+    {
+        // output groups per row; the last group of an 11-, 5- or 2-wide layer is partial
+        constexpr int JG = (OUT_DIM + LIN_J_UNROLL - 1) / LIN_J_UNROLL;
+        int i = 0, jg = 0;
+        LIN_FLAT:
+        for (int it = 0; it < nr * JG; it++) {
+            #pragma HLS PIPELINE II=1
+            #pragma HLS LOOP_TRIPCOUNT min=JG max=N_ROWS*JG
+            const int j = jg * LIN_J_UNROLL;
+            for (int jj = 0; jj < LIN_J_UNROLL; jj++) {
+                #pragma HLS UNROLL
+                if (j + jj < OUT_DIM) {
+                    acc_t sum = (acc_t) bias[j + jj];
+                    for (int k = 0; k < IN_DIM; k++) {
+                        #pragma HLS UNROLL
+#ifdef LIN_FABRIC_MUL
+                        #pragma HLS BIND_OP variable=sum op=mul impl=fabric
+#endif
+#ifdef NARROW_MUL
+                        sum += in[i][k] * W[j + jj][k];
+#else
+                        sum += (acc_t)in[i][k] * (acc_t)W[j + jj][k];
+#endif
+                    }
+                    out[i][j + jj] = (data_t)sum;
+                }
+            }
+            if (jg == JG - 1) { jg = 0; i++; } else jg++;
+        }
+    }
+#else
+    (void)nr;
     LIN_I:
     for (int i = 0; i < N_ROWS; i++) {
         LIN_J:
@@ -96,6 +135,7 @@ void linear(
             out[i][j] = (data_t)sum;
         }
     }
+#endif
 }
 
 // normalizes each row to have mean 0 and variance 1
@@ -141,7 +181,8 @@ template <int N_ROWS, int FEAT_DIM = E_DIM>
 void layernorm(
     data_t x[N_ROWS][FEAT_DIM],
     const ln_param_t gamma[FEAT_DIM],
-    const ln_param_t beta[FEAT_DIM]
+    const ln_param_t beta[FEAT_DIM],
+    int nr = N_ROWS                 // ROWS_DYN: rows actually normalised
 
 ) {
     // feed the unrolled LN_MEAN/LN_VAR reductions (FEAT_DIM reads/cycle)
@@ -151,7 +192,8 @@ void layernorm(
     // Casting through data_t wraps and rsqrt(negative) returns NaN. PyTorch
     // LayerNorm also keeps stats in float32 for the same reason.
     LN_ROW:
-    for (int i = 0; i < N_ROWS; i++) {
+    for (int i = 0; i < nr; i++) {
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
 #if LN_MODE == 1 || LN_MODE == 2 || LN_MODE == 6
         #pragma HLS PIPELINE II=1
 #elif LN_MODE == 3
@@ -619,7 +661,8 @@ void heads_batched(
     const data_t Q_h[N_HEADS][N_Q][D_HEAD],
     const data_t K_h[N_HEADS][N_KEY_TOT][D_HEAD],
     const data_t V_h[N_HEADS][N_KEY_TOT][D_HEAD],
-    data_t context[N_HEADS][N_Q][D_HEAD])
+    data_t context[N_HEADS][N_Q][D_HEAD],
+    int nq = N_Q)                   // ROWS_DYN: query rows actually computed
 {
     #pragma HLS ARRAY_PARTITION variable=Q_h dim=1 complete
     #pragma HLS ARRAY_PARTITION variable=Q_h dim=3 complete
@@ -632,7 +675,8 @@ void heads_batched(
     score_t scores[N_HEADS][N_Q][N_KEY_TOT];
     #pragma HLS ARRAY_PARTITION variable=scores dim=1 complete
     #pragma HLS ARRAY_PARTITION variable=scores dim=3 complete
-    HBG_SC_I: for (int i = 0; i < N_Q; i++) {
+    HBG_SC_I: for (int i = 0; i < nq; i++) {
+            #pragma HLS LOOP_TRIPCOUNT min=1 max=N_Q
         HBG_SC_J: for (int j = 0; j < N_KEY_TOT; j++) {
             #pragma HLS PIPELINE II=1
             HBG_SC_H: for (int h = 0; h < N_HEADS; h++) {
@@ -654,12 +698,14 @@ void heads_batched(
     #pragma HLS ARRAY_PARTITION variable=attn_w dim=1 complete
     #pragma HLS ARRAY_PARTITION variable=attn_w dim=3 complete
     HBG_SM_H: for (int h = 0; h < N_HEADS; h++) {
-        HBG_SM_I: for (int i = 0; i < N_Q; i++) {
+        HBG_SM_I: for (int i = 0; i < nq; i++) {
+            #pragma HLS LOOP_TRIPCOUNT min=1 max=N_Q
             #pragma HLS PIPELINE II=1
             softmax_row<N_KEY_TOT>(scores[h][i], attn_w[h][i]);
         }
     }
-    HBG_AV_I: for (int i = 0; i < N_Q; i++) {
+    HBG_AV_I: for (int i = 0; i < nq; i++) {
+            #pragma HLS LOOP_TRIPCOUNT min=1 max=N_Q
         HBG_AV_D: for (int d = 0; d < D_HEAD; d++) {
             #pragma HLS PIPELINE II=1
             HBG_AV_H: for (int h = 0; h < N_HEADS; h++) {
