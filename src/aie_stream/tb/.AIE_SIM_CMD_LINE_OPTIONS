@@ -1,5 +1,0 @@
-aiesimulator
---pkg-dir Work
---aiearch-version aie
---profile
---simulation-cycle-timeout=5000000

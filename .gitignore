@@ -65,6 +65,8 @@ src/aie_stream/tb/data_float/
 src/aie_stream/tb/*.status
 # backups the input generator makes before overwriting its data folder
 src/aie_stream/tb/data_int16_bak_*/
+# simulator run state, rewritten on every aiesimulator / x86simulator run
+src/aie_stream/tb/.AIE_SIM_CMD_LINE_OPTIONS
 # board host binary (sources are tracked)
 src/pl_stream/plhost_direct
 # raw log of the float-layernorm experiment (negative result, feeds no figure; 17 MB)
