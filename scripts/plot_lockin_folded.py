@@ -12,8 +12,16 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-CSV = "/home/snehadri/repos/aie-unsupervised-search/figs/board_thermal_lockin_log.csv"
-PHASES = "/home/snehadri/repos/aie-unsupervised-search/figs/board_thermal_lockin_phases.txt"
+# Which campaign to fold. Defaults reproduce the original figure (the 90 s
+# aie_maskfix run). LOCKIN_TAG selects another, e.g. 120_hybembed120 for the
+# headline design, and LOCKIN_OUT / LOCKIN_LABEL name the result so a run with
+# a different campaign cannot overwrite a figure built from another one.
+import os
+FIGS = "/home/snehadri/repos/aie-unsupervised-search/figs"
+TAG = os.environ.get("LOCKIN_TAG", "")
+CSV = f"{FIGS}/board_thermal_lockin{TAG}_log.csv"
+PHASES = f"{FIGS}/board_thermal_lockin{TAG}_phases.txt"
+LABEL = os.environ.get("LOCKIN_LABEL", "AIE-PL hybrid image")
 BLUE, ORANGE = "#2a78d6", "#eb6834"
 BLACK, GRID = "#1a1a1a", "#dddddd"
 BIN = 1.0        # s per folded bin (matches the raw sampling cadence)
@@ -78,7 +86,7 @@ for ax in (ax1, ax2):
 
 # --- power panel ---
 t, p = col("total_W")
-ax1.plot(t, p, color=BLUE, lw=2, label="AIE-PL hybrid image")
+ax1.plot(t, p, color=BLUE, lw=2, label=LABEL)
 ax1.set_ylabel("Supply power (W)", color=BLACK, fontsize=10)
 ax1.legend(frameon=False, fontsize=9, labelcolor=BLACK, loc="center right")
 
@@ -93,7 +101,7 @@ ax2.legend(frameon=False, fontsize=8.5, labelcolor=BLACK, ncol=2,
            loc="lower center")
 
 fig.tight_layout()
-out = "/home/snehadri/repos/aie-unsupervised-search/figs/board_lockin_folded_cycle.png"
+out = os.environ.get("LOCKIN_OUT", f"{FIGS}/board_lockin_folded_cycle.png")
 fig.savefig(out, facecolor="white")
 fig.savefig(out.replace(".png", ".pdf"), facecolor="white")
 print("saved", out)
