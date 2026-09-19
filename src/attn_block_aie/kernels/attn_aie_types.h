@@ -139,5 +139,17 @@ constexpr int WIJ_SIZE = N_MAX * N_KV;
 #if defined(HEAD_STREAM_T) && ((defined(ATTN_TYPE_OBJ) && defined(ROW_SPLIT_OBJ)) || (defined(ATTN_TYPE_CROSS) && defined(ROW_SPLIT_CROSS)))
 #define ROW_SPLIT_T 1
 #endif
+// ROWS_DYN: an event has n real jets (mean 7 of 12, padded jets trailing), so
+// the object and cross blocks work on G = ceil(n/4) four-row groups instead of
+// three. The pre kernels count the mask row and pass G to their head posts in a
+// spare vector after V; the projection kernel counts the mask row of its
+// residual window and passes G down the row chain as a header row; the last
+// chain kernel emits the full 12 rows again (zeros for the skipped groups),
+// which is all that is ever read of a padded jet. Outputs for real jets are
+// bit-identical; the latency then depends on the event. Needs the streaming
+// layout (HEAD_STREAM, PRE_STREAM, POST_STREAM, POST_SPLIT_C).
+#if defined(ROWS_DYN) && defined(HEAD_STREAM_T)
+#define ROWS_DYN_T 1
+#endif
 
 #endif

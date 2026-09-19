@@ -144,7 +144,11 @@ public:
         constexpr int proj_sz    = 16 * 16 * sizeof(aiedt);
 #else
         constexpr int scores_sz  = N_MAX * N_KV_PAD * sizeof(aiedt);
-        constexpr int v_sz       = N_KV_PAD * D_HEAD * sizeof(aiedt);
+        constexpr int v_sz       = N_KV_PAD * D_HEAD * sizeof(aiedt)
+#if defined(ROWS_DYN)
+                                   + E_DIM * sizeof(aiedt)          // + the group-count vector
+#endif
+                                   ;
         constexpr int hout       = N_MAX * D_HEAD * sizeof(aiedt);
         constexpr int concat_sz  = N_MAX * E_DIM * sizeof(aiedt);
         constexpr int proj_sz    = N_MAX * E_DIM * sizeof(aiedt);
@@ -539,7 +543,11 @@ public:
         constexpr int proj_sz   = 16 * 16 * sizeof(aiedt);
 #else
         constexpr int scores_sz = N_MAX * T_KV * sizeof(aiedt);
-        constexpr int v_sz      = T_KV * D_HEAD * sizeof(aiedt);
+        constexpr int v_sz      = T_KV * D_HEAD * sizeof(aiedt)
+#if defined(ROWS_DYN)
+                                   + E_DIM * sizeof(aiedt)          // + the group-count vector
+#endif
+                                   ;
         constexpr int hout      = N_MAX * D_HEAD * sizeof(aiedt);
         constexpr int concat_sz = N_MAX * E_DIM * sizeof(aiedt);
         constexpr int proj_sz   = N_MAX * E_DIM * sizeof(aiedt);
@@ -845,7 +853,12 @@ public:
 #else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<x_sz>>(k_pobj0.out[0], cross0.k_pre[h].in[0]);
 #endif
+        
+#if defined(ROWS_DYN)
+        connect<stream, window<xm_sz>>(k_pobj0.out[0], cross0.k_post_ap.in[AP_RESID_IN_CROSS]);   // + the mask row
+#else
         connect<stream, window<x_sz>>(k_pobj0.out[0], cross0.k_post_ap.in[AP_RESID_IN_CROSS]);
+#endif
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(k_pobj0.out[1], cand0.k_pre[h].in[0]);
         connect<stream, window<c_sz>>(k_pobj0.out[1], cand0.k_post_ap.in[N_HEADS]);
         // candidate L0 (stream out) -> cross L0 heads
@@ -878,7 +891,12 @@ public:
 #else
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<x_sz>>(k_pobj1.out[0], cross1.k_pre[h].in[0]);
 #endif
+        
+#if defined(ROWS_DYN)
+        connect<stream, window<xm_sz>>(k_pobj1.out[0], cross1.k_post_ap.in[AP_RESID_IN_CROSS]);   // + the mask row
+#else
         connect<stream, window<x_sz>>(k_pobj1.out[0], cross1.k_post_ap.in[AP_RESID_IN_CROSS]);
+#endif
         for (int h = 0; h < N_HEADS; h++) connect<stream, window<c_sz>>(k_pobj1.out[1], cand1.k_pre[h].in[0]);
         connect<stream, window<c_sz>>(k_pobj1.out[1], cand1.k_post_ap.in[N_HEADS]);
 #if defined(PRE_STREAM) && defined(PRE_STREAM_CROSS)

@@ -183,7 +183,11 @@ public:
         constexpr int proj_sz    = 16 * 16 * sizeof(aiedt);
 #else
         constexpr int scores_sz  = N_MAX * N_KV_PAD * sizeof(aiedt);
-        constexpr int v_sz       = N_KV_PAD * D_HEAD * sizeof(aiedt);
+        constexpr int v_sz       = N_KV_PAD * D_HEAD * sizeof(aiedt)
+#if defined(ROWS_DYN)
+                                   + E_DIM * sizeof(aiedt)          // + the group-count vector
+#endif
+                                   ;
         constexpr int hout       = N_MAX * D_HEAD * sizeof(aiedt);
         constexpr int concat_sz  = N_MAX * E_DIM * sizeof(aiedt);
         constexpr int proj_sz    = N_MAX * E_DIM * sizeof(aiedt);
@@ -568,7 +572,11 @@ public:
         runtime<ratio>(k_post_bc) = 0.9;
 #endif
 
+#if defined(ROWS_DYN)
+        constexpr int x_sz      = (N_MAX + 1) * E_DIM * sizeof(aiedt);   // + the mask row
+#else
         constexpr int x_sz      = N_MAX * E_DIM * sizeof(aiedt);
+#endif
         constexpr int c_sz      = T_DIM * E_DIM * sizeof(aiedt);
 #ifdef TRANSPOSED
         constexpr int scores_sz = T_KV * 16 * sizeof(aiedt);
@@ -578,7 +586,11 @@ public:
         constexpr int proj_sz   = 16 * 16 * sizeof(aiedt);
 #else
         constexpr int scores_sz = N_MAX * T_KV * sizeof(aiedt);
-        constexpr int v_sz      = T_KV * D_HEAD * sizeof(aiedt);
+        constexpr int v_sz      = T_KV * D_HEAD * sizeof(aiedt)
+#if defined(ROWS_DYN)
+                                   + E_DIM * sizeof(aiedt)          // + the group-count vector
+#endif
+                                   ;
         constexpr int hout      = N_MAX * D_HEAD * sizeof(aiedt);
         constexpr int concat_sz = N_MAX * E_DIM * sizeof(aiedt);
         constexpr int proj_sz   = N_MAX * E_DIM * sizeof(aiedt);

@@ -274,8 +274,10 @@ def main():
     x_cross_per = event_slice("stage3_layer0_post_obj_selfattn.npy", (N_MAX, E_DIM)).copy()
     x_cross_per[:, :, 2] -= 1.0
     c_cross_per = event_slice("stage3_layer0_post_cand_selfattn.npy", (T_DIM, E_DIM))
+    # ROWS_DYN: the cross block reads the mask row after x, like the object block
+    cross_row = (lambda xq, i: with_mask_row(xq, i)) if os.environ.get("ROWS_DYN") else (lambda xq, i: xq)
     write_plio_text(os.path.join(args.data_dir, "cross_x_in_L0.txt"),
-                    concat_events([to_int16(x_cross_per[i]) for i in range(nev)]))
+                    concat_events([cross_row(to_int16(x_cross_per[i]), i) for i in range(nev)]))
     write_plio_text(os.path.join(args.data_dir, "cross_c_in_L0.txt"),
                     concat_events([to_int16(c_cross_per[i]) for i in range(nev)]))
 
@@ -294,7 +296,7 @@ def main():
     x_cr1[:, :, 2] -= 1.0   # same in-place jet-choice mutation, layer 1
     c_cr1 = event_slice("stage3_layer1_post_cand_selfattn.npy", (T_DIM, E_DIM))
     write_plio_text(os.path.join(args.data_dir, "cross_x_in_L1.txt"),
-                    concat_events([to_int16(x_cr1[i]) for i in range(nev)]))
+                    concat_events([cross_row(to_int16(x_cr1[i]), i) for i in range(nev)]))
     write_plio_text(os.path.join(args.data_dir, "cross_c_in_L1.txt"),
                     concat_events([to_int16(c_cr1[i]) for i in range(nev)]))
 

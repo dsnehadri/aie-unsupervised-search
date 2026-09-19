@@ -540,20 +540,34 @@ void HEAD_PRE_FN(input_stream_int16* __restrict x_in,
     for (int j = 0; j < D_HEAD; j++) V[N_MAX * D_HEAD + j] = bias_v_row[j];
     for (int j = 0; j < D_HEAD; j++) K[N_MAX * D_HEAD + j] = bias_k_row[j];
 
+#if defined(ROWS_DYN_T)
+    int nv = 0;
+    for (int j = 0; j < N_MAX; j++) if (kmask[j] == 0) nv++;
+    const int G = (nv + 3) / 4;                        // four-row groups with a real jet
+#else
+    const int G = N_MAX / 4;
+#endif
     alignas(16) int16 scores[N_MAX * N_KV_PAD];
     {
         alignas(16) int16 Kt[D_HEAD * N_KV_PAD];
         transpose_k4<N_KV_PAD>(K, Kt);
-        gemm_pk<N_MAX, D_HEAD, N_KV_PAD>(Q, Kt, scores, PIPE_QKT_SHIFT);
+        // one packed 4-row block per group: the same blocks the 12-row call does
+        for (int g = 0; g < G; g++)
+            gemm_pk<4, D_HEAD, N_KV_PAD>(Q + g * 4 * D_HEAD, Kt, scores + g * 4 * N_KV_PAD, PIPE_QKT_SHIFT);
     }
-    scale_scores_v<N_MAX * N_KV_PAD>(scores, 0.5f);
+    for (int g = 0; g < G; g++) scale_scores_v<4 * N_KV_PAD>(scores + g * 4 * N_KV_PAD, 0.5f);
     for (int j = 0; j < N_MAX; j++)
         if (kmask[j] != 0)
-            for (int i = 0; i < N_MAX; i++)
+            for (int i = 0; i < 4 * G; i++)
                 scores[i * N_KV_PAD + j] = -32000;
 
     win_write_v<N_MAX * N_KV_PAD>(scores_out, scores);
     win_write_v<N_KV_PAD * D_HEAD>(v_out, V);
+#if defined(ROWS_DYN_T)
+    alignas(16) int16 gtail[E_DIM];                    // the group count rides after V
+    zero_v<E_DIM>(gtail); gtail[0] = (int16)G;
+    win_write16(v_out, aie::load_v<16>(gtail));
+#endif
     aie::set_saturation(sat_save);
 }
 #else
@@ -699,6 +713,13 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 
     alignas(16) int16 V[N_KV_PAD * D_HEAD];
     win_read_v<N_KV_PAD * D_HEAD>(v_in, V);
+#if defined(ROWS_DYN_T)
+    alignas(16) int16 gtail[E_DIM];
+    aie::store_v(gtail, win_read16(v_in));
+    const int G = gtail[0];                            // groups with a real jet
+#else
+    const int G = N_MAX / 4;
+#endif
 
 #if ATTN_LAYER == 0
 #if defined(WIJ_PAD16)
@@ -707,7 +728,7 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     // add zero. The earlier vector attempt failed on the instruction set because a
     // 156-word window forced an unaligned load with a scalar tail, not because of
     // the add itself.
-    for (int r = 0; r < N_MAX; r++)
+    for (int r = 0; r < 4 * G; r++)
         aie::store_v(scores + r * N_KV_PAD,
                      add_sat16(aie::load_v<16>(scores + r * N_KV_PAD), win_read16(wij_in)));
 #else
@@ -725,19 +746,23 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 
     static_assert(N_MAX % 4 == 0, "HEAD_STREAM emits four rows at a time");
     for (int g = 0; g < N_MAX / 4; g++) {
-        alignas(16) int16 attn_p[4 * N_KV_PAD];
+        alignas(16) int16 head_out[4 * D_HEAD];
+        if (g < G) {
+            alignas(16) int16 attn_p[4 * N_KV_PAD];
 #ifdef SOFTMAX_VEC
 #if defined(SOFTMAX_LUT)
-        lut_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p, (float)PIPE_SCALE);
+            lut_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p, (float)PIPE_SCALE);
 #else
-        vec_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p,
-                                              (float)PIPE_SCORE_SCALE, (float)PIPE_SCALE);
+            vec_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p,
+                                                  (float)PIPE_SCORE_SCALE, (float)PIPE_SCALE);
 #endif
 #else
-        int_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p);
+            int_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p);
 #endif
-        alignas(16) int16 head_out[4 * D_HEAD];
-        gemm_pk<4, N_KV_PAD, D_HEAD>(attn_p, V, head_out, PIPE_AV_SHIFT);
+            gemm_pk<4, N_KV_PAD, D_HEAD>(attn_p, V, head_out, PIPE_AV_SHIFT);
+        } else {
+            zero_v<4 * D_HEAD>(head_out);                 // padded group: nothing reads it
+        }
         stream_write_v<4 * D_HEAD>(x_out, head_out);
     }
     aie::set_saturation(sat_save);
@@ -965,6 +990,15 @@ void HEAD_PRE_FN(input_stream_int16* __restrict x_in,
         gemm_pk<4, E_DIM, D_HEAD>(Xb, cross_Wq, Q + b * 4 * D_HEAD, PIPE_ACC_SHIFT);
         add_bias_v4<4>(Q + b * 4 * D_HEAD, cross_bq);
     }
+#if defined(ROWS_DYN_T)
+    alignas(16) int16 kmask[E_DIM];
+    aie::store_v(kmask, stream_read16(x_in));          // ROWS_DYN: the mask row follows x
+    int nv = 0;
+    for (int j = 0; j < N_MAX; j++) if (kmask[j] == 0) nv++;
+    const int G = (nv + 3) / 4;
+#else
+    const int G = N_MAX / 4;
+#endif
 
     alignas(16) int16 Crow[4 * E_DIM], Cp[4 * E_DIM];  // packed; padded row 3 is zero
     zero_v<4 * E_DIM>(Crow);
@@ -984,11 +1018,17 @@ void HEAD_PRE_FN(input_stream_int16* __restrict x_in,
         for (int j = 0; j < D_HEAD; j++) K[T_DIM * D_HEAD + j] = cross_bias_k_row[j];
         alignas(16) int16 Kt[D_HEAD * T_KV];
         transpose_k4<T_KV>(K, Kt);
-        gemm_pk<N_MAX, D_HEAD, T_KV>(Q, Kt, scores, PIPE_QKT_SHIFT);
+        for (int g = 0; g < G; g++)                    // one packed 4-row block per group
+            gemm_pk<4, D_HEAD, T_KV>(Q + g * 4 * D_HEAD, Kt, scores + g * 4 * T_KV, PIPE_QKT_SHIFT);
     }
-    scale_scores_v<N_MAX * T_KV>(scores, 0.5f);
+    for (int g = 0; g < G; g++) scale_scores_v<4 * T_KV>(scores + g * 4 * T_KV, 0.5f);
     win_write_v<N_MAX * T_KV>(scores_out, scores);
     win_write_v<T_KV * D_HEAD>(v_out, V);
+#if defined(ROWS_DYN_T)
+    alignas(16) int16 gtail[E_DIM];                    // the group count rides after V
+    zero_v<E_DIM>(gtail); gtail[0] = (int16)G;
+    win_write16(v_out, aie::load_v<16>(gtail));
+#endif
     aie::set_saturation(sat_save);
 }
 #else
@@ -1065,13 +1105,24 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
 
     alignas(16) int16 V[T_KV * D_HEAD];
     win_read_v<T_KV * D_HEAD>(v_in, V);
+#if defined(ROWS_DYN_T)
+    alignas(16) int16 gtail[E_DIM];
+    aie::store_v(gtail, win_read16(v_in));
+    const int G = gtail[0];
+#else
+    const int G = N_MAX / 4;
+#endif
 
     static_assert(N_MAX % 4 == 0, "HEAD_STREAM emits four rows at a time");
     for (int g = 0; g < N_MAX / 4; g++) {
-        alignas(16) int16 attn_p[4 * T_KV];
-        int_softmax_packed<4, T_KV, T_KV>(scores + g * 4 * T_KV, attn_p);
         alignas(16) int16 out[4 * D_HEAD];
-        gemm_pk<4, T_KV, D_HEAD>(attn_p, V, out, PIPE_AV_SHIFT);
+        if (g < G) {
+            alignas(16) int16 attn_p[4 * T_KV];
+            int_softmax_packed<4, T_KV, T_KV>(scores + g * 4 * T_KV, attn_p);
+            gemm_pk<4, T_KV, D_HEAD>(attn_p, V, out, PIPE_AV_SHIFT);
+        } else {
+            zero_v<4 * D_HEAD>(out);
+        }
         stream_write_v<4 * D_HEAD>(x_out, out);
     }
 }

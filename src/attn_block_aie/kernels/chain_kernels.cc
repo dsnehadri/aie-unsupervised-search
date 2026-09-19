@@ -66,6 +66,12 @@ void chain_post_obj(input_stream_int16* __restrict x_in, input_window_int16* __r
         aie::store_v(c + t * E_DIM, aie::from_vector<acc80>(aie::add(a, b)).to_vector<int16>(0));   // wraps
         stream_write16(x_out, aie::load_v<16>(row));             // row leaves now
     }
+#if defined(ROWS_DYN)
+    // ROWS_DYN: the cross block reads the mask row after x, like the object block
+    alignas(16) int16 mrow[E_DIM];
+    for (int j = 0; j < E_DIM; j++) mrow[j] = (j < N_MAX && mask[j] != 0) ? 1 : 0;
+    stream_write16(x_out, aie::load_v<16>(mrow));
+#endif
     stream_out<T_DIM * E_DIM>(c_out, c);
     aie::set_saturation(sat_save);
 }

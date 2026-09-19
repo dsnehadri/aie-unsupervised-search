@@ -101,13 +101,36 @@ void POST_A_PROJ_FN(input_stream_int16* __restrict h01_in,
 {
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    for (int r = 0; r < POST_N_ROWS; r++) {
+#if defined(ROWS_DYN_T) && defined(ROW_SPLIT_T)
+#error "ROWS_DYN and ROW_SPLIT do not combine"
+#endif
+#if defined(ROWS_DYN_T)
+    // ROWS_DYN: the residual window is the block input, so it is here long
+    // before the head rows; read it whole with its mask row, count the real
+    // jets, and tell the chain how many groups follow with a header row.
+    alignas(16) int16 resid[(N_MAX + 1) * E_DIM];
+    win_read_v<(N_MAX + 1) * E_DIM>(residual_in, resid);
+    int nv = 0;
+    for (int j = 0; j < N_MAX; j++) if (resid[N_MAX * E_DIM + j] == 0) nv++;
+    const int G = (nv + 3) / 4;
+    alignas(16) int16 hdr[E_DIM];
+    zero_v<E_DIM>(hdr); hdr[0] = (int16)G;
+    row_write(proj_out, aie::load_v<16>(hdr));
+    const int nrow = 4 * G;
+#else
+    const int nrow = POST_N_ROWS;
+#endif
+    for (int r = 0; r < nrow; r++) {
         const aie::vector<int16, 8> lo(readincr_v8(h01_in));   // [h0 h1] of this row
         const aie::vector<int16, 8> hi(readincr_v8(h23_in));   // [h2 h3]
         aie::store_v(xrow, aie::concat(lo, hi));
 #if !defined(ATTN_TYPE_CROSS)
         alignas(16) int16 res[E_DIM];
+#if defined(ROWS_DYN_T)
+        aie::store_v(res, aie::load_v<16>(resid + r * E_DIM));
+#else
         aie::store_v(res, win_read16(residual_in));
+#endif
         aie::store_v(row, row_lin16(xrow, Wout, bout, PIPE_ACC_SHIFT, res));
 #else
         aie::store_v(row, row_lin16(xrow, Wout, bout, PIPE_ACC_SHIFT));
@@ -119,6 +142,11 @@ void POST_A_PROJ_FN(input_stream_int16* __restrict h01_in,
         row_write(proj_out, aie::load_v<16>(row));
 #endif
     }
+#if defined(ROWS_DYN_T)
+    for (int r = nrow; r < POST_N_ROWS; r++) {           // drain the head posts' zero groups
+        (void)readincr_v8(h01_in); (void)readincr_v8(h23_in);
+    }
+#endif
     aie::set_saturation(sat_save);
 }
 #else
@@ -184,7 +212,14 @@ void POST_B1_FN(input_stream_int16* __restrict proj_in, output_stream_int16* __r
 #else
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    for (int r = 0; r < CHAIN_ROWS; r++) {
+#if defined(ROWS_DYN_T)
+    const v16_t hdr = row_read(proj_in);                    // ROWS_DYN header: word 0 = groups
+    row_write(ffn0_out, hdr);
+    const int nrow = 4 * (int)hdr.get(0);
+#else
+    const int nrow = CHAIN_ROWS;
+#endif
+    for (int r = 0; r < nrow; r++) {
         aie::store_v(xrow, row_read(proj_in));
         aie::store_v(row, row_lin16(xrow, ffn_W0, ffn_b0, PIPE_ACC_SHIFT));
         layernorm_row(row, 1, E_DIM, ffn_ln_gamma0, ffn_ln_beta0);
@@ -205,7 +240,14 @@ void POST_B2_FN(input_stream_int16* __restrict ffn0_in, output_stream_int16* __r
 #else
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    for (int r = 0; r < CHAIN_ROWS; r++) {
+#if defined(ROWS_DYN_T)
+    const v16_t hdr = row_read(ffn0_in);                    // ROWS_DYN header: word 0 = groups
+    row_write(ffn1_out, hdr);
+    const int nrow = 4 * (int)hdr.get(0);
+#else
+    const int nrow = CHAIN_ROWS;
+#endif
+    for (int r = 0; r < nrow; r++) {
         aie::store_v(xrow, row_read(ffn0_in));
         aie::store_v(row, row_lin16(xrow, ffn_W1, ffn_b1, PIPE_ACC_SHIFT));
         layernorm_row(row, 1, E_DIM, ffn_ln_gamma1, ffn_ln_beta1);
@@ -234,7 +276,14 @@ void POST_C1_FN(input_stream_int16* __restrict ffn_in, output_stream_int16* __re
 #else
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    for (int r = 0; r < CHAIN_ROWS; r++) {
+#if defined(ROWS_DYN_T)
+    const v16_t hdr = row_read(ffn_in);                    // ROWS_DYN header: word 0 = groups
+    row_write(ffn_out, hdr);
+    const int nrow = 4 * (int)hdr.get(0);
+#else
+    const int nrow = CHAIN_ROWS;
+#endif
+    for (int r = 0; r < nrow; r++) {
         aie::store_v(xrow, row_read(ffn_in));
         aie::store_v(row, row_lin16(xrow, ffn_W2, ffn_b2, PIPE_ACC_SHIFT));
         layernorm_row(row, 1, E_DIM, ffn_ln_gamma2, ffn_ln_beta2);
@@ -251,11 +300,24 @@ void POST_C_FN(input_stream_int16* __restrict c1_in,
 {
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
     alignas(16) int16 row[E_DIM];
-    for (int r = 0; r < CHAIN_ROWS; r++) {
+#if defined(ROWS_DYN_T)
+    const v16_t hdr = row_read(c1_in);                 // ROWS_DYN headers (equal) from both streams
+    (void)row_read(residual_b_in);
+    const int nrow = 4 * (int)hdr.get(0);
+#else
+    const int nrow = CHAIN_ROWS;
+#endif
+    for (int r = 0; r < nrow; r++) {
         aie::store_v(row, add_sat16(row_read(c1_in), row_read(residual_b_in)));   // skip with proj
         layernorm_row(row, 1, E_DIM, post_ffn_ln_gamma, post_ffn_ln_beta);
         row_write(x_out, aie::load_v<16>(row));
     }
+#if defined(ROWS_DYN_T)
+    // the block always leaves 12 rows: the skipped groups are padded jets,
+    // which every consumer masks or zeroes
+    const v16_t z = aie::zeros<int16, 16>();
+    for (int r = nrow; r < CHAIN_ROWS; r++) row_write(x_out, z);
+#endif
     aie::set_saturation(sat_save);
 }
 #endif
