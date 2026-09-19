@@ -21,8 +21,9 @@ import torch
 
 sys.path.insert(0, "/home/snehadri/repos/unsupervised-search")
 from model_blocks import Encoder, x_to_p4
+from paths import DATA
 
-OUT = "/home/snehadri/aie_scratch_save_20260810/bkg_weighted.npz"
+OUT = f"{DATA}/bkg_weighted.npz"
 CKPT = "/home/snehadri/repos/unsupervised-search/experiments/retrained_noncollapse/finalWeights.ckpt"
 B1DIR = "/home/snehadri/sim_software/qcd_background/bin1_highstat"
 BASE = "/home/snehadri/sim_software/output_h5s"

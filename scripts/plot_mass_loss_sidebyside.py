@@ -14,9 +14,10 @@ import numpy as np, matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator
+from paths import DATA
 
 IN = os.environ.get("IN",
-                    "/home/snehadri/repos/unsupervised-search/paper_repro/figdata_ours.npz")
+                    f"{DATA}/figdata_ours.npz")
 d = np.load(IN)
 
 SIG = [

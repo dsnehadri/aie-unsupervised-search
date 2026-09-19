@@ -11,8 +11,9 @@ import csv, os
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from paths import DATA
 
-BASE = "/home/snehadri/aie_pt_link"
+BASE = DATA
 FIGS = os.path.join(os.path.dirname(__file__), "..", "figs")
 
 # categorical slots 1-4 (validated adjacent order), text/surface tokens

@@ -17,6 +17,7 @@ import seaborn as sns
 
 sns.set_theme(context="paper", style="whitegrid", palette="deep", font_scale=1.1)
 import matplotlib.font_manager as _fm
+from paths import DATA
 if any("ontserrat" in (f or "").lower() for f in _fm.findSystemFonts()):
     plt.rcParams["font.family"] = "Montserrat"
 mpl.rcParams.update({
@@ -98,7 +99,7 @@ def fig_blocks_and_scaling():
     HYB_INTERVAL = 111.0
     xs = np.arange(len(blocks))
     import json, os
-    _bi = "/home/snehadri/aie_scratch_save_20260810/block_intervals_t2n.json"   # blocks3_v2 (array, v5 flags) + pl_attn_v5 (fabric, t2n flags)
+    _bi = f"{DATA}/block_intervals_t2n.json"   # blocks3_v2 (array, v5 flags) + pl_attn_v5 (fabric, t2n flags)
     aie_us = None
     if os.path.isfile(_bi):
         _d = json.load(open(_bi))
@@ -143,7 +144,7 @@ def fig_blocks_and_scaling():
     # 14 of the 20 placements run at 4.0-4.4 us per event and 6 at 7.5-7.7 us.
     # (A lockstep feeder made every instance wait for the slowest one, and the
     # first sweep's serial one-event feeder capped the curve near 58k ev/s.)
-    SAVE = "/home/snehadri/aie_scratch_save_20260810"
+    SAVE = DATA
     tiles, agg = [], []
     for l in open(f"{SAVE}/obj20_sweep_v6_ind.csv"):
         if l.startswith("AGG,"):

@@ -4,7 +4,8 @@
 run in software on 2000 QCD + 2000 events per signal, identical events). Answers
 "how much AUC does int16 cost": <= 0.0001 on every signal."""
 import re, json, numpy as np
-S="/home/snehadri/aie_scratch_save_20260810/golden_float_vs_int16"
+from paths import DATA
+S=f"{DATA}/golden_float_vs_int16"
 idx=json.load(open(f"{S}/index.json"))
 def load(p):
     v={}

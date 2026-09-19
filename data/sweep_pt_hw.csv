@@ -1,0 +1,6 @@
+XAIEFAL: INFO: Resource group Avail is created.
+XAIEFAL: INFO: Resource group Static is created.
+XAIEFAL: INFO: Resource group Generic is created.
+kernel,bytes,nbeats,iters,min_ms,med_ms,mbps_min,ok
+pt,64,8,50,-1,-1,-1,WARMUP_FAIL_8
+SWEEP_DONE

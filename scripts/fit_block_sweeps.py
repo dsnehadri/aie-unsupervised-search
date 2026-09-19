@@ -7,8 +7,9 @@ Reads $SAVE/block_sweep_{obj,cand,cross}.csv; writes $SAVE/block_intervals.json.
 """
 import csv, json, os, sys
 import numpy as np
+from paths import DATA
 
-SAVE = "/home/snehadri/aie_scratch_save_20260810"
+SAVE = DATA
 # TAG selects a measurement set: "" = the August 2026 vehicles; "_v5" = blocks3_v2
 # (array blocks, v5 flags, preloaded feeders) and pl_attn_v3 (fabric blocks alone,
 # t2k flags, 156.25 MHz).

@@ -15,10 +15,11 @@ Run:  cd ~/repos/unsupervised-search && \
 """
 import os, sys, json
 import numpy as np
+from paths import DATA
 
-CACHE = "/home/snehadri/aie_scratch_save_20260810/anomaly_baselines.npz"
-AE_CACHE = "/home/snehadri/aie_scratch_save_20260810/ae_losses.npz"
-OUT_JSON = "/home/snehadri/aie_scratch_save_20260810/anomaly_baseline_aucs.json"
+CACHE = f"{DATA}/anomaly_baselines.npz"
+AE_CACHE = f"{DATA}/ae_losses.npz"
+OUT_JSON = f"{DATA}/anomaly_baseline_aucs.json"
 N_BKG = 200000
 # Background from BKG_SKIP onward, disjoint from retrain_tune.py's first
 # 150,000 training events, matching ae_loss_metrics.py. BKG_SKIP=0 restores

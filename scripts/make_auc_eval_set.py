@@ -16,8 +16,9 @@ import numpy as np, h5py, torch, struct
 
 sys.path.insert(0, "/home/snehadri/repos/unsupervised-search")
 from model_blocks import Encoder
+from paths import DATA
 
-OUT = "/home/snehadri/aie_scratch_save_20260810"
+OUT = DATA
 CKPT = "/home/snehadri/repos/unsupervised-search/experiments/retrained_noncollapse/finalWeights.ckpt"
 N_PER = 1000                       # events per class
 SIGNAL = "gluino_rpv_6j"

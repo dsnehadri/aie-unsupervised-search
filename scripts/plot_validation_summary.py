@@ -15,10 +15,11 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from paths import DATA
 
-SAVE = "/home/snehadri/aie_scratch_save_20260810"
+SAVE = DATA
 TB = "/home/snehadri/repos/aie-unsupervised-search/src/aie_stream/tb"
-TV = "/home/snehadri/repos/unsupervised-search/phase3_export_retrained/test_vectors"
+TV = DATA
 PL_C, AIE_C = "#d62728", "#1f77b4"
 
 # ---- PL: obj block stage dumps, 100 events --------------------------------

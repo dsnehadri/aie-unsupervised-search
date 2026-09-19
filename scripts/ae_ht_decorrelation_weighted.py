@@ -19,8 +19,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator
+from paths import DATA
 
-SAVE = "/home/snehadri/aie_scratch_save_20260810"
+SAVE = DATA
 bw = np.load(f"{SAVE}/bkg_weighted.npz")
 ae = np.load(f"{SAVE}/ae_losses.npz")
 bl = np.load(f"{SAVE}/anomaly_baselines.npz")

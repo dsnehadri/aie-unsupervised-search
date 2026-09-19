@@ -14,8 +14,9 @@ model_blocks.get_mse. Cached in ae_losses_cand.npz. Run:
 import os, json, numpy as np, matplotlib
 matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator
+from paths import DATA
 
-CACHE = "/home/snehadri/aie_scratch_save_20260810/ae_losses_cand.npz"
+CACHE = f"{DATA}/ae_losses_cand.npz"
 CKPT = "/home/snehadri/repos/unsupervised-search/experiments/retrained_noncollapse/finalWeights.ckpt"
 N_BKG = 200000
 # The deployed checkpoint was trained on the FIRST 150,000 background events

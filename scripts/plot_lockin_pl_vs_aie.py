@@ -19,9 +19,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import os
-SUF = os.environ.get("LOCKIN_SUFFIX", "")   # "" = 90 s campaigns, "120" = 120 s campaigns
-# Which campaign feeds each trace. The defaults reproduce the old figure; the
-# current designs are PL_TAG=120_plint and AIE_TAG=120_hybembed.
+SUF = os.environ.get("LOCKIN_SUFFIX", "120")   # "120" = the 120 s campaigns
+# Which campaign feeds each trace. The defaults are the two campaigns behind
+# the figure in the paper: the fabric-only t2k image and the hybrid v3x image,
+# both remeasured 2026-09-15 (+0.634 W and +1.727 W above idle). The earlier
+# 90 s campaigns are not in the repository any more.
 #
 # WHY THIS IS PARAMETERISED. The old campaigns set the ON window by an ITERATION
 # COUNT, so a slower design ran a LONGER window: the PL run held its load for
@@ -30,8 +32,8 @@ SUF = os.environ.get("LOCKIN_SUFFIX", "")   # "" = 90 s campaigns, "120" = 120 s
 # looked like it was decaying late. It was not: its load really was still
 # running. The time-based script fixes this at the source, and the current
 # campaigns are 122.1 s and 124.1 s, 2 s apart rather than 10.
-PL_TAG  = os.environ.get("LOCKIN_PL_TAG",  SUF + "_pl")
-AIE_TAG = os.environ.get("LOCKIN_AIE_TAG", SUF)
+PL_TAG  = os.environ.get("LOCKIN_PL_TAG",  SUF + "_pl_t2k")
+AIE_TAG = os.environ.get("LOCKIN_AIE_TAG", SUF + "_hyb_v3x")
 PL_LABEL  = os.environ.get("LOCKIN_PL_LABEL",  "PL-only")
 AIE_LABEL = os.environ.get("LOCKIN_AIE_LABEL", "AIE-PL hybrid")
 
@@ -166,8 +168,11 @@ for ax in (ax1, ax2):
 fig.tight_layout()
 # Name the output after the campaigns, so a run with non-default tags cannot
 # silently overwrite the figure built from a different pair.
+# The default pair is the one in the paper, so it writes the paper's file; any
+# other pair must be named explicitly, so it cannot overwrite that figure.
+DEFAULT = (PL_TAG, AIE_TAG) == ("120_pl_t2k", "120_hyb_v3x")
 out = os.environ.get("LOCKIN_OUT") or (
-    f"{FIGS}/board_lockin_pl_vs_aie" + ("_" + SUF + "s" if SUF else "") + ".png")
+    f"{FIGS}/board_lockin_pl_vs_aie" + ("" if DEFAULT else f"_{PL_TAG}_{AIE_TAG}") + ".png")
 fig.savefig(out, facecolor="white")
 fig.savefig(out.replace(".png", ".pdf"), facecolor="white")
 print("saved", out)

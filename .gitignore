@@ -73,3 +73,7 @@ src/pl_stream/plhost_direct
 figs/board_thermal_lockin120_hybFLOATLN_log.csv
 # editor settings
 .vscode/
+
+# the figure inputs live here and are tracked, despite the patterns above
+!data/
+!data/**

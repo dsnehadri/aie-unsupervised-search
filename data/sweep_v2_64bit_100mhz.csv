@@ -1,0 +1,26 @@
+XAIEFAL: INFO: Resource group Avail is created.
+XAIEFAL: INFO: Resource group Static is created.
+XAIEFAL: INFO: Resource group Generic is created.
+kernel,bytes,nbeats,iters,min_ms,med_ms,mbps_min,ok
+ptw,1024,128,50,0.02129,0.02779,48.1,ok
+ptw,4096,512,50,0.03145,0.03178,130.2,ok
+ptw,16384,2048,50,0.04651,0.04717,352.3,ok
+ptw,65536,8192,50,0.10902,0.11111,601.1,ok
+ptw,262144,32768,50,0.35558,0.35669,737.2,ok
+ptw,1048576,131072,20,1.33827,1.34061,783.5,ok
+ptw,4194304,524288,20,5.27190,5.27305,795.6,ok
+ptw,16777216,2097152,8,21.00015,21.00247,798.9,ok
+kernel,bytes,nbeats,iters,min_ms,med_ms,mbps_min,ok
+pt,64,8,50,-1,-1,-1,WARMUP_FAIL_8
+kernel,bytes,nbeats,iters,min_ms,med_ms,mbps_min,ok
+lb,64,8,50,0.02446,0.02494,2.6,ok
+lb,256,32,50,0.02448,0.02521,10.5,ok
+lb,1024,128,50,0.02429,0.02467,42.2,ok
+lb,4096,512,50,0.02953,0.03009,138.7,ok
+lb,16384,2048,50,0.04708,0.04747,348.0,ok
+lb,65536,8192,50,0.10789,0.10884,607.4,ok
+lb,262144,32768,50,0.35406,0.35485,740.4,ok
+lb,1048576,131072,20,1.33751,1.33808,784.0,ok
+lb,4194304,524288,20,5.26985,5.27086,795.9,ok
+lb,16777216,2097152,8,20.99920,21.00031,798.9,ok
+SWEEP_DONE

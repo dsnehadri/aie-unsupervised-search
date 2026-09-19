@@ -8,8 +8,9 @@ as the separate figures (ae_loss_metrics.py / ae_loss_percand_metrics.py).
 import numpy as np, matplotlib
 matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator, MultipleLocator
+from paths import DATA
 
-SAVE = "/home/snehadri/aie_scratch_save_20260810"
+SAVE = DATA
 ev = np.load(f"{SAVE}/ae_losses.npz")
 cand = np.load(f"{SAVE}/ae_losses_cand.npz")
 

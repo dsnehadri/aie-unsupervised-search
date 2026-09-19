@@ -5,9 +5,10 @@ sys.path.insert(0, "/home/snehadri/repos/unsupervised-search")
 from model import StepLightning
 from model_blocks import pairwise
 from export_phase3 import fuse_all_batchnorms
+from paths import DATA
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
-S = "/home/snehadri/aie_scratch_save_20260810"
+S = DATA
 
 with h5py.File("/home/snehadri/repos/unsupervised-search/inputs/qcd_background.h5") as f:
     e = np.nan_to_num(np.array(f['source']['e'])) / 1000.
