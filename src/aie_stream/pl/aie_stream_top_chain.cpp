@@ -6,9 +6,20 @@
 #include "/home/snehadri/repos/aie-unsupervised-search/src/aie_stream/pl/aie_stream.h"
 #include "/home/snehadri/repos/aie-unsupervised-search/src/pl_stream/weights_rom.h"
 
+#if defined(READ_WIDE)
+typedef ap_uint<128> IN_STREAM_T;
+#else
+typedef ap_uint<32> IN_STREAM_T;
+#endif
+#if defined(READ_WIDE)
+static void read_input_loop(const ap_uint<128>* in_buf, int n, hls::stream<ap_uint<128>>& o) {
+    for (int e = 0; e < n; e++) read_input_wide(in_buf, e * 18, o);
+}
+#else
 static void read_input_loop(const ap_uint<32>* in_buf, int n, hls::stream<ap_uint<32>>& o) {
     for (int e = 0; e < n; e++) read_input(in_buf, e*72, o);
 }
+#endif
 // jets -> embedding, pairwise, lorentz; mask -> the array (one PLIO, read by
 // four tile kernels) and lorentz
 static void fork_chain(hls::stream<ap_uint<32>>& in_s,
@@ -40,10 +51,37 @@ static void fork_chain(hls::stream<ap_uint<32>>& in_s,
         m_aie.write(mask[i]); m_cand.write(mask[i]);
     }
 }
-static void fork_loop(hls::stream<ap_uint<32>>& in, int n,
+#if defined(READ_WIDE)
+// READ_WIDE: 18 128-bit beats per event, forked word by word as they are
+// unpacked, so the whole fork is one 72-cycle loop
+static void fork_chain_wide(hls::stream<ap_uint<128>>& in_s,
+    hls::stream<data_t>& je, hls::stream<data_t>& jp, hls::stream<data_t>& jc,
+    hls::stream<bool>& m_aie, hls::stream<bool>& m_cand)
+{
+    ap_uint<128> beat = 0;
+    FORK_W: for (int i = 0; i < N_MAX * RAW_DIM + N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        if ((i & 3) == 0) beat = in_s.read();
+        const int k = i & 3;
+        ap_uint<32> wv = beat.range(32 * k + 31, 32 * k);
+        if (i < N_MAX * RAW_DIM) {
+            data_t val; val.range(15, 0) = wv.range(15, 0);
+            je.write(val); jp.write(val); jc.write(val);
+        } else {
+            const bool mv = (wv != 0);
+            m_aie.write(mv); m_cand.write(mv);
+        }
+    }
+}
+#endif
+static void fork_loop(hls::stream<IN_STREAM_T>& in, int n,
     hls::stream<data_t>& je, hls::stream<data_t>& jp, hls::stream<data_t>& jc,
     hls::stream<bool>& m_aie, hls::stream<bool>& m_cand) {
+#if defined(READ_WIDE)
+    for (int e = 0; e < n; e++) fork_chain_wide(in, je, jp, jc, m_aie, m_cand);
+#else
     for (int e = 0; e < n; e++) fork_chain(in, je, jp, jc, m_aie, m_cand);
+#endif
 }
 static void embed_send_loop(hls::stream<data_t>& j, hls::stream<pkt64_t>& jo, int n) {
     for (int e = 0; e < n; e++) embed_send(j, jo);
@@ -203,7 +241,12 @@ static void wddr_loop(hls::stream<ap_uint<32>>& i, ap_uint<32>* out_buf, int n) 
     for (int e = 0; e < n; e++) write_output_ddr(i, out_buf, e*3);
 }
 
-static void run_chain(const ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n,
+#if defined(READ_WIDE)
+static void run_chain(const ap_uint<128>* in_buf,
+#else
+static void run_chain(const ap_uint<32>* in_buf,
+#endif
+    ap_uint<32>* out_buf, int n,
     hls::stream<pkt64_t>& embed_j_out, hls::stream<pkt64_t>& mask_out,
 #if !defined(PAIRWISE_ON_AIE)
     hls::stream<pkt64_t>& obj0_w0_out,
@@ -216,8 +259,13 @@ static void run_chain(const ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n,
     const MLPWeights& mlp_w, const AEEncoderWeights& ae_enc_w, const AEDecoderWeights& ae_dec_w)
 {
     #pragma HLS DATAFLOW
+#if defined(READ_WIDE)
+    hls::stream<ap_uint<128>> in_stream("mm2s");
+    #pragma HLS STREAM variable=in_stream depth=108
+#else
     hls::stream<ap_uint<32>> in_stream("mm2s");
     #pragma HLS STREAM variable=in_stream depth=432
+#endif
     hls::stream<ap_uint<32>> out_stream("s2mm");
     #pragma HLS STREAM variable=out_stream depth=192
     hls::stream<data_t> s_jets_embed, s_jets_pairwise, s_jets_cand;
@@ -269,7 +317,12 @@ static AEEncoderWeights ae_enc_w; static AEDecoderWeights ae_dec_w;
 #endif
 
 extern "C" void aie_stream_top(
-    ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n_events,
+#if defined(READ_WIDE)
+    ap_uint<128>* in_buf,
+#else
+    ap_uint<32>* in_buf,
+#endif
+    ap_uint<32>* out_buf, int n_events,
     hls::stream<pkt64_t>& embed_j_out, hls::stream<pkt64_t>& mask_out,
 #if !defined(PAIRWISE_ON_AIE)
     hls::stream<pkt64_t>& obj0_w0_out,
@@ -280,7 +333,11 @@ extern "C" void aie_stream_top(
 #endif
     hls::stream<pkt64_t>& x_in, hls::stream<pkt64_t>& c_in)
 {
+#if defined(READ_WIDE)
+    #pragma HLS INTERFACE m_axi port=in_buf offset=slave bundle=gmem0 depth=180
+#else
     #pragma HLS INTERFACE m_axi port=in_buf offset=slave bundle=gmem0 depth=720
+#endif
     #pragma HLS INTERFACE m_axi port=out_buf offset=slave bundle=gmem1 depth=30
     #pragma HLS INTERFACE axis port=embed_j_out
     #pragma HLS INTERFACE axis port=mask_out

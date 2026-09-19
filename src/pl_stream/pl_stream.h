@@ -173,7 +173,11 @@ void stream_to_array1d(hls::stream<T> &in, T arr[LEN]) {
 // each word is a 32-bit data_t reinterpreted as ap_uint<32>
 
 inline void read_and_fork(
+    #if defined(READ_WIDE)
+    hls::stream<ap_uint<128>> &in_s,
+#else
     hls::stream<ap_uint<32>> &in_s,
+#endif
 
     // raw jets go to 3 consumers (embed, pairwise, cand_lorentz)
     dstream_t &out_jets_embed,
@@ -190,6 +194,33 @@ inline void read_and_fork(
     // volatile ap_uint<32>* debug_buf, int dbg_idx
 ) {
     // debug_buf[dbg_idx] = 1;
+#if defined(READ_WIDE)
+    // one event = 18 beats: 60 jet words then 12 mask words
+    ap_uint<32> w[72];
+    #pragma HLS ARRAY_PARTITION variable=w complete
+    READ_BEATS: for (int b = 0; b < 18; b++) {
+        #pragma HLS PIPELINE II=1
+        ap_uint<128> beat = in_s.read();
+        for (int k = 0; k < 4; k++) {
+            #pragma HLS UNROLL
+            w[b * 4 + k] = beat.range(32 * k + 31, 32 * k);
+        }
+    }
+    data_t raw_jets[N_MAX][RAW_DIM];
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS UNROLL
+        for (int j = 0; j < RAW_DIM; j++) {
+            #pragma HLS UNROLL
+            data_t val; val.range(15, 0) = w[i * RAW_DIM + j].range(15, 0);
+            raw_jets[i][j] = val;
+        }
+    }
+    bool mask[N_MAX];
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS UNROLL
+        mask[i] = (w[60 + i] != 0);
+    }
+#else
     // read raw_jets from axi-stream
     data_t raw_jets[N_MAX][RAW_DIM];
     READ_JETS: for (int i = 0; i < N_MAX; i++) {
@@ -218,6 +249,7 @@ inline void read_and_fork(
         ap_uint<32> w = in_s.read();
         mask[i] = (w != 0);
     }
+#endif  // READ_WIDE
 
     // fork raw jets into 3 output streams
 
@@ -706,6 +738,21 @@ inline void write_output(
 }
 
 
+#if defined(READ_WIDE)
+// READ_WIDE: the 72 input words come as 18 128-bit beats, so the fork sees a
+// whole event 4x sooner (the 32-bit read was 72 beats plus the AXI latency).
+static void read_input_wide(const ap_uint<128>* in_buf, int offset, hls::stream<ap_uint<128>>& out) {
+    #pragma HLS INLINE off
+    for (int i = 0; i < 18; i++) {
+        #pragma HLS PIPELINE II=1
+        out.write(in_buf[offset + i]);
+    }
+}
+static void read_input_wide_n(const ap_uint<128>* in_buf, int n, hls::stream<ap_uint<128>>& o) {
+    #pragma HLS INLINE off
+    for (int e = 0; e < n; e++) read_input_wide(in_buf, e * 18, o);
+}
+#endif
 // DDR -> stream (DATAFLOW stage)
 static void read_input(const ap_uint<32>* in_buf, int offset, hls::stream<ap_uint<32>>& out) {
     #pragma HLS INLINE off
@@ -754,7 +801,11 @@ static void read_input_n(const ap_uint<32>* in_buf, int n, hls::stream<ap_uint<3
     for (int e = 0; e < n; e++) read_input(in_buf, e*72, o);
 #endif
 }
+#if defined(READ_WIDE)
+static void fork_n(hls::stream<ap_uint<128>>& in, int n,
+#else
 static void fork_n(hls::stream<ap_uint<32>>& in, int n,
+#endif
     dstream_t& je, dstream_t& jp, dstream_t& jc,
     hls::stream<bool>& me, hls::stream<bool>& mo0, hls::stream<bool>& mc0,
     hls::stream<bool>& mo1, hls::stream<bool>& mc1, hls::stream<bool>& mcd) {
@@ -825,7 +876,12 @@ static void wddr_n(hls::stream<ap_uint<32>>& i, ap_uint<32>* out_buf, int n) {
 
 // batched top-level dataflow: one region for the whole batch
 inline void passwd_dataflow_batched(
-    const ap_uint<32>* in_buf, ap_uint<32>* out_buf, int n_events,
+#if defined(READ_WIDE)
+    const ap_uint<128>* in_buf,
+#else
+    const ap_uint<32>* in_buf,
+#endif
+    ap_uint<32>* out_buf, int n_events,
     const EmbedWeights &embed_w,
     const MLPWeights &mlp_w,
     const AttnWeights &obj0_w, const AttnWeights &cand0_w, const AttnWeights &cross0_w,
@@ -834,7 +890,11 @@ inline void passwd_dataflow_batched(
 ) {
     #pragma HLS DATAFLOW
 
+#if defined(READ_WIDE)
+    hls::stream<ap_uint<128>> in_stream("mm2s");
+#else
     hls::stream<ap_uint<32>> in_stream("mm2s");
+#endif
     hls::stream<ap_uint<32>> out_stream("s2mm");
     // Depths tripled 2026-09-10: at two events of slack a stage that finishes
     // early stalls on its neighbour, which is what left ~25 us/event of the
@@ -881,7 +941,11 @@ inline void passwd_dataflow_batched(
     #pragma HLS STREAM variable =  s_ae depth = 168
     #pragma HLS STREAM variable =  s_losses depth = 24
 
+#if defined(READ_WIDE)
+    read_input_wide_n(in_buf, n_events, in_stream);
+#else
     read_input_n(in_buf, n_events, in_stream);
+#endif
     fork_n(in_stream, n_events, s_jets_embed, s_jets_pairwise, s_jets_cand,
         s_mask_embed, s_mask_obj0, s_mask_cross0, s_mask_obj1, s_mask_cross1, s_mask_cand);
     embed_n(s_jets_embed, s_mask_embed, embed_w, s_embed, n_events);
@@ -917,6 +981,7 @@ inline void passwd_dataflow_batched(
 // stages are run concurrently - data flows through hls::stream FIFOs
 // weights are read-only and synthesize to BRAM
 
+#if !defined(READ_WIDE)   // per-event variant, unused by the batched tops; keeps the 32-bit read
 inline void passwd_dataflow(
     // axi stream io
     const ap_uint<32>* in_buf, int in_offset,
@@ -1029,5 +1094,7 @@ inline void passwd_dataflow(
     write_output_ddr(out_stream, out_buf, out_offset);
     
 }
+#endif  // !READ_WIDE
+
 
 #endif

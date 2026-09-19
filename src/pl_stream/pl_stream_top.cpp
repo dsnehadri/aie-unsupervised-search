@@ -2,11 +2,19 @@
 #include "weights_rom.h"
 
 extern "C" void pl_stream_top(
+#if defined(READ_WIDE)
+    ap_uint<128>* in_buf,
+#else
     ap_uint<32>* in_buf,
+#endif
     ap_uint<32>* out_buf,
     int n_events
 ) {
+#if defined(READ_WIDE)
+#pragma HLS INTERFACE m_axi port=in_buf  offset=slave bundle=gmem0 depth=180
+#else
 #pragma HLS INTERFACE m_axi port=in_buf  offset=slave bundle=gmem0 depth=720
+#endif
 #pragma HLS INTERFACE m_axi port=out_buf offset=slave bundle=gmem1 depth=30
 #pragma HLS INTERFACE s_axilite port=in_buf
 #pragma HLS INTERFACE s_axilite port=out_buf
