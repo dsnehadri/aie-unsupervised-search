@@ -71,3 +71,5 @@ src/aie_stream/tb/.AIE_SIM_CMD_LINE_OPTIONS
 src/pl_stream/plhost_direct
 # raw log of the float-layernorm experiment (negative result, feeds no figure; 17 MB)
 figs/board_thermal_lockin120_hybFLOATLN_log.csv
+# editor settings
+.vscode/
