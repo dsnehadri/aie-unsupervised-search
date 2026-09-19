@@ -839,4 +839,331 @@ struct AttnWeights {
     ln_param_t post_ffn_g[E_DIM], post_ffn_b[E_DIM];
 };  
 
+
+// ---------------------------------------------------------------------------
+// FFN_STREAM: the post-attention chain -- output projection, (skip +) norm,
+// three FFN layers with norm and ReLU, skip + norm -- as ROW-STREAMING dataflow
+// processes. Written as passes over arrays, every stage waits for all rows of
+// the previous one (the object block's FFN alone was 540 cycles for three
+// 48-cycle linears). Here each process handles one row at a time at II=1, so
+// row 0 is in the last norm while row 3 is still in the projection, and the
+// chain costs one row's path plus the rows.
+//
+// The arithmetic is untouched: the same products, accumulator widths, casts and
+// the same layernorm<1> body per row, so the outputs are bit-identical to the
+// batched version. Unlike FFN_PIPE above, no per-row function call sits inside
+// an unpipelined loop: every process is one II=1 loop.
+// ---------------------------------------------------------------------------
+#if defined(FFN_STREAM)
+#include <hls_stream.h>
+#ifndef FFN_STREAM_J
+#define FFN_STREAM_J LIN_J_UNROLL          // outputs per cycle in the streaming linears
+#endif
+#define FS_PART_J(v, f) LIN_DO_PRAGMA(HLS ARRAY_PARTITION variable=v dim=1 cyclic factor=f)
+struct fs_row_t { data_t v[E_DIM]; };
+
+// one linear layer on rows from a stream: FFN_STREAM_J outputs per cycle
+template <int N_ROWS, int OUT_DIM = E_DIM, int IN_DIM = E_DIM>
+static void linear_rows(hls::stream<fs_row_t>& in_s,
+                        const weight_t W[OUT_DIM][IN_DIM], const weight_t bias[OUT_DIM],
+                        hls::stream<fs_row_t>& out_s, int nr = N_ROWS)
+{
+    #pragma HLS ARRAY_PARTITION variable=W dim=2 complete
+    FS_PART_J(W, FFN_STREAM_J)
+    #pragma HLS ARRAY_PARTITION variable=bias complete
+    data_t xin[IN_DIM];
+    #pragma HLS ARRAY_PARTITION variable=xin complete
+    data_t o[OUT_DIM];
+    #pragma HLS ARRAY_PARTITION variable=o complete
+    constexpr int JG = OUT_DIM / FFN_STREAM_J;
+    int jg = 0;
+    LR_FLAT: for (int it = 0; it < nr * JG; it++) {     // one flat loop: rows x output groups
+            #pragma HLS PIPELINE II=1
+            #pragma HLS LOOP_TRIPCOUNT min=JG max=N_ROWS*JG
+            const int j = jg * FFN_STREAM_J;
+            if (j == 0) {
+                fs_row_t r = in_s.read();
+                for (int k = 0; k < IN_DIM; k++) {
+                    #pragma HLS UNROLL
+                    xin[k] = r.v[k];
+                }
+            }
+            for (int jj = 0; jj < FFN_STREAM_J; jj++) {
+                #pragma HLS UNROLL
+                acc_t sum = (acc_t)bias[j + jj];
+                for (int k = 0; k < IN_DIM; k++) {
+                    #pragma HLS UNROLL
+#ifdef LIN_FABRIC_MUL
+                    #pragma HLS BIND_OP variable=sum op=mul impl=fabric
+#endif
+#ifdef NARROW_MUL
+                    sum += xin[k] * W[j + jj][k];
+#else
+                    sum += (acc_t)xin[k] * (acc_t)W[j + jj][k];
+#endif
+                }
+                o[j + jj] = (data_t)sum;
+            }
+            if (j + FFN_STREAM_J == OUT_DIM) {
+                fs_row_t r;
+                for (int k = 0; k < OUT_DIM; k++) {
+                    #pragma HLS UNROLL
+                    r.v[k] = o[k];
+                }
+                out_s.write(r);
+            }
+            jg = (jg == JG - 1) ? 0 : jg + 1;
+    }
+}
+
+// norm (+ ReLU) per row
+template <int N_ROWS, bool RELU>
+static void layernorm_rows(hls::stream<fs_row_t>& in_s,
+                           const ln_param_t g[E_DIM], const ln_param_t b[E_DIM],
+                           hls::stream<fs_row_t>& out_s, int nr = N_ROWS)
+{
+    for (int i = 0; i < nr; i++) {
+        #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
+        fs_row_t r = in_s.read();
+        data_t t[1][E_DIM];
+        #pragma HLS ARRAY_PARTITION variable=t dim=0 complete
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            t[0][k] = r.v[k];
+        }
+        layernorm<1>(t, g, b);
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            r.v[k] = RELU ? ((t[0][k] > (data_t)0) ? t[0][k] : (data_t)0) : t[0][k];
+        }
+        out_s.write(r);
+    }
+}
+
+// skip + norm per row; the normalised row goes to two consumers (the FFN and
+// its residual path)
+template <int N_ROWS>
+static void skipnorm_rows(hls::stream<fs_row_t>& in_s, hls::stream<fs_row_t>& res_s,
+                          const ln_param_t g[E_DIM], const ln_param_t b[E_DIM],
+                          hls::stream<fs_row_t>& out_a, hls::stream<fs_row_t>& out_b, int nr = N_ROWS)
+{
+    for (int i = 0; i < nr; i++) {
+        #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
+        fs_row_t r = in_s.read(), rr = res_s.read();
+        data_t t[1][E_DIM];
+        #pragma HLS ARRAY_PARTITION variable=t dim=0 complete
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            t[0][k] = r.v[k] + rr.v[k];
+        }
+        layernorm<1>(t, g, b);
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            r.v[k] = t[0][k];
+        }
+        out_a.write(r); out_b.write(r);
+    }
+}
+// norm only (the cross block has no attention skip), two consumers
+template <int N_ROWS>
+static void norm_rows2(hls::stream<fs_row_t>& in_s,
+                       const ln_param_t g[E_DIM], const ln_param_t b[E_DIM],
+                       hls::stream<fs_row_t>& out_a, hls::stream<fs_row_t>& out_b, int nr = N_ROWS)
+{
+    for (int i = 0; i < nr; i++) {
+        #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
+        fs_row_t r = in_s.read();
+        data_t t[1][E_DIM];
+        #pragma HLS ARRAY_PARTITION variable=t dim=0 complete
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            t[0][k] = r.v[k];
+        }
+        layernorm<1>(t, g, b);
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            r.v[k] = t[0][k];
+        }
+        out_a.write(r); out_b.write(r);
+    }
+}
+
+template <int N_ROWS>
+static void rows_src_flat(const data_t a[N_ROWS][E_DIM], hls::stream<fs_row_t>& o, int nr = N_ROWS)
+{
+    #pragma HLS ARRAY_PARTITION variable=a dim=2 complete       // a whole row per cycle
+    for (int i = 0; i < nr; i++) {
+        #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
+        fs_row_t r;
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            r.v[k] = a[i][k];
+        }
+        o.write(r);
+    }
+}
+// row i of the head-concatenated context: heads side by side, as concat_and_project builds it
+template <int N_ROWS>
+static void rows_src_heads(const data_t ctx[N_HEADS][N_ROWS][D_HEAD], hls::stream<fs_row_t>& o, int nr = N_ROWS)
+{
+    #pragma HLS ARRAY_PARTITION variable=ctx dim=1 complete
+    #pragma HLS ARRAY_PARTITION variable=ctx dim=3 complete
+    for (int i = 0; i < nr; i++) {
+        #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
+        fs_row_t r;
+        for (int h = 0; h < N_HEADS; h++) {
+            #pragma HLS UNROLL
+            for (int d = 0; d < D_HEAD; d++) {
+                #pragma HLS UNROLL
+                r.v[h * D_HEAD + d] = ctx[h][i][d];
+            }
+        }
+        o.write(r);
+    }
+}
+
+// FFN residual add + final norm (+ zero the padded rows) into the output array
+template <int N_ROWS, bool MASK>
+static void rows_sink(hls::stream<fs_row_t>& in_s, hls::stream<fs_row_t>& res_s,
+                      const ln_param_t g[E_DIM], const ln_param_t b[E_DIM],
+                      const bool mask[N_ROWS], data_t out[N_ROWS][E_DIM], int nr = N_ROWS)
+{
+    #pragma HLS ARRAY_PARTITION variable=out dim=2 complete     // a whole row per cycle
+    // rows the chain skipped (padded jets, never read downstream) come out as zeros
+    for (int i = nr; i < N_ROWS; i++) {
+        #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=0 max=N_ROWS
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            out[i][k] = (data_t)0;
+        }
+    }
+    for (int i = 0; i < nr; i++) {
+        #pragma HLS PIPELINE II=1
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
+        fs_row_t r = in_s.read(), rr = res_s.read();
+        data_t t[1][E_DIM];
+        #pragma HLS ARRAY_PARTITION variable=t dim=0 complete
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            t[0][k] = r.v[k] + rr.v[k];
+        }
+        layernorm<1>(t, g, b);
+        for (int k = 0; k < E_DIM; k++) {
+            #pragma HLS UNROLL
+            out[i][k] = (MASK && mask[i]) ? (data_t)0 : t[0][k];
+        }
+    }
+}
+
+// the three FFN layers and the final skip + norm, rows in on s_x1a with the
+// residual copy on s_x1b
+template <int N_ROWS, bool MASK>
+static void ffn_rows(hls::stream<fs_row_t>& s_x1a, hls::stream<fs_row_t>& s_x1b,
+                     const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM], const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
+                     const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM], const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
+                     const ln_param_t post_g[E_DIM], const ln_param_t post_b[E_DIM],
+                     const bool mask[N_ROWS], data_t out[N_ROWS][E_DIM], int nr = N_ROWS)
+{
+    #pragma HLS DATAFLOW
+    hls::stream<fs_row_t> s1("fs1"), s2("fs2"), s3("fs3"), s4("fs4"), s5("fs5"), s6("fs6");
+    #pragma HLS STREAM variable=s1 depth=4
+    #pragma HLS STREAM variable=s2 depth=4
+    #pragma HLS STREAM variable=s3 depth=4
+    #pragma HLS STREAM variable=s4 depth=4
+    #pragma HLS STREAM variable=s5 depth=4
+    #pragma HLS STREAM variable=s6 depth=4
+    linear_rows<N_ROWS>(s_x1a, ffn_w[0], ffn_b[0], s1, nr);
+    layernorm_rows<N_ROWS, true>(s1, ffn_ln_g[0], ffn_ln_b[0], s2, nr);
+    linear_rows<N_ROWS>(s2, ffn_w[1], ffn_b[1], s3, nr);
+    layernorm_rows<N_ROWS, true>(s3, ffn_ln_g[1], ffn_ln_b[1], s4, nr);
+    linear_rows<N_ROWS>(s4, ffn_w[2], ffn_b[2], s5, nr);
+    layernorm_rows<N_ROWS, true>(s5, ffn_ln_g[2], ffn_ln_b[2], s6, nr);
+    rows_sink<N_ROWS, MASK>(s6, s_x1b, post_g, post_b, mask, out, nr);
+}
+
+// object block: flat context + attention skip
+template <int N_ROWS, bool MASK>
+static void post_chain_flat(const data_t ctx[N_ROWS][E_DIM], const data_t residual[N_ROWS][E_DIM],
+    const weight_t Wo[E_DIM][E_DIM], const weight_t bo[E_DIM],
+    const ln_param_t attn_g[E_DIM], const ln_param_t attn_b[E_DIM],
+    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM], const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM], const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t post_g[E_DIM], const ln_param_t post_b[E_DIM],
+    const bool mask[N_ROWS], data_t out[N_ROWS][E_DIM], int nr = N_ROWS)
+{
+    #pragma HLS DATAFLOW
+    hls::stream<fs_row_t> s_ctx("fs_ctx"), s_res("fs_res"), s_proj("fs_proj"), s_x1a("fs_x1a"), s_x1b("fs_x1b");
+    #pragma HLS STREAM variable=s_ctx depth=4
+    #pragma HLS STREAM variable=s_res depth=16
+    #pragma HLS STREAM variable=s_proj depth=4
+    #pragma HLS STREAM variable=s_x1a depth=4
+    #pragma HLS STREAM variable=s_x1b depth=16
+    rows_src_flat<N_ROWS>(ctx, s_ctx, nr);
+    rows_src_flat<N_ROWS>(residual, s_res, nr);
+    linear_rows<N_ROWS>(s_ctx, Wo, bo, s_proj, nr);
+    skipnorm_rows<N_ROWS>(s_proj, s_res, attn_g, attn_b, s_x1a, s_x1b, nr);
+    ffn_rows<N_ROWS, MASK>(s_x1a, s_x1b, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_g, post_b, mask, out, nr);
+}
+// candidate block: per-head context + attention skip
+template <int N_ROWS>
+static void post_chain_heads_skip(const data_t ctx[N_HEADS][N_ROWS][D_HEAD], const data_t residual[N_ROWS][E_DIM],
+    const weight_t Wo[E_DIM][E_DIM], const weight_t bo[E_DIM],
+    const ln_param_t attn_g[E_DIM], const ln_param_t attn_b[E_DIM],
+    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM], const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM], const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t post_g[E_DIM], const ln_param_t post_b[E_DIM],
+    data_t out[N_ROWS][E_DIM])
+{
+    #pragma HLS DATAFLOW
+    hls::stream<fs_row_t> s_ctx("fs_ctx"), s_res("fs_res"), s_proj("fs_proj"), s_x1a("fs_x1a"), s_x1b("fs_x1b");
+    #pragma HLS STREAM variable=s_ctx depth=4
+    #pragma HLS STREAM variable=s_res depth=16
+    #pragma HLS STREAM variable=s_proj depth=4
+    #pragma HLS STREAM variable=s_x1a depth=4
+    #pragma HLS STREAM variable=s_x1b depth=16
+    bool nomask[N_ROWS];
+    for (int i = 0; i < N_ROWS; i++) {
+        #pragma HLS UNROLL
+        nomask[i] = false;
+    }
+    rows_src_heads<N_ROWS>(ctx, s_ctx);
+    rows_src_flat<N_ROWS>(residual, s_res);
+    linear_rows<N_ROWS>(s_ctx, Wo, bo, s_proj);
+    skipnorm_rows<N_ROWS>(s_proj, s_res, attn_g, attn_b, s_x1a, s_x1b);
+    ffn_rows<N_ROWS, false>(s_x1a, s_x1b, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_g, post_b, nomask, out);
+}
+// cross block: per-head context, norm without a skip
+template <int N_ROWS>
+static void post_chain_heads_noskip(const data_t ctx[N_HEADS][N_ROWS][D_HEAD],
+    const weight_t Wo[E_DIM][E_DIM], const weight_t bo[E_DIM],
+    const ln_param_t attn_g[E_DIM], const ln_param_t attn_b[E_DIM],
+    const weight_t ffn_w[N_FFN_LAYERS][E_DIM][E_DIM], const weight_t ffn_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t ffn_ln_g[N_FFN_LAYERS][E_DIM], const ln_param_t ffn_ln_b[N_FFN_LAYERS][E_DIM],
+    const ln_param_t post_g[E_DIM], const ln_param_t post_b[E_DIM],
+    data_t out[N_ROWS][E_DIM], int nr = N_ROWS)
+{
+    #pragma HLS DATAFLOW
+    hls::stream<fs_row_t> s_ctx("fs_ctx"), s_proj("fs_proj"), s_x1a("fs_x1a"), s_x1b("fs_x1b");
+    #pragma HLS STREAM variable=s_ctx depth=4
+    #pragma HLS STREAM variable=s_proj depth=4
+    #pragma HLS STREAM variable=s_x1a depth=4
+    #pragma HLS STREAM variable=s_x1b depth=16
+    bool nomask[N_ROWS];
+    for (int i = 0; i < N_ROWS; i++) {
+        #pragma HLS UNROLL
+        nomask[i] = false;
+    }
+    rows_src_heads<N_ROWS>(ctx, s_ctx, nr);
+    linear_rows<N_ROWS>(s_ctx, Wo, bo, s_proj, nr);
+    norm_rows2<N_ROWS>(s_proj, attn_g, attn_b, s_x1a, s_x1b, nr);
+    ffn_rows<N_ROWS, false>(s_x1a, s_x1b, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_g, post_b, nomask, out, nr);
+}
+#endif  // FFN_STREAM
+
 #endif

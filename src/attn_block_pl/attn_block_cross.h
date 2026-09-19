@@ -81,6 +81,16 @@ inline void attn_block_cross(
 
     // concat heads and output projection
 
+#if defined(FFN_STREAM)
+    // projection, norm and the FFN as one row-streaming chain (no attention skip here)
+    data_t xo[N_MAX][E_DIM];
+    post_chain_heads_noskip<N_MAX>(context, Wo, bo, attn_ln_g, attn_ln_b,
+        ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b, xo, nr);
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++) x[i][j] = xo[i][j];
+    }
+#else
     data_t attn_out[N_MAX][E_DIM];
     concat_and_project<N_MAX>(context, Wo, bo, attn_out);
 
@@ -98,6 +108,7 @@ inline void attn_block_cross(
     // do ffn
 
     ffn_block<N_MAX>(x, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b);
+#endif
 }
 
 #endif

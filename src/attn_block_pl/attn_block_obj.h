@@ -438,6 +438,11 @@ inline void attn_block_obj(
 #endif
 #endif
 
+#if defined(FFN_STREAM)
+    // projection, skip + norm and the FFN as one row-streaming chain
+    post_chain_flat<N_MAX, true>(context_f, residual, Wo, bo, attn_ln_g, attn_ln_b,
+        ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b, padding_mask, x_out, rows_valid(padding_mask));
+#else
     data_t attn_out[N_MAX][E_DIM];
     obj_df_project(context_f, Wo, bo, attn_out);
 
@@ -445,6 +450,7 @@ inline void attn_block_obj(
     obj_df_skipnorm(attn_out, residual, attn_ln_g, attn_ln_b, x1);
 
     obj_df_ffn(x1, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b, padding_mask, x_out);
+#endif
 #else
     // save residual for skip connection
     data_t residual[N_MAX][E_DIM];

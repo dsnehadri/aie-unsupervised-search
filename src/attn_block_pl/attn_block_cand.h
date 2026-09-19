@@ -82,6 +82,16 @@ inline void attn_block_cand(
 
     // concat heads and output projection
 
+#if defined(FFN_STREAM)
+    // projection, skip + norm and the FFN as one row-streaming chain
+    data_t co[T_DIM][E_DIM];
+    post_chain_heads_skip<T_DIM>(context, residual, Wo, bo, attn_ln_g, attn_ln_b,
+        ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b, co);
+    for (int i = 0; i < T_DIM; i++) {
+        #pragma HLS PIPELINE II=1
+        for (int j = 0; j < E_DIM; j++) c[i][j] = co[i][j];
+    }
+#else
     data_t attn_out[T_DIM][E_DIM];
     concat_and_project<T_DIM>(context, Wo, bo, attn_out);
 
@@ -96,6 +106,7 @@ inline void attn_block_cand(
     // do ffn
 
     ffn_block<T_DIM>(c, ffn_w, ffn_b, ffn_ln_g, ffn_ln_b, post_ffn_g, post_ffn_b);
+#endif
 }
 
 #endif 
