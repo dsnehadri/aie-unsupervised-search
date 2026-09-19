@@ -1,3 +1,0 @@
-AIE_PKG_DIR=/home/snehadri/repos/aie-unsupervised-search/src/aie_stream/tb/Work
-AIE_PROFILE=All
-AIE_SIM_TIMEOUT=5000000
