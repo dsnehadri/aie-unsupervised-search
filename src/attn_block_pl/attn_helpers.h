@@ -194,7 +194,7 @@ void layernorm(
     LN_ROW:
     for (int i = 0; i < nr; i++) {
         #pragma HLS LOOP_TRIPCOUNT min=1 max=N_ROWS
-#if LN_MODE == 1 || LN_MODE == 2 || LN_MODE == 6
+#if LN_MODE == 1 || LN_MODE == 2 || LN_MODE == 6 || LN_MODE == 7
         #pragma HLS PIPELINE II=1
 #elif LN_MODE == 3
         #pragma HLS PIPELINE II=4
@@ -205,6 +205,36 @@ void layernorm(
         // 2^12, so y_q = (g_q * d16 * R) >> (33 - e/2) + (b_q >> 3).
         ap_int<21> isum = 0;
         ap_int<16> xq[FEAT_DIM];
+#if LN_MODE == 7
+        // LN_MODE 7: the variance from ONE pass. With d16 = 16x - S over N
+        // elements, sum d16^2 = 256 sum x^2 - (32 - N) S^2 exactly (all
+        // integers, no rounding; N = 16 gives 256 sum x^2 - 16 S^2), so the sum
+        // of squares runs beside the sum instead of after it: one reduction
+        // tree less on the row's dependent chain. Bit-identical to mode 2.
+        // LN_SQ_FABRIC binds the multipliers to LUTs as mode 6 does.
+        ap_uint<36> sumsq = 0;
+        LN_SUM: for (int j = 0; j < FEAT_DIM; j++) {
+            LN_UNROLL_PRAGMA
+            xq[j] = x[i][j].range(15, 0);
+            isum += xq[j];
+            ap_int<32> sq = (ap_int<32>)xq[j] * xq[j];
+#if defined(LN_SQ_FABRIC)
+            #pragma HLS BIND_OP variable=sq op=mul impl=fabric
+#endif
+            sumsq += (ap_uint<32>)sq;
+        }
+        ap_int<22> d16[FEAT_DIM];
+        LN_D: for (int j = 0; j < FEAT_DIM; j++) {
+            LN_UNROLL_PRAGMA
+            d16[j] = ((ap_int<22>)xq[j] << 4) - isum;
+        }
+        ap_int<42> ss = (ap_int<42>)isum * isum;
+#if defined(LN_SQ_FABRIC)
+        #pragma HLS BIND_OP variable=ss op=mul impl=fabric
+#endif
+        ap_int<48> Vs = ((ap_int<48>)sumsq << 8) - (ap_int<48>)ss * (32 - FEAT_DIM);
+        ap_uint<46> V = (ap_uint<46>)Vs;
+#else
         LN_SUM: for (int j = 0; j < FEAT_DIM; j++) {
             LN_UNROLL_PRAGMA
             xq[j] = x[i][j].range(15, 0);
@@ -221,6 +251,7 @@ void layernorm(
 #endif
             V += (ap_uint<44>)sq;
         }
+#endif
         ap_uint<46> Vp = V + (ap_uint<46>)LN_EPSV;
         // normalize Vp to a 32-bit mantissa by an EVEN shift, so the square
         // root splits into sqrt(mantissa) x 2^(shift/2) and the table covers
@@ -238,7 +269,7 @@ void layernorm(
             LN_UNROLL_PRAGMA
             ap_int<16> gq = gamma[j].range(15, 0), bq = beta[j].range(15, 0);
             ap_int<56> num = (ap_int<56>)gq * d16[j] * R;
-#if LN_MODE == 6
+#if LN_MODE == 6 || defined(LN_SQ_FABRIC)
             #pragma HLS BIND_OP variable=num op=mul impl=fabric
 #endif
             ap_int<56> rnd = (ap_int<56>)1 << (sh - 1);   // round to nearest
