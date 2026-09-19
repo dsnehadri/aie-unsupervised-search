@@ -54,7 +54,7 @@ public:
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
 #if defined(POST_SPLIT_C)
     kernel k_post_c1;                 // FFN layer 2 + norm + ReLU; post_c keeps the residual add + norm
-#if defined(ROW_SPLIT)
+#if defined(ROW_SPLIT_OBJ)
     kernel k_hb[4];                   // second row chain (odd rows): b1, b2, c1, c
     kernel k_rowmerge;                // puts the two chains' rows back in order
 #endif
@@ -262,7 +262,7 @@ public:
 #else
         connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
 #endif
-#if defined(ROW_SPLIT) && defined(POST_SPLIT_C)
+#if defined(ROW_SPLIT_OBJ) && defined(POST_SPLIT_C)
         // ROW_SPLIT: a_proj's second output carries the odd rows through a copy of the chain
         if constexpr (LAYER == 0) {
             k_hb[0] = kernel::create(obj_post_b1_hb_L0); k_hb[1] = kernel::create(obj_post_b2_hb_L0);
@@ -467,7 +467,7 @@ public:
     kernel k_post_ap, k_post_b1, k_post_b2, k_post_c;
 #if defined(POST_SPLIT_C)
     kernel k_post_c1;                 // FFN layer 2 + norm + ReLU; post_c keeps the residual add + norm
-#if defined(ROW_SPLIT)
+#if defined(ROW_SPLIT_CROSS)
     kernel k_hb[4];                   // second row chain (odd rows): b1, b2, c1, c
     kernel k_rowmerge;                // puts the two chains' rows back in order
 #endif
@@ -625,7 +625,7 @@ public:
 #else
         connect<stream>(k_post_b2.out[0], k_post_c.in[0]);
 #endif
-#if defined(ROW_SPLIT) && defined(POST_SPLIT_C)
+#if defined(ROW_SPLIT_CROSS) && defined(POST_SPLIT_C)
         // ROW_SPLIT: a_proj's second output carries the odd rows through a copy of the chain
         if constexpr (LAYER == 0) {
             k_hb[0] = kernel::create(cross_post_b1_hb_L0); k_hb[1] = kernel::create(cross_post_b2_hb_L0);

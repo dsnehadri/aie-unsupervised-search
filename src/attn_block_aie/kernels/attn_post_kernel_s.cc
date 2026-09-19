@@ -35,7 +35,7 @@ static inline void row_write(output_stream_int16* __restrict s, const v16_t& v)
 // odd rows on another, two copies of b1 -> b2 -> c1 -> c each carry six rows, and
 // a row-merge kernel puts them back in order. Each chain does half the work, so
 // the block no longer waits on one chain for all twelve rows.
-#if defined(ROW_SPLIT) && defined(HEAD_STREAM_T)
+#if defined(ROW_SPLIT_T)
 #define CHAIN_ROWS (N_MAX / 2)
 #else
 #define CHAIN_ROWS POST_N_ROWS
@@ -92,7 +92,7 @@ static inline void lin_ln_relu_stage(input_stream_int16* __restrict in,
 void POST_A_PROJ_FN(input_stream_int16* __restrict h01_in,
                       input_stream_int16* __restrict h23_in,
                       input_window_int16* __restrict residual_in,
-#if defined(ROW_SPLIT)
+#if defined(ROW_SPLIT_T)
                       output_stream_int16* __restrict proj_out,
                       output_stream_int16* __restrict proj_b_out)
 #else
@@ -113,7 +113,7 @@ void POST_A_PROJ_FN(input_stream_int16* __restrict h01_in,
         aie::store_v(row, row_lin16(xrow, Wout, bout, PIPE_ACC_SHIFT));
 #endif
         layernorm_row(row, 1, E_DIM, post_attn_ln_gamma, post_attn_ln_beta);
-#if defined(ROW_SPLIT)
+#if defined(ROW_SPLIT_T)
         row_write((r & 1) ? proj_b_out : proj_out, aie::load_v<16>(row));   // odd rows to chain b
 #else
         row_write(proj_out, aie::load_v<16>(row));

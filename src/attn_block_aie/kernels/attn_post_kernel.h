@@ -67,13 +67,10 @@ DECL_POST_BC(cross, 0);DECL_POST_BC(cross, 1);
 #define DECL_POST_PROJ_S(t, l) void t##_post_a_proj_L##l( \
     input_stream_int16* __restrict h01_in, input_stream_int16* __restrict h23_in, \
     AIE_IW* __restrict residual_in, output_stream_int16* __restrict proj_out)
-#if defined(ROW_SPLIT)
-#undef DECL_POST_PROJ_S
-#define DECL_POST_PROJ_S(t, l) void t##_post_a_proj_L##l( \
+#define DECL_POST_PROJ_S2(t, l) void t##_post_a_proj_L##l( \
     input_stream_int16* __restrict h01_in, input_stream_int16* __restrict h23_in, \
     AIE_IW* __restrict residual_in, output_stream_int16* __restrict proj_out, \
     output_stream_int16* __restrict proj_b_out)
-#endif
 #endif
 #define DECL_POST_B1(t, l) void t##_post_b1_L##l(input_stream_int16* __restrict proj_in, output_stream_int16* __restrict ffn0_out)
 #define DECL_POST_B2(t, l) void t##_post_b2_L##l(input_stream_int16* __restrict ffn0_in, output_stream_int16* __restrict ffn1_out)
@@ -88,7 +85,7 @@ DECL_POST_BC(cross, 0);DECL_POST_BC(cross, 1);
 DECL_POST_C1(obj, 0);  DECL_POST_C1(obj, 1);
 DECL_POST_C1(cand, 0); DECL_POST_C1(cand, 1);
 DECL_POST_C1(cross, 0);DECL_POST_C1(cross, 1);
-#if defined(ROW_SPLIT)
+#if defined(ROW_SPLIT_OBJ) || defined(ROW_SPLIT_CROSS)
 // ROW_SPLIT: second row chain (odd rows) and the row merge, object and cross only
 #define DECL_ROW_HALF_B(t, l) \
     void t##_post_b1_hb_L##l(input_stream_int16* __restrict proj_in, output_stream_int16* __restrict ffn0_out); \
@@ -104,13 +101,17 @@ DECL_ROW_HALF_B(cross, 0);DECL_ROW_HALF_B(cross, 1);
 #endif
 #endif
 
-#if defined(HEAD_STREAM_OBJ) && defined(POST_STREAM)
+#if defined(HEAD_STREAM_OBJ) && defined(POST_STREAM) && defined(ROW_SPLIT_OBJ)
+DECL_POST_PROJ_S2(obj, 0); DECL_POST_PROJ_S2(obj, 1);
+#elif defined(HEAD_STREAM_OBJ) && defined(POST_STREAM)
 DECL_POST_PROJ_S(obj, 0);  DECL_POST_PROJ_S(obj, 1);
 #else
 DECL_POST_PROJ(obj, 0);  DECL_POST_PROJ(obj, 1);
 #endif
 DECL_POST_PROJ(cand, 0); DECL_POST_PROJ(cand, 1);
-#if defined(HEAD_STREAM_CROSS) && defined(POST_STREAM)
+#if defined(HEAD_STREAM_CROSS) && defined(POST_STREAM) && defined(ROW_SPLIT_CROSS)
+DECL_POST_PROJ_S2(cross, 0); DECL_POST_PROJ_S2(cross, 1);
+#elif defined(HEAD_STREAM_CROSS) && defined(POST_STREAM)
 DECL_POST_PROJ_S(cross, 0);DECL_POST_PROJ_S(cross, 1);
 #else
 DECL_POST_PROJ(cross, 0);DECL_POST_PROJ(cross, 1);

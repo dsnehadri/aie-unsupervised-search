@@ -127,5 +127,17 @@ constexpr int WIJ_SIZE = N_MAX * N_KV;
 #if (defined(ATTN_TYPE_OBJ) && defined(HEAD_STREAM_OBJ)) || (defined(ATTN_TYPE_CROSS) && defined(HEAD_STREAM_CROSS))
 #define HEAD_STREAM_T 1
 #endif
+// ROW_SPLIT (two half-height row chains) narrows the same way. On aiesim it
+// helps the cross block (7.2 -> 6.2 us, interval 3.8 -> 2.4) but not the object
+// block (9.2 -> 9.9 us), whose head posts set the interval, so use ROW_SPLIT_CROSS.
+#if defined(ROW_SPLIT)
+#if !defined(ROW_SPLIT_OBJ) && !defined(ROW_SPLIT_CROSS)
+#define ROW_SPLIT_OBJ 1
+#define ROW_SPLIT_CROSS 1
+#endif
+#endif
+#if defined(HEAD_STREAM_T) && ((defined(ATTN_TYPE_OBJ) && defined(ROW_SPLIT_OBJ)) || (defined(ATTN_TYPE_CROSS) && defined(ROW_SPLIT_CROSS)))
+#define ROW_SPLIT_T 1
+#endif
 
 #endif
