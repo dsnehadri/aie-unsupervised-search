@@ -100,6 +100,62 @@ static inline void layernorm_one(int16* __restrict row,
     aie::store_v(row, aie::from_vector<acc80>(y32).to_vector<int16>(0));  // saturate
 }
 
+// LN_IL4: four rows as one batch. The per-row chain is three vector reductions
+// with a dozen dependent scalar steps between them, and the compiler did not
+// overlap two rows written as two calls. Here the work is written in phases --
+// the vector statistics of all four rows, then the four scalar tails, then the
+// four vector normalisations -- so each phase holds four independent chains the
+// scheduler can interleave. Same operations in the same order per row, so the
+// result is bit-identical to layernorm_one.
+static inline void layernorm_rows4_il(int16* __restrict x, int n_cols,
+                                      const aie::vector<int16, 16>& gv,
+                                      const aie::vector<int32, 16>& bv,
+                                      int32 EPS_W4, int KD_MIN)
+{
+    aie::vector<int32, 16> d32[4];
+    int32 m[4];
+    for (int r = 0; r < 4; r++) {
+        const aie::vector<int32, 16> x32 = aie::from_vector<acc48>(aie::load_v<16>(x + r * n_cols)).to_vector<int32>(0);
+        const int32 sum = aie::reduce_add(x32);
+        d32[r] = aie::sub(aie::upshift(x32, 4), aie::broadcast<int32, 16>(sum));
+        m[r] = aie::reduce_max(aie::abs(d32[r]));
+    }
+    int kd[4], up[4];
+    aie::vector<int16, 16> dn[4];
+    int32 W[4];
+    for (int r = 0; r < 4; r++) {
+        int k = bitlen32((uint32)m[r]) - 14; k = (k < KD_MIN) ? KD_MIN : k;
+        kd[r] = k;
+        up[r] = (k < 0) ? -k : 0;
+        const int down = (k > 0) ? k : 0;
+        dn[r] = aie::from_vector<acc80>(d32[r], up[r]).to_vector<int16>(down);
+        const int32 S = aie::reduce_add(aie::mul(dn[r], dn[r]).to_vector<int32>(2));
+        W[r] = S + ((k >= 0) ? (EPS_W4 >> (2 * k + 2)) : (EPS_W4 << (2 * up[r] - 2)));
+    }
+    int32 Rq[4]; int sd[4], sy[4];
+    for (int r = 0; r < 4; r++) {
+        const int e = (32 - bitlen32((uint32)W[r])) & ~1;
+        const uint32 Wn = (uint32)W[r] << e;
+        const int idx = (int)(Wn >> 23) - 128;
+        const int32 frac = (int32)((Wn >> 7) & 0xFFFF);
+        const int32 l0 = LN_RSQRT_LUT[idx], l1 = LN_RSQRT_LUT[idx + 1];
+        const int32 R16 = l0 + (((l1 - l0) * frac) >> 16);
+        int32 rq = (R16 + 2) >> 2; rq = (rq > 32767) ? 32767 : rq;
+        Rq[r] = rq;
+        const int32 mq = (kd[r] >= 0) ? (m[r] >> kd[r]) : (m[r] << up[r]);
+        int s = bitlen32((uint32)(mq * rq)) - 15; s = (s < 0) ? 0 : s;
+        sd[r] = s;
+        int y = 29 - s - (e >> 1); y = (y < 0) ? 0 : y;
+        sy[r] = y;
+    }
+    for (int r = 0; r < 4; r++) {
+        const aie::vector<int16, 16> dn2 = aie::mul(dn[r], (int16)Rq[r]).to_vector<int16>(sd[r]);
+        aie::vector<int32, 16> y32 = aie::mul(gv, dn2).to_vector<int32>(sy[r]);
+        y32 = aie::add(y32, bv);
+        aie::store_v(x + r * n_cols, aie::from_vector<acc80>(y32).to_vector<int16>(0));
+    }
+}
+
 // The integer layer norm is the default. LN_VEC selects the float-vector one in
 // layernorm_vec.h, which MEASURED SLOWER on the instruction set: the object
 // block went 14.8 -> 16.5 us and its interval 6.2 -> 7.6, because AIE1's fp32
@@ -132,8 +188,11 @@ static void layernorm_row(int16* __restrict x, int n_rows, int n_cols,
     const aie::vector<int16, 16> gv = aie::load_v<16>(gamma);
     const aie::vector<int32, 16> bv = aie::from_vector<acc48>(aie::load_v<16>(beta)).to_vector<int32>(0); // int16 -> int32 (unpack() is int8-only in the 2022.2 API)
 
-    // two rows per iteration, independent chains
     int r = 0;
+#if defined(LN_IL4)
+    for (; r + 3 < n_rows; r += 4) layernorm_rows4_il(x + r * n_cols, n_cols, gv, bv, EPS_W4, KD_MIN);
+#endif
+    // two rows per iteration, independent chains
     for (; r + 1 < n_rows; r += 2) {
         layernorm_one(x + r * n_cols, gv, bv, EPS_W4, KD_MIN);
         layernorm_one(x + (r + 1) * n_cols, gv, bv, EPS_W4, KD_MIN);
