@@ -229,6 +229,44 @@ static void lorentz_loop_wide(hls::stream<data_t>& jc, hls::stream<pkt64_t>& x,
     hls::stream<pkt64_t>& c, hls::stream<bool>& m, hls::stream<data_t>& o, int n) {
     for (int e = 0; e < n; e++) cand_lorentz_stage_wide(jc, x, c, m, o);
 }
+#if defined(P4_EARLY)
+// P4_EARLY: jet four-momenta at the start of the event (see cand_lorentz_p4)
+static void cand_lorentz_stage_wide_p4(hls::stream<float>& in_p4, hls::stream<bool>& in_mask,
+    hls::stream<pkt64_t>& x_in, hls::stream<pkt64_t>& c_in, hls::stream<data_t>& out_ae_input) {
+    float jp4[N_MAX][P4_DIM];
+    for (int i = 0; i < N_MAX; i++)
+        for (int d = 0; d < P4_DIM; d++) {
+            #pragma HLS PIPELINE II=1
+            jp4[i][d] = in_p4.read();
+        }
+    bool mask[N_MAX];
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        mask[i] = in_mask.read();
+    }
+    data_t x[N_MAX][E_DIM];
+    unpack_axi_to_array<N_MAX, E_DIM>(x_in, x);
+    data_t c[T_DIM][E_DIM];
+    unpack_axi_to_array<T_DIM, E_DIM>(c_in, c);
+    int jet_assign[N_MAX];
+    float cand_p4[T_DIM][P4_DIM];
+    float cand_mass_scaled[T_DIM];
+    data_t ae_input[T_DIM][AE_IN_DIM];
+    cand_lorentz_p4(jp4, x, c, mask, jet_assign, cand_p4, cand_mass_scaled, ae_input);
+    for (int t = 0; t < 2; t++)
+        for (int i = 0; i < AE_IN_DIM; i++) {
+            #pragma HLS PIPELINE II=1
+            out_ae_input.write(ae_input[t][i]);
+        }
+}
+static void p4_loop(hls::stream<data_t>& jc, hls::stream<bool>& m, hls::stream<float>& p4, hls::stream<bool>& mo, int n) {
+    for (int e = 0; e < n; e++) p4_stage(jc, m, p4, mo);
+}
+static void lorentz_loop_wide_p4(hls::stream<float>& p4, hls::stream<bool>& m, hls::stream<pkt64_t>& x,
+    hls::stream<pkt64_t>& c, hls::stream<data_t>& o, int n) {
+    for (int e = 0; e < n; e++) cand_lorentz_stage_wide_p4(p4, m, x, c, o);
+}
+#endif
 #endif
 static void ae_loop(hls::stream<data_t>& i, const AEEncoderWeights& enc,
     const AEDecoderWeights& dec, hls::stream<float>& o, int n) {
@@ -298,7 +336,14 @@ static void run_chain(const ap_uint<32>* in_buf,
     wij_send_loop(s_wij0, obj0_w0_out, obj0_w1_out, obj0_w2_out, obj0_w3_out, n);
 #endif
 #endif
-#if defined(LORENTZ_WIDE_IN)
+#if defined(LORENTZ_WIDE_IN) && defined(P4_EARLY)
+    hls::stream<float> s_p4("p4");
+    hls::stream<bool> s_mask_lor("mask_lor");
+    #pragma HLS STREAM variable=s_p4 depth=192
+    #pragma HLS STREAM variable=s_mask_lor depth=48
+    p4_loop(s_jets_cand, s_mask_cand, s_p4, s_mask_lor, n);
+    lorentz_loop_wide_p4(s_p4, s_mask_lor, x_in, c_in, s_ae, n);
+#elif defined(LORENTZ_WIDE_IN)
     lorentz_loop_wide(s_jets_cand, x_in, c_in, s_mask_cand, s_ae, n);
 #else
     x_recv_loop(x_in, s_x1, n);

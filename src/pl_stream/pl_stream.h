@@ -679,6 +679,62 @@ inline void cand_lorentz_stage(
     // debug_buf[dbg_idx] = 2;
 }
 
+#if defined(P4_EARLY)
+// P4_EARLY: the jet four-momenta (three float exponentials per jet) depend only
+// on the raw jets, so this stage runs them at the start of the event while the
+// attention stack works; the Lorentz stage then only does the jet choice, the
+// candidate sums and the masses after the last attention output arrives.
+inline void p4_stage(dstream_t &in_jets, hls::stream<bool> &in_mask,
+                     hls::stream<float> &out_p4, hls::stream<bool> &out_mask)
+{
+    data_t raw_jets[N_MAX][RAW_DIM];
+    STREAM_TO_ARRAY2D(N_MAX, RAW_DIM)(in_jets, raw_jets);
+    bool mask[N_MAX];
+    stream_to_array1d<N_MAX>(in_mask, mask);
+    float jp4[N_MAX][P4_DIM];
+    x_to_p4_hw(raw_jets, mask, jp4);
+    P4_OUT: for (int i = 0; i < N_MAX; i++)
+        for (int d = 0; d < P4_DIM; d++) {
+            #pragma HLS PIPELINE II=1
+            out_p4.write(jp4[i][d]);
+        }
+    for (int i = 0; i < N_MAX; i++) {
+        #pragma HLS PIPELINE II=1
+        out_mask.write(mask[i]);
+    }
+}
+inline void cand_lorentz_stage_p4(hls::stream<float> &in_p4, hls::stream<bool> &in_mask,
+                                  dstream_t &in_x, dstream_t &in_c, dstream_t &out_ae_input)
+{
+    float jp4[N_MAX][P4_DIM];
+    P4_IN: for (int i = 0; i < N_MAX; i++)
+        for (int d = 0; d < P4_DIM; d++) {
+            #pragma HLS PIPELINE II=1
+            jp4[i][d] = in_p4.read();
+        }
+    bool mask[N_MAX];
+    stream_to_array1d<N_MAX>(in_mask, mask);
+    data_t x[N_MAX][E_DIM];
+    STREAM_TO_ARRAY2D(N_MAX, E_DIM)(in_x, x);
+    data_t c[T_DIM][E_DIM];
+    STREAM_TO_ARRAY2D(T_DIM, E_DIM)(in_c, c);
+    int jet_assign[N_MAX];
+    float cand_p4[T_DIM][P4_DIM];
+    float cand_mass_scaled[T_DIM];
+    data_t ae_input[T_DIM][AE_IN_DIM];
+    cand_lorentz_p4(jp4, x, c, mask, jet_assign, cand_p4, cand_mass_scaled, ae_input);
+#ifdef WIDE_STREAMS
+    ARRAY2D_TO_STREAM(2, AE_IN_DIM)(ae_input, out_ae_input);
+#else
+    WRITE_AE_P4: for (int t = 0; t < 2; t++)
+        for (int i = 0; i < AE_IN_DIM; i++) {
+            #pragma HLS PIPELINE II=1
+            out_ae_input.write(ae_input[t][i]);
+        }
+#endif
+}
+#endif  // P4_EARLY
+
 // ae loss stage
 // take ae input [2 * AE_IN_DIM] -> dual autoencoder -> 3 loss scalars
 
@@ -848,6 +904,14 @@ static void cross_n(dstream_t& ix, dstream_t& ic, hls::stream<bool>& m,
     const AttnWeights& w, dstream_t& o, int n) {
     for (int e = 0; e < n; e++) cross_stage(ix, ic, m, w, o);
 }
+#if defined(P4_EARLY)
+static void p4_n(dstream_t& jc, hls::stream<bool>& m, hls::stream<float>& p4, hls::stream<bool>& mo, int n) {
+    for (int e = 0; e < n; e++) p4_stage(jc, m, p4, mo);
+}
+static void lorentz_p4_n(hls::stream<float>& p4, hls::stream<bool>& m, dstream_t& x, dstream_t& c, dstream_t& o, int n) {
+    for (int e = 0; e < n; e++) cand_lorentz_stage_p4(p4, m, x, c, o);
+}
+#endif
 static void lorentz_n(dstream_t& jc, dstream_t& x, dstream_t& c,
     hls::stream<bool>& m, dstream_t& o, int n) {
     for (int e = 0; e < n; e++) cand_lorentz_stage(jc, x, c, m, o);
@@ -927,6 +991,12 @@ inline void passwd_dataflow_batched(
     dstream_t s_x1("x_layer1"), s_c1("c_layer1");
     dstream_t s_ae("ae_input");
     hls::stream<float> s_losses("losses");
+#if defined(P4_EARLY)
+    hls::stream<float> s_p4("p4");
+    hls::stream<bool> s_mask_lor("mask_lor");
+    #pragma HLS STREAM variable = s_p4 depth = 192
+    #pragma HLS STREAM variable = s_mask_lor depth = 48
+#endif
     #pragma HLS STREAM variable =  s_embed depth = 1152
     #pragma HLS STREAM variable =  s_wij depth = 864
     #pragma HLS STREAM variable =  s_x0a depth = 1152
@@ -970,7 +1040,12 @@ inline void passwd_dataflow_batched(
     obj1_n(s_x0, s_mask_obj1, obj1_w, s_x1a, s_c1a, n_events);
     cand2_n(s_c1a, cand1_w, s_c1b, s_c1, n_events);
     cross_n(s_x1a, s_c1b, s_mask_cross1, cross1_w, s_x1, n_events);
+#if defined(P4_EARLY)
+    p4_n(s_jets_cand, s_mask_cand, s_p4, s_mask_lor, n_events);
+    lorentz_p4_n(s_p4, s_mask_lor, s_x1, s_c1, s_ae, n_events);
+#else
     lorentz_n(s_jets_cand, s_x1, s_c1, s_mask_cand, s_ae, n_events);
+#endif
 #endif
     ae_n(s_ae, ae_enc_w, ae_dec_w, s_losses, n_events);
     wout_n(s_losses, out_stream, n_events);

@@ -224,5 +224,26 @@ inline void cand_lorentz(
     assemble_ae_input(cand_embed, cand_mass_scaled, ae_input);
 }
 
+// P4_EARLY: the same, with the jet four-momenta already computed. x_to_p4_hw
+// depends only on the raw jets, so a separate stage runs it at the start of
+// the event, in parallel with the attention stack, and this tail no longer
+// waits for its float exponentials after the last attention output arrives.
+inline void cand_lorentz_p4(
+    const float jp4[N_MAX][P4_DIM],
+    const data_t attn_x[N_MAX][E_DIM],
+    const data_t cand_embed[T_DIM][E_DIM],
+    const bool mask[N_MAX],
+    int jet_assign[N_MAX],
+    float cand_p4[T_DIM][P4_DIM],
+    float cand_mass_scaled[T_DIM],
+    data_t ae_input[T_DIM][AE_IN_DIM]
+) {
+    float jet_choice[N_MAX][T_DIM];
+    get_jet_choice(attn_x, mask, jet_assign, jet_choice);
+    build_candidates_p4(jet_choice, jp4, cand_p4);
+    compute_mass(cand_p4, cand_mass_scaled);
+    assemble_ae_input(cand_embed, cand_mass_scaled, ae_input);
+}
+
 
 #endif
