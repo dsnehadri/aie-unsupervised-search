@@ -378,6 +378,7 @@ static inline void scale_scores_v(int16* __restrict scores, float inv_sqrt_d)
 #ifndef SOFTMAX_INT
 #define SOFTMAX_VEC 1
 #include "softmax_vec.h"
+#include "softmax_lut.h"
 #endif
 
 #if defined(ATTN_TYPE_CAND)
@@ -659,7 +660,11 @@ void HEAD_POST_FN(input_stream_int16* __restrict sv_in,
 #endif
         alignas(16) int16 attn_p[4 * N_KV_PAD];
 #ifdef SOFTMAX_VEC
+#if defined(SOFTMAX_LUT)
+        lut_softmax_packed<4, N_KV, N_KV_PAD>(sc, attn_p, (float)PIPE_SCALE);
+#else
         vec_softmax_packed<4, N_KV, N_KV_PAD>(sc, attn_p, (float)PIPE_SCORE_SCALE, (float)PIPE_SCALE);
+#endif
 #else
         int_softmax_packed<4, N_KV, N_KV_PAD>(sc, attn_p);
 #endif
@@ -722,8 +727,12 @@ void HEAD_POST_FN(input_window_int16* __restrict scores_in,
     for (int g = 0; g < N_MAX / 4; g++) {
         alignas(16) int16 attn_p[4 * N_KV_PAD];
 #ifdef SOFTMAX_VEC
+#if defined(SOFTMAX_LUT)
+        lut_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p, (float)PIPE_SCALE);
+#else
         vec_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p,
                                               (float)PIPE_SCORE_SCALE, (float)PIPE_SCALE);
+#endif
 #else
         int_softmax_packed<4, N_KV, N_KV_PAD>(scores + g * 4 * N_KV_PAD, attn_p);
 #endif
