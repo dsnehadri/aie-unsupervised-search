@@ -58,3 +58,14 @@ src/attn_block_aie/kernels/weights_orig_backup/
 src/aie_stream/tb/Map_Report.csv
 weights_f32/
 src/aie_stream/tb/data_float/
+# --- 2026-09-18 additions ---
+# HLS csynth experiment projects (vitis-run --mode hls), one per flag combination
+/csynth*/
+# aiesim / profiling run status files
+src/aie_stream/tb/*.status
+# backups the input generator makes before overwriting its data folder
+src/aie_stream/tb/data_int16_bak_*/
+# board host binary (sources are tracked)
+src/pl_stream/plhost_direct
+# raw log of the float-layernorm experiment (negative result, feeds no figure; 17 MB)
+figs/board_thermal_lockin120_hybFLOATLN_log.csv
