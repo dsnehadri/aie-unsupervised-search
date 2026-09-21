@@ -50,6 +50,7 @@ int main(int argc,char**argv){
         int chg=0; for(int w=0;w<192;w++) if(o[w]!=(0xDEAD0000u|(uint32_t)(i*OUT_PER+w))) chg++;
         uint64_t first=(uint64_t)o[192] | ((uint64_t)o[193]<<32), last=(uint64_t)o[194] | ((uint64_t)o[195]<<32);
         if(chg==0 || last<=first){ printf("%d,%d,%d,BAD_OUTPUT chg=%d first=%llu last=%llu\n",n,15*n,i,chg,(unsigned long long)first,(unsigned long long)last); continue; }
+        if (NEV < 2) { fprintf(stderr, "NEV must be >= 2 for interval computation\n"); continue; }
         per[i].push_back((double)(last-first)/(NEV-1)*PER_NS*1e-3);   // us per event
       }
     }

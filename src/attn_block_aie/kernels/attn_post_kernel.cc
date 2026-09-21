@@ -359,7 +359,10 @@ void POST_C_FN(input_window_int16* __restrict ffn_in,
 
 // =====================================================================
 // post_bc (POST_MERGED): FFN layers 0, 1, 2 + skip + LN in ONE kernel.
-// Same arithmetic as b1 -> b2 -> c; the two intermediate windows become
+// Arithmetic matches b1 -> b2 -> c: bias is folded into the 48-bit
+// accumulator before the saturating srs (gemm_pk_biasc), not added
+// post-saturation, so results are numerically identical to the split tiles.
+// The two intermediate windows become
 // local packs (pack_local16), and the FFN residual is the proj window this
 // kernel already reads. Saves two window hops per block on the one-event
 // chain; costs interval, since one tile now does the work of three.
@@ -379,8 +382,8 @@ void POST_BC_FN(input_window_int16* __restrict proj_in,
 
     // FFN layer 0
     alignas(16) int16 h[POST_N_ROWS_PAD * E_DIM];
-    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>(pk, ffn_W0, h, PIPE_ACC_SHIFT);
-    add_bias_v16<POST_N_ROWS>(h, ffn_b0);
+    BIAS_REPC(b0_r, E_DIM, ffn_b0);
+    gemm_pk_biasc<POST_N_ROWS_PAD, E_DIM, E_DIM>(pk, ffn_W0, h, PIPE_ACC_SHIFT, b0_r.r);
     layernorm_row(h, POST_N_ROWS, E_DIM, ffn_ln_gamma0, ffn_ln_beta0);
     relu_inplace(h, POST_N_ROWS * E_DIM);
     if constexpr (POST_N_ROWS_PAD > POST_N_ROWS)
@@ -388,8 +391,8 @@ void POST_BC_FN(input_window_int16* __restrict proj_in,
     pack_local16<POST_N_ROWS_PAD>(h, pk);
 
     // FFN layer 1
-    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>(pk, ffn_W1, h, PIPE_ACC_SHIFT);
-    add_bias_v16<POST_N_ROWS>(h, ffn_b1);
+    BIAS_REPC(b1_r, E_DIM, ffn_b1);
+    gemm_pk_biasc<POST_N_ROWS_PAD, E_DIM, E_DIM>(pk, ffn_W1, h, PIPE_ACC_SHIFT, b1_r.r);
     layernorm_row(h, POST_N_ROWS, E_DIM, ffn_ln_gamma1, ffn_ln_beta1);
     relu_inplace(h, POST_N_ROWS * E_DIM);
     if constexpr (POST_N_ROWS_PAD > POST_N_ROWS)
@@ -397,8 +400,8 @@ void POST_BC_FN(input_window_int16* __restrict proj_in,
     pack_local16<POST_N_ROWS_PAD>(h, pk);
 
     // FFN layer 2 + skip + LN (post_c)
-    gemm_pk<POST_N_ROWS_PAD, E_DIM, E_DIM>(pk, ffn_W2, h, PIPE_ACC_SHIFT);
-    add_bias_v16<POST_N_ROWS>(h, ffn_b2);
+    BIAS_REPC(b2_r, E_DIM, ffn_b2);
+    gemm_pk_biasc<POST_N_ROWS_PAD, E_DIM, E_DIM>(pk, ffn_W2, h, PIPE_ACC_SHIFT, b2_r.r);
     layernorm_row(h, POST_N_ROWS, E_DIM, ffn_ln_gamma2, ffn_ln_beta2);
     relu_inplace(h, POST_N_ROWS * E_DIM);
     add_rows_v16<POST_N_ROWS>(h, proj);

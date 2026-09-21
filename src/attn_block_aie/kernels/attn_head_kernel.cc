@@ -355,9 +355,12 @@ template <int N>
 static inline void scale_scores_v(int16* __restrict scores, float inv_sqrt_d)
 {
     const int16 scale_fixed = (int16)(inv_sqrt_d * PIPE_SCORE_SCALE);
+    const v16_t ones = aie::broadcast<int16, 16>(1);
     for (int i = 0; i < N; i += 16) {
         const aie::vector<int16, 16> v = aie::load_v<16>(&scores[i]);
-        aie::store_v(&scores[i], aie::mul(v, scale_fixed).template to_vector<int16>(PIPE_SCORE_SHIFT));
+        aie::accum<acc48, 16> acc = aie::mul(v, scale_fixed);
+        acc = aie::mac(acc, ones, (int16)(1 << (PIPE_SCORE_SHIFT - 1)));
+        aie::store_v(&scores[i], acc.template to_vector<int16>(PIPE_SCORE_SHIFT));
     }
 }
 
@@ -412,7 +415,7 @@ static void int_softmax_packed(const int16* __restrict scores, int16* __restrict
             } else {
                 int32 t = d * LOG2E_Q;                 // Q20, no overflow (d < D_MAX)
                 int   k = t >> 20;                     // integer part
-                int   f = (t >> 14) & 63;              // top 6 fraction bits
+                int   f = ((t >> 13) + 1) >> 1 & 63;   // top 6 fraction bits, rounded to nearest
                 v = EXP2_NEG_FRAC_LUT[f] >> k;         // Q15
             }
             e[c] = v;
@@ -561,6 +564,9 @@ void HEAD_PRE_FN(input_stream_int16* __restrict x_in,
             for (int i = 0; i < 4 * G; i++)
                 scores[i * N_KV_PAD + j] = -32000;
 
+#if defined(ROWS_DYN_T)
+    memset(scores + G * 4 * N_KV_PAD, 0, (N_MAX - G * 4) * N_KV_PAD * sizeof(int16_t));
+#endif
     win_write_v<N_MAX * N_KV_PAD>(scores_out, scores);
     win_write_v<N_KV_PAD * D_HEAD>(v_out, V);
 #if defined(ROWS_DYN_T)
@@ -1022,6 +1028,9 @@ void HEAD_PRE_FN(input_stream_int16* __restrict x_in,
             gemm_pk<4, D_HEAD, T_KV>(Q + g * 4 * D_HEAD, Kt, scores + g * 4 * T_KV, PIPE_QKT_SHIFT);
     }
     for (int g = 0; g < G; g++) scale_scores_v<4 * T_KV>(scores + g * 4 * T_KV, 0.5f);
+#if defined(ROWS_DYN_T)
+    memset(scores + G * 4 * T_KV, 0, (N_MAX - G * 4) * T_KV * sizeof(int16_t));
+#endif
     win_write_v<N_MAX * T_KV>(scores_out, scores);
     win_write_v<T_KV * D_HEAD>(v_out, V);
 #if defined(ROWS_DYN_T)

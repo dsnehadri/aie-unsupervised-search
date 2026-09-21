@@ -48,6 +48,7 @@ void pair_feat(input_window_int16* __restrict jets_in,
         for (int j = 0; j < PAIR_ROWS; j++) {
             const int32 eta_j = raw[j * EMBED_IN + 1], c_j = raw[j * EMBED_IN + 2], s_j = raw[j * EMBED_IN + 3];
             rows[j * PAIR_K + 0] = (int16)(eta_i - eta_j);
+            // Q6.9 inputs: |c|, |s| <= 512; products fit in int32 (max ~524288)
             rows[j * PAIR_K + 1] = (int16)((c_i * c_j + s_i * s_j) >> DATA_FRAC_BITS);
             rows[j * PAIR_K + 2] = (int16)((s_i * c_j - c_i * s_j) >> DATA_FRAC_BITS);
             rows[j * PAIR_K + 3] = 0;

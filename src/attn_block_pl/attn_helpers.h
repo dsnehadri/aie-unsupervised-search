@@ -323,7 +323,7 @@ static exp_t exp_fixed(score_t x) {
     if (x >= (score_t)0) return (exp_t)1.0;
     if (x <= (score_t)EXP_MIN) return (exp_t)0.0; // exp(<=-8) < 1 prob_t LSB
     score_t d = x - (score_t)EXP_MIN;                       // (0, 8)
-    int idx = (int)(d * (score_t)(EXP_LUT_SIZE / 8));       // *32: exact shift
+    int idx = (int)(d * (score_t)(EXP_LUT_SIZE / 8) + (score_t)0.5); // round-to-nearest
     return exp_lut_rom[idx];
 }
 #endif
@@ -1072,12 +1072,12 @@ static void ffn_rows(hls::stream<fs_row_t>& s_x1a, hls::stream<fs_row_t>& s_x1b,
 {
     #pragma HLS DATAFLOW
     hls::stream<fs_row_t> s1("fs1"), s2("fs2"), s3("fs3"), s4("fs4"), s5("fs5"), s6("fs6");
-    #pragma HLS STREAM variable=s1 depth=4
-    #pragma HLS STREAM variable=s2 depth=4
-    #pragma HLS STREAM variable=s3 depth=4
-    #pragma HLS STREAM variable=s4 depth=4
-    #pragma HLS STREAM variable=s5 depth=4
-    #pragma HLS STREAM variable=s6 depth=4
+    #pragma HLS STREAM variable=s1 depth=8
+    #pragma HLS STREAM variable=s2 depth=8
+    #pragma HLS STREAM variable=s3 depth=8
+    #pragma HLS STREAM variable=s4 depth=8
+    #pragma HLS STREAM variable=s5 depth=8
+    #pragma HLS STREAM variable=s6 depth=8
     linear_rows<N_ROWS>(s_x1a, ffn_w[0], ffn_b[0], s1, nr);
     layernorm_rows<N_ROWS, true>(s1, ffn_ln_g[0], ffn_ln_b[0], s2, nr);
     linear_rows<N_ROWS>(s2, ffn_w[1], ffn_b[1], s3, nr);

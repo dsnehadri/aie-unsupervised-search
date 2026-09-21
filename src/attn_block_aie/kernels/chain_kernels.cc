@@ -12,6 +12,7 @@
 template <int N>
 static inline void stream_out(output_stream_int16* __restrict s, const int16* __restrict buf)
 {
+    static_assert(N % 8 == 0, "stream_out: N must be a multiple of 8 for correct vector write");
     for (int i = 0; i < N; i += 8) {
         const aie::vector<int16, 8> v = aie::load_v<8>(buf + i);
         writeincr_v8(s, v.to_native());

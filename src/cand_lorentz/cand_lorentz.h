@@ -92,7 +92,6 @@ inline void x_to_p4_hw(
             float log_e = (float)raw_x[i][4];
 
             float pt = expf(log_pt);
-            if(pt == 1.0f) pt = 0.0f; // for padded jets: log_pt = -inf -> exp = 1 -> force zero
             float e = expf(log_e);
             if(e == 1.0f) e = 0.0f; // same as above
 
@@ -179,7 +178,7 @@ inline void compute_mass(
         float e_adj = e * (1.0f + MASS_EPS);
         float m2 = e_adj * e_adj - px * px - py * py - pz * pz + MASS_EPS;
 
-        cand_mass_scaled[t] = sqrtf(m2) / MASS_SCALE;
+        cand_mass_scaled[t] = sqrtf(fmaxf(m2, 0.0f)) / MASS_SCALE;
 
     }
 }

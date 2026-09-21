@@ -26,6 +26,7 @@ static inline void head_merge_body(input_stream_int16* __restrict a_in,
                                    output_stream_int16* __restrict out)
 {
     static_assert(D_HEAD * 4 == 16, "a group of four rows is one 16-lane vector per head");
+    static_assert(N_MAX % 4 == 0, "head_merge requires N_MAX divisible by 4");
     for (int g = 0; g < N_MAX / 4; g++) {
         const v16_t a = stream_read16(a_in);
         const v16_t b = stream_read16(b_in);

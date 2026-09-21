@@ -58,8 +58,8 @@ static void pack_stream_to_axi(hls::stream<data_t>& in, hls::stream<pkt64_t>& ou
 template<int COUNT>
 static void unpack_axi_to_buf(hls::stream<pkt64_t>& in, data_t buf[COUNT])
 {
-    #pragma HLS PIPELINE II=1
     UNPACK: for (int i = 0; i < COUNT; i += 4) {
+        #pragma HLS PIPELINE II=1
         pkt64_t pkt = in.read();
         ap_uint<64> word = pkt.data;
         for (int j = 0; j < 4; j++) {

@@ -36,28 +36,28 @@ struct AEEncoderWeights {
 };
 
 struct AEDecoderWeights {
-    // layer 0: 14 -> 11
+    // layer 0: 2 -> 5
 
     weight_t w0[AE_D3][AE_D4];
     weight_t b0[AE_D3];
     ln_param_t ln0_g[AE_D3];
     ln_param_t ln0_b[AE_D3];
 
-    // layer 1: 11 -> 8 
+    // layer 1: 5 -> 8
 
     weight_t w1[AE_D2][AE_D3];
     weight_t b1[AE_D2];
     ln_param_t ln1_g[AE_D2];
     ln_param_t ln1_b[AE_D2];
 
-    // layer 2: 8 -> 5
+    // layer 2: 8 -> 11
 
     weight_t w2[AE_D1][AE_D2];
     weight_t b2[AE_D1];
     ln_param_t ln2_g[AE_D1];
     ln_param_t ln2_b[AE_D1];
 
-    // layer 3: 5 -> 2
+    // layer 3: 11 -> 14
 
     weight_t w3[AE_D0][AE_D1];
     weight_t b3[AE_D0];

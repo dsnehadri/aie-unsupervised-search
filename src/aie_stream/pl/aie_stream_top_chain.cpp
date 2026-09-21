@@ -6,6 +6,10 @@
 #include "/home/snehadri/repos/aie-unsupervised-search/src/aie_stream/pl/aie_stream.h"
 #include "/home/snehadri/repos/aie-unsupervised-search/src/pl_stream/weights_rom.h"
 
+#ifndef AIE_FRAC11
+#error "aie_stream_top_chain must be built with -DAIE_FRAC11; see attn_block_types.h"
+#endif
+
 #if defined(READ_WIDE)
 typedef ap_uint<128> IN_STREAM_T;
 #else

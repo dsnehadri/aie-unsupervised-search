@@ -75,6 +75,8 @@ int main(int argc, char** argv) {
         auto t1 = clk::now();
         if (!ok) { printf("%s,%d,DIRECT_TIMEOUT\n", kname.c_str(), N); break; }
         k.write_register(CTRL, 0x10);                      // ap_continue
+        // Wait for kernel to acknowledge AP_CONTINUE
+        { uint32_t _c; do { _c = k.read_register(CTRL); } while (!(_c & 0x4)); }
         ms.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
       }
     } else {

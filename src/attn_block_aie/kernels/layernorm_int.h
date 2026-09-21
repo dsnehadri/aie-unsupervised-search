@@ -5,6 +5,7 @@
 #define LAYERNORM_INT_H
 
 #include <aie_api/aie.hpp>
+#include <cassert>
 
 // ---------------------------------------------------------------------------
 // Integer layer norm, vector int16 with a 32-bit reciprocal-square-root
@@ -80,7 +81,8 @@ static inline void layernorm_one(int16* __restrict row,
     const int up = (kd < 0) ? -kd : 0, down = (kd > 0) ? kd : 0;
     const aie::vector<int16, 16> dn = aie::from_vector<acc80>(d32, up).to_vector<int16>(down);
     const int32 S = aie::reduce_add(aie::mul(dn, dn).to_vector<int32>(2)); // <= 2^30
-    const int32 W = S + ((kd >= 0) ? (EPS_W4 >> (2 * kd + 2)) : (EPS_W4 << (2 * up - 2))); // < 2^31
+    int32 W = S + ((kd >= 0) ? (EPS_W4 >> (2 * kd + 2)) : (EPS_W4 << (2 * up - 2))); // < 2^31
+    if (W == 0) W = 1; // EPS guarantees W > 0; guard for UB safety
 
     const int e = (32 - bitlen32((uint32)W)) & ~1;                        // even
     const uint32 Wn = (uint32)W << e;                                     // [2^30, 2^32)
@@ -94,7 +96,10 @@ static inline void layernorm_one(int16* __restrict row,
     int sd = bitlen32((uint32)(mq * Rq)) - 15; sd = (sd < 0) ? 0 : sd;    // |dn2| <= 2^15
     const aie::vector<int16, 16> dn2 = aie::mul(dn, (int16)Rq).to_vector<int16>(sd);
 
-    int sy = 29 - sd - (e >> 1); sy = (sy < 0) ? 0 : sy;                 // >= 11 in practice
+    int sy = 29 - sd - (e >> 1);
+    // sy >= 0 is guaranteed when e <= 24 and sd <= 5; assert in debug builds
+    assert(sy >= 0);
+    sy = (sy < 0) ? 0 : sy;                                               // >= 11 in practice
     aie::vector<int32, 16> y32 = aie::mul(gv, dn2).to_vector<int32>(sy);
     y32 = aie::add(y32, bv);
     aie::store_v(row, aie::from_vector<acc80>(y32).to_vector<int16>(0));  // saturate

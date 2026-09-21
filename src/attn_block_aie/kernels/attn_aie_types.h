@@ -16,6 +16,9 @@ constexpr int N_KV = 13;
 constexpr int T_DIM = 3;
 constexpr int T_KV = 4;
 
+// padding: aie mmul tile is 4x4x4 for int16; N_KV=13 pads to 16 for K,V matrices
+constexpr int N_KV_PAD = 16;
+
 // ffn dimensions: 3-layer ffn after attention, all 16-wide
 
 constexpr int FFN_NLAYERS = 3;
@@ -77,9 +80,9 @@ constexpr int ATTN_INPUT_SIZE = N_MAX * E_DIM; // 192
 
 // per head intermediate buffers
 constexpr int Q_SIZE = N_MAX * D_HEAD; // 48
-constexpr int K_SIZE = N_KV * D_HEAD; // 52
-constexpr int V_SIZE = N_KV * D_HEAD; // 52
-constexpr int SCORE_SIZE = N_MAX * N_KV; // 156 (padding to 160 for alignment)
+constexpr int K_SIZE = N_KV_PAD * D_HEAD; // 64 (uses padded N_KV_PAD not raw N_KV)
+constexpr int V_SIZE = N_KV_PAD * D_HEAD; // 64 (uses padded N_KV_PAD not raw N_KV)
+constexpr int SCORE_SIZE = N_MAX * N_KV_PAD; // 192 (uses padded N_KV_PAD not raw N_KV)
 constexpr int HEAD_OUT_SIZE = N_MAX * D_HEAD; //48
 
 // full attention output: N_MAX x E_DIM
@@ -90,15 +93,8 @@ constexpr int FFN_WEIGHT_SIZE = E_DIM * E_DIM; // 256 per layer
 constexpr int FFN_BIAS_SIZE = E_DIM; // 16 per layer
 
 // layernorm params
-constexpr int LN_PARAM_SIZE = E_DIM; // 16 (gamma) + 16 (beta)
+constexpr int LN_PARAM_SIZE = 2 * E_DIM; // 2 * E_DIM: gamma (E_DIM) + beta (E_DIM)
 
-
-// padding helpers
-// aie mmul type is 4x4x4 for int16, dimensions should be multiples of 4
-// n_max = 12, edim = 16, d_head = 4
-// n_kv = 13, pad to 16 for k, v matrices
-
-constexpr int N_KV_PAD = 16;
 
 // window element type: int16 for the deployed build, float for the
 // FLOAT_AIE unquantized x86sim reference (window sizes scale with it)

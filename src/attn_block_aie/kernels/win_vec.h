@@ -85,11 +85,13 @@ static inline void pack_local16(const int16* __restrict A, int16* __restrict P)
 template <int N>
 static inline void win_write_v(output_window_int16* __restrict w, const int16* __restrict A)
 {
+    static_assert(N % 16 == 0, "win_read_v/win_write_v: N must be a multiple of 16");
     for (int i = 0; i < N; i += 16) win_write16(w, aie::load_v<16>(A + i));
 }
 template <int N>
 static inline void win_read_v(input_window_int16* __restrict w, int16* __restrict A)
 {
+    static_assert(N % 16 == 0, "win_read_v/win_write_v: N must be a multiple of 16");
     for (int i = 0; i < N; i += 16) aie::store_v(A + i, win_read16(w));
 }
 
@@ -114,6 +116,7 @@ static inline void stream_write16(output_stream_int16* __restrict s, const v16_t
 template <int N>
 static inline void zero_v(int16* __restrict A)
 {
+    static_assert(N % 16 == 0, "win_read_v/win_write_v: N must be a multiple of 16");
     const v16_t z = aie::zeros<int16, 16>();
     for (int i = 0; i < N; i += 16) aie::store_v(A + i, z);
 }

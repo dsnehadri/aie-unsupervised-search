@@ -101,7 +101,7 @@ typedef ap_fixed<16, 4> weight_t;
 typedef ap_fixed<16, 11> score_t;   // widened integer bits: cand Q*K^T can reach ~320; ±32 was saturating
 typedef ap_fixed<16, 2> prob_t;
 typedef ap_fixed<16, 4> ln_param_t;
-typedef ap_fixed<32, 10> acc_t;
+typedef ap_fixed<32, 18> acc_t;     // widened from <32,10>: 16 products of data_t*weight_t can reach +-8192
 typedef ap_fixed<32, 10> exp_t;
 #endif
 
@@ -111,13 +111,13 @@ static const score_t SCALE = 0.5;
 
 // large negative values for masked positions (saturates softmax to ~0)
 
-// score_t = ap_fixed<16, 6> has range [-32, 32). Using -64 wraps to 0!
-// Use the smallest representable score_t value so exp(NEG_INF - max) underflows
-// for all reasonable max scores. (float build: a genuinely large value.)
+// Far below any realistic score; ensures masked positions survive the exp LUT at EXP_MIN=-8.
+// -100.0 provides robust margin: even if a valid score reaches -8, NEG_INF + score < EXP_MIN.
+// (float build: a genuinely large value.)
 #ifdef FLOAT_DATAPATH
 static const score_t NEG_INF = -1e9f;
 #else
-static const score_t NEG_INF = -31.0;
+static const score_t NEG_INF = -100.0;
 #endif
 
 // layer norm epsilon

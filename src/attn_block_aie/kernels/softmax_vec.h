@@ -31,6 +31,7 @@ static void vec_softmax_packed(const int16* __restrict scores, int16* __restrict
     typedef aie::vector<int32, 16> v16i;
 
     const aie::saturation_mode sat_save = aie::swap_saturation(aie::saturation_mode::saturate);
+    const aie::rounding_mode   rnd_save = aie::swap_rounding(aie::rounding_mode::conv_even);
 
     // lane constants: bias pushes invalid keys out of the max, weight zeroes them
     alignas(16) int32 lane_bias[16];
@@ -58,7 +59,8 @@ static void vec_softmax_packed(const int16* __restrict scores, int16* __restrict
         p = aie::add(a2, fmul(f, p));
         p = aie::add(a1, fmul(f, p));
         p = aie::add(one, fmul(f, p));                           // 2^-f
-        const v8i kc = aie::min(k, kmax);
+        v8i kc = aie::min(k, kmax);
+        kc = aie::max(kc, aie::broadcast<int32, 8>(0));
         const v8i eb = aie::sub(p.template cast_to<int32>(), aie::upshift(kc, 23));
         return fmul(eb.template cast_to<float>(), w);             // * 2^-k, invalid lanes 0
     };
@@ -107,6 +109,7 @@ static void vec_softmax_packed(const int16* __restrict scores, int16* __restrict
             pack_rows4(rows[0], rows[1], rows[2], rows[3], out + (r / 4) * 64);
     }
 
+    aie::set_rounding(rnd_save);
     aie::set_saturation(sat_save);
 }
 

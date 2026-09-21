@@ -804,7 +804,7 @@ inline void write_output(
     for (int i = 0; i < 3; i++) {
         #pragma HLS PIPELINE II=1
         float val = in_losses.read();
-        ap_uint<32> bits = *(ap_uint<32>*)&val;
+        ap_uint<32> bits; std::memcpy(&bits, &val, 4);
         out_s.write(bits);
     }
 }

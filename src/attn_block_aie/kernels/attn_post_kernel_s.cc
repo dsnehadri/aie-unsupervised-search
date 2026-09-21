@@ -43,46 +43,6 @@ static inline void row_write(output_stream_int16* __restrict s, const v16_t& v)
 
 static inline v16_t relu16(const v16_t& v) { return aie::max(v, aie::zeros<int16, 16>()); }
 
-#if defined(ROW_LOOKAHEAD)
-// NEGATIVE and a DEADLOCK HAZARD, do not enable. Measured 2026-09-15 on the
-// whole chain: 44.8 -> 69.4 us with the embedding pipeline present, and NO
-// OUTPUT AT ALL without it.
-//
-// The idea was to hide the layer norm behind the next row's multiply. The
-// dependency runs the other way: reading row r+1 before emitting row r makes
-// the stage wait on its PRODUCER while holding a finished row, so every stage
-// gains a full producer period instead of losing a norm, and five stages of
-// that either crawl or lock. A row pipeline wants each stage to consume,
-// compute and emit as fast as it can, never to read ahead.
-//
-// One row of lookahead: compute row r+1's linear layer in the same iteration as
-// row r's layer norm. The norm is a dependent chain of reductions and scalar
-// steps, about 135 of the roughly 215 cycles a stage spends per row, and the
-// next row's products do not depend on it, so putting the two in one iteration
-// lets the scheduler overlap them. Each row still gets linear, norm, ReLU in
-// that order, so the outputs are bit-identical.
-static inline void lin_ln_relu_stage(input_stream_int16* __restrict in,
-                                     output_stream_int16* __restrict out,
-                                     const int16* __restrict W, const int16* __restrict B,
-                                     const int16* __restrict G, const int16* __restrict BT)
-{
-    alignas(16) int16 xrow[E_DIM], row[E_DIM];
-    aie::store_v(xrow, row_read(in));
-    v16_t lin = row_lin16(xrow, W, B, PIPE_ACC_SHIFT);
-    for (int r = 1; r < POST_N_ROWS; r++) {
-        aie::store_v(xrow, row_read(in));
-        const v16_t nxt = row_lin16(xrow, W, B, PIPE_ACC_SHIFT);   // row r+1, independent
-        aie::store_v(row, lin);
-        layernorm_row(row, 1, E_DIM, G, BT);                       // row r
-        row_write(out, relu16(aie::load_v<16>(row)));
-        lin = nxt;
-    }
-    aie::store_v(row, lin);
-    layernorm_row(row, 1, E_DIM, G, BT);
-    row_write(out, relu16(aie::load_v<16>(row)));
-}
-#endif
-
 #if defined(POST_STAGE_A_PROJ)
 #if defined(HEAD_STREAM_T)
 // HEAD_STREAM: the head outputs arrive as rows, already paired by the two merge
