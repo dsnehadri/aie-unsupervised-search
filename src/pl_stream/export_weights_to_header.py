@@ -96,9 +96,26 @@ def dnn_fields(prefix, weight_dir, n_mid):
 def attn_fields(block_name, weight_dir, e_dim=16):
     p = os.path.join(weight_dir, block_name + "_")
 
+    def _load_assert(fname, expected_shape):
+        arr = np.load(fname)
+        assert arr.shape == expected_shape, \
+            f"Expected {expected_shape}, got {arr.shape} loading {fname}"
+        return arr
+
     # Split combined in_proj into Q/K/V
-    in_proj_w = np.load(p + "attn_in_proj_weight.npy")  # [3*E, E]
-    in_proj_b = np.load(p + "attn_in_proj_bias.npy")    # [3*E]
+    in_proj_w = _load_assert(p + "attn_in_proj_weight.npy", (3 * e_dim, e_dim))
+    in_proj_b = _load_assert(p + "attn_in_proj_bias.npy",   (3 * e_dim,))
+
+    bias_k = np.load(p + "attn_bias_k.npy").flatten()
+    assert bias_k.shape == (e_dim,), \
+        f"Expected ({e_dim},), got {bias_k.shape} loading {p}attn_bias_k.npy"
+    bias_v = np.load(p + "attn_bias_v.npy").flatten()
+    assert bias_v.shape == (e_dim,), \
+        f"Expected ({e_dim},), got {bias_v.shape} loading {p}attn_bias_v.npy"
+    Wo     = _load_assert(p + "attn_out_proj_weight.npy", (e_dim, e_dim))
+    bo     = _load_assert(p + "attn_out_proj_bias.npy",   (e_dim,))
+    attn_ln_g = _load_assert(p + "post_attn_norm_weight.npy", (e_dim,))
+    attn_ln_b = _load_assert(p + "post_attn_norm_bias.npy",   (e_dim,))
 
     fields = [
         ("Wq", in_proj_w[0*e_dim:1*e_dim]),
@@ -107,24 +124,31 @@ def attn_fields(block_name, weight_dir, e_dim=16):
         ("bk", in_proj_b[1*e_dim:2*e_dim]),
         ("Wv", in_proj_w[2*e_dim:3*e_dim]),
         ("bv", in_proj_b[2*e_dim:3*e_dim]),
-        ("bias_k",    np.load(p + "attn_bias_k.npy").flatten()),
-        ("bias_v",    np.load(p + "attn_bias_v.npy").flatten()),
-        ("Wo",        np.load(p + "attn_out_proj_weight.npy")),
-        ("bo",        np.load(p + "attn_out_proj_bias.npy")),
-        ("attn_ln_g", np.load(p + "post_attn_norm_weight.npy")),
-        ("attn_ln_b", np.load(p + "post_attn_norm_bias.npy")),
+        ("bias_k",    bias_k),
+        ("bias_v",    bias_v),
+        ("Wo",        Wo),
+        ("bo",        bo),
+        ("attn_ln_g", attn_ln_g),
+        ("attn_ln_b", attn_ln_b),
     ]
 
     # FFN: stride-3 indices (0=Linear, 1=LN, 2=ReLU, 3=Linear, ...)
     ffn_li = [0, 3, 6]
     ffn_ln = [1, 4, 7]
+    ffn_w_arrays    = [_load_assert(p + f"ffwd_{i}_weight.npy", (e_dim, e_dim)) for i in ffn_li]
+    ffn_b_arrays    = [_load_assert(p + f"ffwd_{i}_bias.npy",   (e_dim,))       for i in ffn_li]
+    ffn_ln_g_arrays = [_load_assert(p + f"ffwd_{i}_weight.npy", (e_dim,))       for i in ffn_ln]
+    ffn_ln_b_arrays = [_load_assert(p + f"ffwd_{i}_bias.npy",   (e_dim,))       for i in ffn_ln]
+    post_ffn_g = _load_assert(p + "post_ffwd_norm_weight.npy", (e_dim,))
+    post_ffn_b = _load_assert(p + "post_ffwd_norm_bias.npy",   (e_dim,))
+
     fields += [
-        ("ffn_w",    np.stack([np.load(p + f"ffwd_{i}_weight.npy") for i in ffn_li])),
-        ("ffn_b",    np.stack([np.load(p + f"ffwd_{i}_bias.npy") for i in ffn_li])),
-        ("ffn_ln_g", np.stack([np.load(p + f"ffwd_{i}_weight.npy") for i in ffn_ln])),
-        ("ffn_ln_b", np.stack([np.load(p + f"ffwd_{i}_bias.npy") for i in ffn_ln])),
-        ("post_ffn_g", np.load(p + "post_ffwd_norm_weight.npy")),
-        ("post_ffn_b", np.load(p + "post_ffwd_norm_bias.npy")),
+        ("ffn_w",    np.stack(ffn_w_arrays)),
+        ("ffn_b",    np.stack(ffn_b_arrays)),
+        ("ffn_ln_g", np.stack(ffn_ln_g_arrays)),
+        ("ffn_ln_b", np.stack(ffn_ln_b_arrays)),
+        ("post_ffn_g", post_ffn_g),
+        ("post_ffn_b", post_ffn_b),
     ]
     return fields
 

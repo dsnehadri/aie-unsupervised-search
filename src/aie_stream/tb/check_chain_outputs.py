@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """End-to-end check of the on-array stack: chain_x_out (x after cross L1) and chain_c_out
 (c after candidate L1) against the PyTorch golden vectors, like check_attn_outputs --all-blocks."""
-import sys, os, numpy as np
+import argparse, sys, os, numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from check_attn_outputs import parse_plio_text_float, DATA_SCALE, N_MAX, T_DIM, E_DIM
-outdir = sys.argv[1]; nev = int(sys.argv[2]) if len(sys.argv) > 2 else 20
-tv = "/home/snehadri/repos/unsupervised-search/phase3_export_retrained/test_vectors"
+
+_DEFAULT_PHASE3 = "/home/snehadri/repos/unsupervised-search/phase3_export_retrained"
+
+ap = argparse.ArgumentParser(description=__doc__)
+ap.add_argument("outdir", help="Directory containing chain PLIO output text files")
+ap.add_argument("nev", nargs="?", type=int, default=20, help="Number of events to check (default: 20)")
+ap.add_argument("--phase3", default=_DEFAULT_PHASE3,
+                help=f"Phase-3 export directory (default: {_DEFAULT_PHASE3})")
+args = ap.parse_args()
+outdir = args.outdir; nev = args.nev
+tv = os.path.join(args.phase3, "test_vectors")
 mask = np.load(f"{tv}/stage0_padding_mask.npy")[:nev]      # (nev, 12) True = padded
 fails = 0
 checks = [("x after cross L1", "chain_x_out.txt", "stage3_layer1_post_cross_attn.npy", N_MAX, True),

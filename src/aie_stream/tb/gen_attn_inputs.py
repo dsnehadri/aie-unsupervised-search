@@ -5,7 +5,7 @@ gen_attn_inputs.py
 Pre-sim helper for the AIE attention testbench.
 
 Loads phase-3 .npy test vectors for one event, quantizes float -> int16 with
-the Q4.11 scaling that matches data_t = ap_fixed<16,5> on the PL side, and
+the Q6.9 (scale=512) scaling that matches data_t = ap_fixed<16,7> on the PL side, and
 writes PLIO text files that the AIE simulator will consume.
 
 PLIO text format (matches plio_64_bits with int16 data):
@@ -44,9 +44,9 @@ N_HEADS = 4
 N_KV = 13          # N_MAX + 1 (bias_kv slot)
 T_DIM = 3
 
-# data_t = ap_fixed<16,5>  -> 11 fractional bits  -> scale = 2048
+# data_t = ap_fixed<16,7>  -> 9 fractional bits  -> scale = 512
 DATA_FRAC_BITS = 9  # retrained layout: data Q6.9 (was 11)
-DATA_SCALE = 1 << DATA_FRAC_BITS  # 2048
+DATA_SCALE = 1 << DATA_FRAC_BITS  # 512
 
 # PLIO transfer width / element width
 INT16S_PER_TRANSFER = 4   # plio_64_bits / 16 = 4
@@ -56,7 +56,7 @@ INT16S_PER_TRANSFER = 4   # plio_64_bits / 16 = 4
 # Quantization
 # ----------------------------------------------------------------------------
 def to_int16(x_float):
-    """Float -> int16 with Q4.11 scaling, saturating."""
+    """Float -> int16 with Q6.9 (scale=512) scaling, saturating."""
     q = np.round(np.asarray(x_float, dtype=np.float64) * DATA_SCALE)
     q = np.clip(q, -32768, 32767)
     return q.astype(np.int16)
@@ -227,7 +227,7 @@ def main():
     NEG_BIAS = -15.0  # for masked-out keys in wij
     CAND_SCALE = 1 << 9   # cand data scale (== DATA_SCALE in the retrained layout)
     # wij is added to SCORES on the AIE, so it is quantized at the score scale
-    # (Q10.5, mirroring the PL score_t<16,11> bits the bridge sends)
+    # (Q9.7 (2^7=128, 7 fractional bits), mirroring the PL score_t<16,11> bits the bridge sends)
     SCORE_SCALE = 1 << 7
     def to_int16_score(x):
         q = np.round(np.asarray(x, dtype=np.float64) * SCORE_SCALE)
