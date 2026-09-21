@@ -31,7 +31,9 @@ def fit(path, nmin=8):
     A = np.vstack([n[m], np.ones(m.sum())]).T
     (sl, ic), *_ = np.linalg.lstsq(A, t[m], rcond=None)
     pred = A @ [sl, ic]
-    r2 = 1 - ((t[m] - pred) ** 2).sum() / ((t[m] - t[m].mean()) ** 2).sum()
+    ss_res = ((t[m] - pred) ** 2).sum()
+    ss_tot = ((t[m] - t[m].mean()) ** 2).sum()
+    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else float('nan')
     return dict(slope_us=sl * 1000, intercept_us=ic * 1000, ev_per_s=1000 / sl,
                 r2=float(r2), n=n.tolist(), t_ms=t.tolist())
 

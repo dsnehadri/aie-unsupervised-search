@@ -41,10 +41,8 @@ with open(f"{TB}/float_aie_errors.json") as f:
 with open(f"{TB}/int16_aie_errors.json") as f:
     aie_fx_abs = np.array(json.load(f)["obj_L0"])
 N_AIE = len(aie_flt_abs)
-g = np.load(f"{TV}/stage3_layer0_post_obj_selfattn.npy")[:N_AIE]
-rms_aie = np.sqrt(np.mean(g ** 2))
-aie_flt = 100.0 * aie_flt_abs / rms_aie
-aie_fx = 100.0 * aie_fx_abs / rms_aie
+aie_flt = 100.0 * aie_flt_abs / rms_pl
+aie_fx = 100.0 * aie_fx_abs / rms_pl
 
 # ---- error-bar plot: 4 configurations ------------------------------------
 groups = [

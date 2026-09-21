@@ -18,7 +18,9 @@ def load(fn, n):
 n = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
 j, m = load("/home/snehadri/repos/unsupervised-search/inputs/qcd_background.h5", n)
 words = []
-for ev in range(n):
+if j.shape[0] < n:
+    print(f"Warning: only {j.shape[0]} events available, requested {n}", flush=True)
+for ev in range(j.shape[0]):
     words += [int(w) for w in j[ev].reshape(-1).view(np.uint32)]
     words += [1 if x else 0 for x in m[ev]]
 open("evalfloat_bkg.bin", "wb").write(struct.pack(f"{len(words)}I", *words))

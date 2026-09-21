@@ -11,7 +11,7 @@ Run: cd ~/repos/unsupervised-search && \
      ~/miniconda3/envs/unsupervised_search/bin/python \
        ~/repos/aie-unsupervised-search/scripts/make_auc_eval_set.py
 """
-import json, sys
+import json, os, sys
 import numpy as np, h5py, torch, struct
 
 sys.path.insert(0, "/home/snehadri/repos/unsupervised-search")
@@ -23,8 +23,9 @@ CKPT = "/home/snehadri/repos/unsupervised-search/experiments/retrained_noncollap
 N_PER = 1000                       # events per class
 SIGNAL = "gluino_rpv_6j"
 FRAC_BITS = 9                      # data_t = ap_fixed<16,7>, matches pack_input.py
+BKG_SKIP = int(os.environ.get("BKG_SKIP", "150000"))
 
-def load(fn, n):
+def load(fn, n, skip=0):
     with h5py.File(fn, "r") as f:
         e = np.nan_to_num(np.array(f["source"]["e"])) / 1000.
         pt = np.nan_to_num(np.array(f["source"]["pt"])) / 1000.
@@ -34,6 +35,8 @@ def load(fn, n):
         phi = np.array(f["source"]["phi"]); eta = np.array(f["source"]["eta"])
         X = np.stack([lp, eta, np.cos(phi), np.sin(phi), le], -1)
         X = X[(pt > 0).sum(1) >= 6]
+    if skip:
+        X = X[skip:]
     return torch.tensor(X[:n], dtype=torch.float32)
 
 def fuse_all_batchnorms(m):
@@ -60,7 +63,7 @@ enc.eval()
 # With BN active the true model scores 0.9818 and correlates 0.9967 with the
 # hardware. Fusing is exact, so BN-active torch == fused hardware in float.
 
-Xb = load("inputs/qcd_background.h5", N_PER)
+Xb = load("inputs/qcd_background.h5", N_PER, skip=BKG_SKIP)
 Xs = load(f"inputs/{SIGNAL}.h5", N_PER)
 X = torch.cat([Xb, Xs], 0)
 labels = np.concatenate([np.zeros(len(Xb)), np.ones(len(Xs))]).astype(np.int8)

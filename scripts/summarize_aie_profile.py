@@ -18,7 +18,7 @@ for f in sorted(glob.glob(os.path.join(d, "profile_funct_*.txt"))):
     if not kern: continue
     k = kern[0]
     tot_fd = ent[k][2]*ent[k][0]//max(1,ent[k][0])  # per call
-    per_ev = ent[k][2]/max(1,ent[k][0])/1.25e3   # total func+desc cycles / calls -> us/event at 1.25 GHz
+    per_ev = ent[k][1]/max(1,ent[k][0])/1.25e3   # total func+desc cycles / calls -> us/event at 1.25 GHz
     soft = sum(v[1] for n,v in ent.items() if re.match(r"(f32_|float_|softfloat_|__float|__mul|__add)", n))
     ln   = sum(v[1] for n,v in ent.items() if n=="layernorm_row")
     div  = sum(v[1] for n,v in ent.items() if "div_called" in n or n.startswith("__div") or n.startswith("__udiv"))

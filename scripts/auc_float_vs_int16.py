@@ -12,6 +12,8 @@ def load(p):
     for l in open(p):
         m=re.match(r"GOLDEN\(all-PL\) ev(\d+): MSE=([-0-9.e+nan]+)",l)
         if m: v[int(m.group(1))]=float(m.group(2))
+    if not v:
+        raise RuntimeError("No 'GOLDEN' entries found in the index file — check the file format.")
     n=max(v)+1; a=np.full(n,np.nan)
     for k,x in v.items(): a[k]=x
     return a

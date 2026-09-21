@@ -120,7 +120,11 @@ def compute_window(rows, epochs, ons, period, on_len):
     t, y = fold(rows, epochs, ons, period, "total_W")
     hi = np.nanmean(y[(t >= 35) & (t < on_len - 5)])
     lo = np.nanmean(y[t > on_len + 40])
+    if not np.isfinite(hi) or not np.isfinite(lo):
+        return on_len
     above = t[y > (hi + lo) / 2]
+    if above.size == 0:
+        return on_len
     return above.max()
 
 loaded = [(lbl, sh, col) + load(c, ph) for lbl, sh, col, c, ph in RUNS]

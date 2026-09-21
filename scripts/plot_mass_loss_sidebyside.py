@@ -37,8 +37,9 @@ def paper_axes(ax):
         s.set_linewidth(1.2)
 
 def frac_hist(ax, vals, bins, color, label, lw=1.6):
+    total = vals.size
     vals = vals[np.isfinite(vals)]
-    w = np.ones_like(vals) / vals.size
+    w = np.ones_like(vals) / total
     h, _ = np.histogram(vals, bins=bins, weights=w)
     ax.hist(bins[:-1], bins, weights=h, histtype="step",
             color=color, lw=lw, label=label)
@@ -61,11 +62,12 @@ paper_axes(axm)
 axm.legend(frameon=False, fontsize=10.5, loc="upper right",
            handlelength=1.3, labelspacing=0.3)
 
-frac_hist(axl, np.log(d["qcd_background__loss"][d["qcd_background__loss"] > 0]),
-          lbins, "black", "Background", lw=1.8)
-for key, lab, col in SIG:
-    l = d[key + "__loss"]
-    frac_hist(axl, np.log(l[l > 0]), lbins, col, lab)
+with np.errstate(divide="ignore", invalid="ignore"):
+    frac_hist(axl, np.log(d["qcd_background__loss"]),
+              lbins, "black", "Background", lw=1.8)
+    for key, lab, col in SIG:
+        l = d[key + "__loss"]
+        frac_hist(axl, np.log(l), lbins, col, lab)
 axl.set_xlim(-6.5, 5.0); axl.set_ylim(0, None)
 axl.set_xlabel("Log(Loss)", fontsize=15, labelpad=6, ha="right", x=1.0)
 axl.set_ylabel("Fraction of Events", fontsize=14, labelpad=6, ha="right", y=1.0)

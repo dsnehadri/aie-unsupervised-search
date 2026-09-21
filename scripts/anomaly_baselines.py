@@ -15,6 +15,7 @@ Run:  cd ~/repos/unsupervised-search && \
 """
 import os, sys, json
 import numpy as np
+from scipy.stats import rankdata
 from paths import DATA
 
 CACHE = f"{DATA}/anomaly_baselines.npz"
@@ -104,7 +105,7 @@ ae = np.load(AE_CACHE)
 def auc(bkg, sig):
     ok_b, ok_s = np.isfinite(bkg), np.isfinite(sig)
     a = np.concatenate([bkg[ok_b], sig[ok_s]])
-    r = a.argsort().argsort()
+    r = rankdata(a, method='average')
     nb, ns = ok_b.sum(), ok_s.sum()
     return (r[nb:].sum() - ns * (ns + 1) / 2) / (nb * ns)
 

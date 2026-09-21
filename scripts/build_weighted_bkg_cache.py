@@ -47,6 +47,8 @@ def load_raw():
             if h["source"]["pt"].ndim < 2 or h["source"]["pt"].shape[0] == 0:
                 continue
             p.append({k: h["source"][k][:] for k in ("pt", "eta", "phi", "e")})
+    if not p:
+        raise RuntimeError(f"No valid h5 files found in {B1DIR}")
     b1 = {k: np.concatenate([d[k] for d in p]) for k in p[0]}
     chunks.append((b1, W1, 1))
     for b in (2, 3):
