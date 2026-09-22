@@ -1,5 +1,5 @@
-calib per_iter=0.017245 fixed=2.435 trial=1790.14 iters=104783 on_s=1800
-run_start 1789719259 cycles=1 xclbin=pl_stream.xclbin iters=104783 host=plhost_timed on_s=1800 off_s=1200
-on_start 1789719319 cycle=0
-on_end 1789721118 cycle=0 rc=0
-run_end 1789722318
+calib skipped iters=104783 on_s=1800 (supplied)
+run_start 1790111821 cycles=1 xclbin=pl_stream.xclbin iters=104783 host=plhost_timed on_s=1800 off_s=1200 pre_s=300
+on_start 1790112121 cycle=0
+on_end 1790113925 cycle=0 rc=0
+run_end 1790115125

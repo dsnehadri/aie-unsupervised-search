@@ -23,6 +23,8 @@ esac
 HOST=${3:-$DEFHOST}
 ON_S=${ON_S:-120}
 OFF_S=${OFF_S:-120}
+PRE_S=${PRE_S:-60}      # idle seconds between run_start and the first load
+ITERS=${ITERS:-}        # set to skip calibration entirely (reuse a known count)
 NEV=${NEV:-2000}
 WDOG=$(awk -v a="$ON_S" 'BEGIN{print int(a)+120}')
 cd /root
@@ -36,7 +38,7 @@ run_iters() {   # $1 = iterations, prints elapsed seconds
   awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.2f", b-a}'
 }
 
-# --- calibrate ---------------------------------------------------------------
+# --- calibrate (skipped when ITERS is supplied) ---------------------------------------------------------------
 # The ON window must be the SAME on every design, or a figure that shades one
 # "compute" band for two traces misrepresents the slower one. Three things used
 # to push it over ON_S:
@@ -55,6 +57,12 @@ run_iters() {   # $1 = iterations, prints elapsed seconds
 python3 /root/power_sampler.py /root/mod_log.csv &
 SAMPLER=$!
 sleep 5
+
+if [ -n "$ITERS" ]; then
+  # A known-good count for this design and this ON_S, so no calibration load
+  # runs and the board stays at idle until the first ON window.
+  echo "calib skipped iters=$ITERS on_s=$ON_S (supplied)" >> mod_phase.txt
+else
 
 e0=$(run_iters 20)
 # choose calibration points worth roughly 15 s and 45 s of load
@@ -97,9 +105,14 @@ ITERS=$(awk -v it="$ITERS" -v w="$W" -v on="$ON_S" -v f="$FIX" -v l="$LAG" 'BEGI
 echo "trial: $W s -> corrected iters=$ITERS for ${ON_S}s ON"
 echo "calib per_iter=$PER fixed=$FIX trial=$W iters=$ITERS on_s=$ON_S" >> mod_phase.txt
 sleep 30
+fi
 
-echo "run_start $(date +%s) cycles=$CYCLES xclbin=$XCLBIN iters=$ITERS host=$HOST on_s=$ON_S off_s=$OFF_S" >> mod_phase.txt
-sleep 60
+echo "run_start $(date +%s) cycles=$CYCLES xclbin=$XCLBIN iters=$ITERS host=$HOST on_s=$ON_S off_s=$OFF_S pre_s=$PRE_S" >> mod_phase.txt
+# Idle settle before the first load. The default 60 s leaves the die still warm
+# from the calibration trial, so a plot that shows the minutes before the load
+# shows a loaded board, not an idle one. Raise PRE_S (with ITERS set, so no
+# calibration load runs at all) for a genuine idle baseline.
+sleep "$PRE_S"
 i=0
 while [ $i -lt "$CYCLES" ]; do
   echo "on_start $(date +%s) cycle=$i" >> mod_phase.txt
