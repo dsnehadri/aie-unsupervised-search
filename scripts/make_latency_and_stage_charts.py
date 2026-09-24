@@ -89,7 +89,11 @@ NMIN = 8
 #     slowest kernel of each block from the aiesimulator profile (the block's
 #     interval; figs/aie_obj_block_profile.txt), which predicted the board
 #     within 6% in every earlier check. Both clocks are exactly 100 MHz.
-PL_CLK, HYB_CLK = 156.25e6, 133e6   # fabric-only at 156.25 MHz (t2n), the hybrid fabric at 133 (v6f)
+PL_CLK, HYB_CLK = 170e6, 133e6   # fabric-only t2p at 170 MHz, the hybrid fabric at 133 (v8)
+# t2p is t2n's logic relinked at 170 MHz, so every fabric-only stage keeps its
+# cycle count and only the clock changes. The hybrid's fabric did change in v8
+# (wide reads, early four-vectors, single-pass norm); its cycle counts below are
+# read from that build's own csynth report, not scaled.
 # MEASURED on the board, 2026-09-16: each block alone on the array with the v5 flags
 # (blocks3_v2, preloaded feeders, batch-sweep slope). The simulator gave 3.8 us for
 # both object and cross.
@@ -131,8 +135,8 @@ cycpl = lambda c: c / PL_CLK * 1e6
 #   object 24.2 -> 14.9 us, cross 19.7 -> 10.7, candidate 6.7 -> 4.3, whole stack
 #   111 -> 77 us in the simulator and 134 -> 108 us on the board (87 direct).
 ROWS = [
- ("Read input",                cycpl(152),   cyc(152, HYB_CLK),          0),
- ("Fork",                      cycpl(112),   cyc(161, HYB_CLK),          0),
+ ("Read input",                cycpl(152),   cyc(98,  HYB_CLK),          0),
+ ("Fork",                      cycpl(112),   cyc(22,  HYB_CLK),          0),   # wide reads: 18 beats at II=1 + 4
  ("Embedding",                 cycpl(525),   cyc(max(92, 29), HYB_CLK),  EMBED_AIE_SIM),
  ("Pairwise $w_{ij}$",         cycpl(428),   0,                          PAIR_AIE_SIM),   # t2i: pairwise at II=1 (t2h: 2640)
  ("Object attention L0",       cycpl(1111),  0,                          AIE["Object attention"]),
@@ -141,8 +145,8 @@ ROWS = [
  ("Object attention L1",       cycpl(1047),  0,                          AIE["Object attention"]),
  ("Build candidates + candidate attention L1", cycpl(467), 0,            AIE["Candidate attention"] + 0.5),
  ("Cross attention L1",        cycpl(1124),  0,                          AIE["Cross attention"]),
- ("Candidate build* + mass",   cycpl(373),   cyc(390, HYB_CLK),          0),
- ("Autoencoder + MSE",         cycpl(330),   cyc(306, HYB_CLK),          0),
+ ("Candidate build* + mass",   cycpl(373),   cyc(331, HYB_CLK),          0),   # P4_EARLY moves the exponentials out
+ ("Autoencoder + MSE",         cycpl(330),   cyc(296, HYB_CLK),          0),
  ("Write DDR",                 cycpl(84),    cyc(84, HYB_CLK),           0),
 ]
 labs = [r[0] for r in ROWS]
