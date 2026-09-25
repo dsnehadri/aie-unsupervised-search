@@ -87,6 +87,29 @@ def fold(rows, epochs, ons, period, key):
     return (np.arange(nb) + 0.5) * BIN, mean
 
 
+def fold_cycles(rows, epochs, ons, period, key):
+    """Like fold(), but keep the cycles apart: (bin centres, n_cycles x n_bins),
+    NaN where a cycle has no sample in a bin."""
+    if key == "total_W":
+        vals = np.array([float(r["total_W"]) - float(r["VCCINT_W"]) + abs(float(r["VCCINT_W"]))
+                         for r in rows])
+    else:
+        vals = np.array([float(r[key]) for r in rows])
+    nb = int(np.ceil(period / BIN))
+    starts = np.array([cs for cs, _ in ons])
+    idx = np.searchsorted(starts, epochs, side="right") - 1
+    ok = idx >= 0
+    off = np.full(len(epochs), np.nan)
+    off[ok] = epochs[ok] - starts[idx[ok]]
+    m = ok & (off >= 0) & (off < period) & np.isfinite(vals)
+    b = np.clip((off[m] / BIN).astype(int), 0, nb - 1)
+    out = np.full((len(starts), nb), np.nan)
+    sums = np.zeros((len(starts), nb)); cnts = np.zeros((len(starts), nb))
+    np.add.at(sums, (idx[m], b), vals[m]); np.add.at(cnts, (idx[m], b), 1)
+    np.divide(sums, cnts, out=out, where=cnts > 0)
+    return (np.arange(nb) + 0.5) * BIN, out
+
+
 def roll(xs, k=5):
     """Light centered smoothing only. A 200-cycle fold already averages ~200
     samples per 1 s bin, and a wide window visibly drags the sharp ON->OFF
@@ -100,6 +123,10 @@ def roll(xs, k=5):
 PRE = float(os.environ.get("LOCKIN_PRE_S", "45"))    # pre-load idle shown before t=0
 BASE = float(os.environ.get("LOCKIN_BASE_S", "40"))  # settled tail of OFF used as idle
 SMOOTH = int(os.environ.get("LOCKIN_SMOOTH", "5"))   # centred smoothing window, s
+# Shade the central BAND% of cycles around the mean (e.g. 90 -> 5th..95th
+# percentile across cycles), each cycle measured against its own idle so the
+# band shows cycle-to-cycle spread, not the slow room drift. Off by default.
+BAND = float(os.environ.get("LOCKIN_BAND", "0"))
 
 
 def unwrap(t, period):
@@ -131,8 +158,11 @@ def compute_window(rows, epochs, ons, period, on_len):
 
 loaded = [(lbl, sh, col) + load(c, ph) for lbl, sh, col, c, ph in RUNS]
 on_band = min(compute_window(r, e, o, p, ol) for _, _, _, r, e, o, p, ol in loaded)
+# Mark the load window with its two edges only; a filled band would sit under
+# the shaded spread and hide it.
 for ax in (ax1, ax2):
-    ax.axvspan(0, on_band, color=GRID, alpha=0.45, zorder=0)
+    for xv in (0, on_band):
+        ax.axvline(xv, color="#8a8a8a", lw=1.0, ls="--", zorder=0.5)
 
 for label, short, color, rows, epochs, ons, period, on_len in loaded:
     # Baseline-subtract each run at its own idle level: the images sit 3.5 W
@@ -142,6 +172,18 @@ for label, short, color, rows, epochs, ons, period, on_len in loaded:
         t, y = fold(rows, epochs, ons, period, key)
         base = np.nanmean(y[t > period - BASE])
         order, x = unwrap(t, period)
+        if BAND > 0:
+            tc, yc = fold_cycles(rows, epochs, ons, period, key)
+            yc = yc - np.nanmean(yc[:, tc > period - BASE], axis=1, keepdims=True)
+            # Smooth each cycle BEFORE taking percentiles. Each 1 s bin holds one
+            # raw sample per cycle, so percentiles of raw bins measure the power
+            # monitor's sample noise (~+-0.4 W), not how the cycles differ.
+            yc = np.array([roll(row, SMOOTH) for row in yc])
+            lo_q, hi_q = (100 - BAND) / 2, 100 - (100 - BAND) / 2
+            lo = np.nanpercentile(yc, lo_q, axis=0)
+            hi = np.nanpercentile(yc, hi_q, axis=0)
+            ax.fill_between(x, lo[order], hi[order], color=color,
+                            alpha=0.18 if ls == "-" else 0.10, linewidth=0, zorder=1)
         ax.plot(x, (roll(y, SMOOTH) - base)[order], color=color, lw=lw, ls=ls, label=lab)
 
     trace(ax1, "total_W", 2.0, "-", label)
