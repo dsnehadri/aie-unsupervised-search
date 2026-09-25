@@ -18,6 +18,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import to_rgb
 import os
 SUF = os.environ.get("LOCKIN_SUFFIX", "120")   # "120" = the 120 s campaigns
 # Which campaign feeds each trace. The defaults are the two campaigns behind
@@ -184,7 +185,13 @@ for label, short, color, rows, epochs, ons, period, on_len in loaded:
             hi = np.nanpercentile(yc, hi_q, axis=0)
             ax.fill_between(x, lo[order], hi[order], color=color,
                             alpha=0.18 if ls == "-" else 0.10, linewidth=0, zorder=1)
-        ax.plot(x, (roll(y, SMOOTH) - base)[order], color=color, lw=lw, ls=ls, label=lab)
+        # The AIE trace is dashed in a lighter tint and drawn on top: under the
+        # hybrid load it coincides with the device maximum (the array is the
+        # hottest sensor), and a same-colour dashed line would vanish into the
+        # solid one underneath.
+        c = color if ls == "-" else tuple(0.55 * np.array(to_rgb(color)) + 0.45)
+        ax.plot(x, (roll(y, SMOOTH) - base)[order], color=c, lw=lw, ls=ls, label=lab,
+                zorder=2 if ls == "-" else 3)
 
     trace(ax1, "total_W", 2.0, "-", label)
     trace(ax2, "versal", 2.0, "-", f"{short}, Versal die")
