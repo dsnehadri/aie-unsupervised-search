@@ -97,7 +97,9 @@ def roll(xs, k=5):
     return np.array([np.nanmean(pad[i:i + 2 * h + 1]) for i in range(len(xs))])
 
 
-PRE = 45.0   # seconds of pre-load idle to show before t=0
+PRE = float(os.environ.get("LOCKIN_PRE_S", "45"))    # pre-load idle shown before t=0
+BASE = float(os.environ.get("LOCKIN_BASE_S", "40"))  # settled tail of OFF used as idle
+SMOOTH = int(os.environ.get("LOCKIN_SMOOTH", "5"))   # centred smoothing window, s
 
 
 def unwrap(t, period):
@@ -135,12 +137,12 @@ for ax in (ax1, ax2):
 for label, short, color, rows, epochs, ons, period, on_len in loaded:
     # Baseline-subtract each run at its own idle level: the images sit 3.5 W
     # apart, which would flatten the ~0.3 W compute step this figure is about.
-    # Baseline = the settled tail of the OFF window (last 40 s of the cycle).
+    # Baseline = the settled tail of the OFF window (last BASE s of the cycle).
     def trace(ax, key, lw, ls, lab):
         t, y = fold(rows, epochs, ons, period, key)
-        base = np.nanmean(y[t > period - 40])
+        base = np.nanmean(y[t > period - BASE])
         order, x = unwrap(t, period)
-        ax.plot(x, (roll(y) - base)[order], color=color, lw=lw, ls=ls, label=lab)
+        ax.plot(x, (roll(y, SMOOTH) - base)[order], color=color, lw=lw, ls=ls, label=lab)
 
     trace(ax1, "total_W", 2.0, "-", label)
     trace(ax2, "versal", 2.0, "-", f"{short}, Versal die")

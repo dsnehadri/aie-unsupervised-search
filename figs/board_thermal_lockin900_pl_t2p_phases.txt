@@ -1,0 +1,43 @@
+calib skipped iters=52205 on_s=900 (supplied)
+run_start 1790265215 cycles=20 xclbin=pl_stream.xclbin iters=52205 host=plhost_timed on_s=900 off_s=900 pre_s=300
+on_start 1790265515 cycle=0
+on_end 1790266417 cycle=0 rc=0
+on_start 1790267317 cycle=1
+on_end 1790268215 cycle=1 rc=0
+on_start 1790269115 cycle=2
+on_end 1790270014 cycle=2 rc=0
+on_start 1790270914 cycle=3
+on_end 1790271813 cycle=3 rc=0
+on_start 1790272713 cycle=4
+on_end 1790273611 cycle=4 rc=0
+on_start 1790274511 cycle=5
+on_end 1790275410 cycle=5 rc=0
+on_start 1790276310 cycle=6
+on_end 1790277208 cycle=6 rc=0
+on_start 1790278108 cycle=7
+on_end 1790279006 cycle=7 rc=0
+on_start 1790279906 cycle=8
+on_end 1790280805 cycle=8 rc=0
+on_start 1790281705 cycle=9
+on_end 1790282604 cycle=9 rc=0
+on_start 1790283504 cycle=10
+on_end 1790284402 cycle=10 rc=0
+on_start 1790285302 cycle=11
+on_end 1790286201 cycle=11 rc=0
+on_start 1790287101 cycle=12
+on_end 1790288000 cycle=12 rc=0
+on_start 1790288900 cycle=13
+on_end 1790289799 cycle=13 rc=0
+on_start 1790290699 cycle=14
+on_end 1790291597 cycle=14 rc=0
+on_start 1790292497 cycle=15
+on_end 1790293396 cycle=15 rc=0
+on_start 1790294296 cycle=16
+on_end 1790295195 cycle=16 rc=0
+on_start 1790296095 cycle=17
+on_end 1790296993 cycle=17 rc=0
+on_start 1790297893 cycle=18
+on_end 1790298792 cycle=18 rc=0
+on_start 1790299692 cycle=19
+on_end 1790300591 cycle=19 rc=0
+run_end 1790301491

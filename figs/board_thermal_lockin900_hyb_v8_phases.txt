@@ -1,0 +1,43 @@
+calib skipped iters=101402 on_s=900 (supplied)
+run_start 1790301654 cycles=20 xclbin=aie_stream.xclbin iters=101402 host=host_aie_timed on_s=900 off_s=900 pre_s=300
+on_start 1790301954 cycle=0
+on_end 1790302854 cycle=0 rc=0
+on_start 1790303754 cycle=1
+on_end 1790304653 cycle=1 rc=0
+on_start 1790305553 cycle=2
+on_end 1790306451 cycle=2 rc=0
+on_start 1790307351 cycle=3
+on_end 1790308250 cycle=3 rc=0
+on_start 1790309150 cycle=4
+on_end 1790310049 cycle=4 rc=0
+on_start 1790310949 cycle=5
+on_end 1790311847 cycle=5 rc=0
+on_start 1790312747 cycle=6
+on_end 1790313646 cycle=6 rc=0
+on_start 1790314546 cycle=7
+on_end 1790315445 cycle=7 rc=0
+on_start 1790316345 cycle=8
+on_end 1790317243 cycle=8 rc=0
+on_start 1790318143 cycle=9
+on_end 1790319042 cycle=9 rc=0
+on_start 1790319942 cycle=10
+on_end 1790320841 cycle=10 rc=0
+on_start 1790321741 cycle=11
+on_end 1790322640 cycle=11 rc=0
+on_start 1790323540 cycle=12
+on_end 1790324438 cycle=12 rc=0
+on_start 1790325338 cycle=13
+on_end 1790326237 cycle=13 rc=0
+on_start 1790327137 cycle=14
+on_end 1790328036 cycle=14 rc=0
+on_start 1790328936 cycle=15
+on_end 1790329834 cycle=15 rc=0
+on_start 1790330734 cycle=16
+on_end 1790331633 cycle=16 rc=0
+on_start 1790332533 cycle=17
+on_end 1790333432 cycle=17 rc=0
+on_start 1790334332 cycle=18
+on_end 1790335231 cycle=18 rc=0
+on_start 1790336131 cycle=19
+on_end 1790337029 cycle=19 rc=0
+run_end 1790337929
